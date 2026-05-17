@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Pedido {{ order.order_code }} — RYAL{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6 text-center">
+
+      <!-- Ícono check -->
+      <div class="mb-4">
+        <div class="mx-auto d-flex align-items-center justify-content-center"
+             style="width:72px;height:72px;border:2px solid var(--gold);border-radius:50%;">
+          <i class="bi bi-check-lg" style="font-size:2rem;color:var(--gold);"></i>
+        </div>
+      </div>
+
+      <p class="text-muted mb-1" style="font-family:var(--f-mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;">
+        Pedido confirmado
+      </p>
+      <h1 class="fw-normal mb-4" style="font-family:var(--f-display);font-size:clamp(2rem,5vw,3rem);">
+        ¡Gracias, {{ order.customer_name }}!
+      </h1>
+
+      <!-- Código -->
+      <div class="mb-5 p-4" style="background:var(--bg-2);border:1px solid var(--line);">
+        <p class="mb-2 small" style="font-family:var(--f-mono);letter-spacing:.15em;text-transform:uppercase;color:var(--ink);">
+          Tu código de pedido
+        </p>
+        <div class="d-flex align-items-center justify-content-center gap-3">
+          <span id="orderCode"
+                style="font-family:var(--f-mono);font-size:clamp(1.6rem,4vw,2.4rem);font-weight:700;letter-spacing:.15em;color:var(--gold);">
+            {{ order.order_code }}
+          </span>
+          <button onclick="copyCode()" title="Copiar"
+                  class="btn btn-sm p-1" style="background:transparent;border:1px solid var(--line-2);color:var(--ink);">
+            <i class="bi bi-clipboard" id="clipIcon"></i>
+          </button>
+        </div>
+        <p class="mt-2 mb-0 small" style="color:var(--ink);">
+          Comparte este código con tu asesor para dar seguimiento a tu pedido.
+        </p>
+      </div>
+
+      <!-- Detalle del pedido -->
+      <div class="text-start mb-4 p-3" style="background:var(--bg-2);border:1px solid var(--line);">
+        <h6 class="mb-3" style="font-family:var(--f-mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink);font-weight:400;">
+          Detalle
+        </h6>
+        {% for item in order.items.all %}
+        <div class="d-flex justify-content-between small mb-2" style="color:var(--ink);">
+          <span>{{ item.quantity }}× {{ item.name_snapshot }}{% if item.variant_snapshot %} <span style="color:#ccc;">({{ item.variant_snapshot }})</span>{% endif %}</span>
+          <span style="font-family:var(--f-mono);">${{ item.subtotal|floatformat:0 }}</span>
+        </div>
+        {% endfor %}
+        <div class="d-flex justify-content-between pt-2 mt-2" style="border-top:1px solid var(--line);">
+          <span class="fw-medium" style="color:var(--ink);">Total</span>
+          <span class="fw-medium" style="color:var(--gold);font-family:var(--f-mono);">${{ order.total|floatformat:0 }} MXN</span>
+        </div>
+      </div>
+
+      <!-- Datos del cliente -->
+      <p class="small mb-4" style="font-family:var(--f-mono);color:var(--ink);">
+        {{ order.customer_name }} · {{ order.customer_phone }}
+      </p>
+
+      <a href="{% url 'catalog:home' %}" class="btn btn-gold px-5 py-2"
+         style="font-family:var(--f-mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;border-radius:0;">
+        Seguir comprando
+      </a>
+
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.btn-gold { background:var(--gold);color:#080808;border:none;transition:opacity .2s; }
+.btn-gold:hover { opacity:.85;color:#080808; }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function copyCode() {
+  const code = document.getElementById('orderCode').textContent.trim();
+  navigator.clipboard.writeText(code).then(() => {
+    const icon = document.getElementById('clipIcon');
+    icon.className = 'bi bi-clipboard-check';
+    icon.style.color = 'var(--gold)';
+    setTimeout(() => { icon.className = 'bi bi-clipboard'; icon.style.color = ''; }, 2000);
+  });
+}
+</script>
+{% endblock %}

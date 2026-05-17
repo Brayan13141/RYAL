@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Iniciar sesión — RYAL{% endblock %}
+
+{% block extra_css %}
+<style>
+.pw-wrap { position: relative; }
+.pw-wrap input { padding-right: 44px; }
+.pw-toggle {
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 42px;
+  background: none;
+  border: none;
+  color: var(--ink-3);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  transition: color .15s;
+}
+.pw-toggle:hover { color: var(--gold); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+
+    <div class="auth-logo">
+      <img src="{% static 'img/logo-ryal-white.png' %}" alt="RYAL" height="28">
+    </div>
+
+    <div class="auth-tabs">
+      <a href="{% url 'account_login' %}" class="auth-tab active">Iniciar sesión</a>
+      <a href="{% url 'account_signup' %}" class="auth-tab">Crear cuenta</a>
+    </div>
+
+    {% if form.errors %}
+    <div class="auth-error">
+      {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+      {% if not form.non_field_errors %}Correo/usuario o contraseña incorrectos.{% endif %}
+    </div>
+    {% endif %}
+
+    <form method="post" action="{% url 'account_login' %}">
+      {% csrf_token %}
+      {% if redirect_field_value %}
+        <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">
+      {% endif %}
+
+      <div class="form-group">
+        <label for="id_login">Correo o usuario</label>
+        <input type="text" id="id_login" name="login" required autofocus
+               placeholder="tu@correo.com o tu_usuario"
+               value="{{ form.login.value|default:'' }}">
+      </div>
+
+      <div class="form-group">
+        <label for="id_password">Contraseña</label>
+        <div class="pw-wrap">
+          <input type="password" id="id_password" name="password" required
+                 placeholder="••••••••">
+          <button type="button" class="pw-toggle" data-target="id_password"
+                  aria-label="Mostrar/ocultar contraseña">
+            <i class="bi bi-eye"></i>
+          </button>
+        </div>
+      </div>
+
+      <label class="form-check">
+        <input type="checkbox" name="remember">
+        <span>Recordarme</span>
+      </label>
+
+      <button type="submit" class="btn-primary btn-full">Entrar</button>
+    </form>
+
+    <p class="auth-switch">
+      ¿No tienes cuenta?
+      <a href="{% url 'account_signup' %}">Crear cuenta</a>
+    </p>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.querySelectorAll('.pw-toggle').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const inp = document.getElementById(btn.dataset.target);
+    const icon = btn.querySelector('i');
+    if (inp.type === 'password') {
+      inp.type = 'text';
+      icon.className = 'bi bi-eye-slash';
+    } else {
+      inp.type = 'password';
+      icon.className = 'bi bi-eye';
+    }
+  });
+});
+</script>
+{% endblock %}

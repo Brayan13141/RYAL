@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Ticket {{ order.order_code }}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Courier New', monospace; background: #fff; color: #000; font-size: 13px; padding: 24px; max-width: 380px; margin: 0 auto; }
+
+    .t-header { text-align: center; border-bottom: 2px dashed #000; padding-bottom: 14px; margin-bottom: 14px; }
+    .t-brand   { font-size: 28px; font-weight: 700; letter-spacing: .08em; }
+    .t-sub     { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: #555; margin-top: 2px; }
+    .t-code    { font-size: 16px; font-weight: 700; margin-top: 8px; letter-spacing: .05em; }
+
+    .t-section { margin-bottom: 12px; }
+    .t-section-title { font-size: 9px; text-transform: uppercase; letter-spacing: .15em; color: #777; border-bottom: 1px solid #eee; padding-bottom: 4px; margin-bottom: 8px; }
+    .t-row { display: flex; justify-content: space-between; margin-bottom: 3px; }
+    .t-label { color: #555; }
+    .t-val   { font-weight: 600; text-align: right; }
+
+    .t-items { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+    .t-items th { font-size: 9px; text-transform: uppercase; letter-spacing: .1em; color: #777; padding: 4px 0; border-bottom: 1px solid #ddd; text-align: left; }
+    .t-items th:last-child, .t-items td:last-child { text-align: right; }
+    .t-items td { padding: 5px 0; border-bottom: 1px solid #f0f0f0; font-size: 12px; vertical-align: top; }
+    .t-items .sku { font-size: 10px; color: #888; }
+
+    .t-total { border-top: 2px solid #000; padding-top: 8px; margin-top: 8px; }
+    .t-total .t-row .t-val { font-size: 16px; }
+
+    .t-footer { text-align: center; border-top: 2px dashed #000; padding-top: 14px; margin-top: 14px; font-size: 10px; color: #888; line-height: 1.7; }
+
+    .btn-print { display: block; width: 100%; margin: 18px 0 0; padding: 10px; background: #000; color: #fff; border: none; border-radius: 4px; font-family: inherit; font-size: 13px; cursor: pointer; text-align: center; }
+
+    @media print {
+      .no-print { display: none !important; }
+      body { padding: 0; }
+      @page { margin: 10mm; }
+    }
+  </style>
+  {% if pdf_mode %}<style>
+    /* xhtml2pdf no soporta flexbox — reemplazar con float */
+    .t-row { overflow: hidden; margin-bottom: 3px; }
+    .t-row .t-val { float: right; text-align: right; }
+    .t-row .t-label { display: block; }
+    .btn-print { display: none; }
+  </style>{% endif %}
+  </style>
+</head>
+<body>
+
+  <div class="t-header">
+    <div class="t-brand">RYAL</div>
+    <div class="t-sub">Importación Premium</div>
+    <div class="t-code"># {{ order.order_code }}</div>
+    <div style="font-size:11px;color:#888;margin-top:4px;">{{ order.created_at|date:"d/m/Y H:i" }}</div>
+  </div>
+
+  <div class="t-section">
+    <div class="t-section-title">Cliente</div>
+    <div class="t-row"><span class="t-label">Nombre</span><span class="t-val">{{ order.customer_name }}</span></div>
+    <div class="t-row"><span class="t-label">Teléfono</span><span class="t-val">{{ order.customer_phone }}</span></div>
+    {% if order.customer_email %}
+    <div class="t-row"><span class="t-label">Correo</span><span class="t-val" style="font-size:11px;">{{ order.customer_email }}</span></div>
+    {% endif %}
+  </div>
+
+  <div class="t-section">
+    <div class="t-section-title">Productos</div>
+    <table class="t-items">
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>Qty</th>
+          <th>Subtotal</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in order.items.all %}
+        <tr>
+          <td>
+            {{ item.name_snapshot }}
+            {% if item.variant_snapshot %}<br><span style="color:#888;font-size:11px;">{{ item.variant_snapshot }}</span>{% endif %}
+            <br><span class="sku">{{ item.sku_snapshot }}</span>
+          </td>
+          <td style="text-align:center;">{{ item.quantity }}</td>
+          <td>${{ item.subtotal|floatformat:0 }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="t-total">
+    <div class="t-row">
+      <span style="font-weight:700;text-transform:uppercase;letter-spacing:.05em;">Total</span>
+      <span class="t-val">${{ order.total|floatformat:0 }} MXN</span>
+    </div>
+  </div>
+
+  {% if order.notes %}
+  <div class="t-section" style="margin-top:12px;">
+    <div class="t-section-title">Notas</div>
+    <div style="color:#555;font-size:12px;">{{ order.notes }}</div>
+  </div>
+  {% endif %}
+
+  <div class="t-footer">
+    <div>Estado: <strong>{{ order.get_status_display }}</strong></div>
+    <div style="margin-top:6px;">Gracias por tu compra en RYAL</div>
+    <div>ryal.mx · Ciudad de México</div>
+  </div>
+
+  {% if not pdf_mode %}
+  <button class="btn-print no-print" onclick="window.print()">
+    Imprimir ticket
+  </button>
+  {% endif %}
+
+</body>
+</html>

@@ -1,0 +1,17 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+config/db.sqlite3
+config/media/
+config/staticfiles/
+scraped_*.json
+*.log
+.DS_Store
+
+# AI tool configs
+config/.agents/
+config/.claude/
+config/.continue/
+docs/superpowers/

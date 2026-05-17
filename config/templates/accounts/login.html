@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Iniciar sesión — RYAL{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <img src="{% static 'img/logo-ryal-white.png' %}" alt="RYAL" height="28">
+    </div>
+
+    <!-- Tabs -->
+    <div class="auth-tabs">
+      <a href="{% url 'accounts:login' %}" class="auth-tab active">Iniciar sesión</a>
+      <a href="{% url 'accounts:register' %}" class="auth-tab">Crear cuenta</a>
+    </div>
+
+    {% if form.errors %}
+    <div class="auth-error">
+      Correo o contraseña incorrectos.
+    </div>
+    {% endif %}
+
+    <form method="post">
+      {% csrf_token %}
+      {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+
+      <div class="form-group">
+        <label for="id_username">Correo electrónico</label>
+        <input type="email" id="id_username" name="username" required autofocus
+               placeholder="tu@correo.com">
+      </div>
+
+      <div class="form-group">
+        <label for="id_password">
+          Contraseña
+          <a href="#" class="form-link-inline">¿Olvidaste tu contraseña?</a>
+        </label>
+        <input type="password" id="id_password" name="password" required
+               placeholder="••••••••">
+      </div>
+
+      <label class="form-check">
+        <input type="checkbox" name="remember_me">
+        <span>Recordarme</span>
+      </label>
+
+      <button type="submit" class="btn-primary btn-full">Entrar</button>
+    </form>
+
+    <p class="auth-switch">
+      ¿No tienes cuenta?
+      <a href="{% url 'accounts:register' %}">Crear cuenta</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

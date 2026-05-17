@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{{ parent.name }} — Catálogo RYAL{% endblock %}
+{% block meta_description %}Explora los productos de {{ parent.name }} en RYAL. Importación directa, los mejores precios.{% endblock %}
+{% block extra_head %}
+<meta property="og:title" content="{{ parent.name }} — RYAL">
+<meta property="og:description" content="Explora los productos de {{ parent.name }} en RYAL. Importación directa.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+{% endblock %}
+
+{% block content %}
+<section class="py-5 py-md-6">
+  <div class="container">
+
+    <!-- Encabezado -->
+    <div class="d-flex justify-content-between align-items-end mb-4 mb-md-5 pb-3"
+         style="border-bottom: 1px solid var(--ryal-border);">
+      <div>
+        <nav aria-label="breadcrumb" class="mb-2">
+          <ol class="breadcrumb ryal-breadcrumb mb-0">
+            <li class="breadcrumb-item"><a href="{% url 'catalog:home' %}">Inicio</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'catalog:hub' %}">Catálogo</a></li>
+            <li class="breadcrumb-item active" aria-current="page">{{ parent.name }}</li>
+          </ol>
+        </nav>
+        <h1 class="font-heading fw-normal mb-0 lh-1"
+            style="font-size: clamp(2.2rem, 5vw, 3.8rem);">
+          {{ parent.name }}
+        </h1>
+      </div>
+      <span class="display-1 fw-bold text-white opacity-10 font-display d-none d-md-block"
+            style="font-size: 8rem; line-height: 0.6; transform: translateY(20px);">
+        {% if sections_data %}{{ sections_data|length }}{% else %}{{ subcategories|length }}{% endif %}
+      </span>
+    </div>
+
+    {% if parent.banner_text %}
+    <div class="mb-4 p-3 p-md-4"
+         style="background:rgba(212,175,55,0.06);border:1px solid rgba(212,175,55,0.18);
+                border-radius:10px;white-space:pre-line;color:rgba(255,255,255,0.82);
+                font-size:0.9rem;line-height:1.75;">{{ parent.banner_text }}</div>
+    {% endif %}
+
+    {% if sections_data %}
+
+      <!-- ── Vista agrupada por secciones ── -->
+      {% for entry in sections_data %}
+      {% if entry.subcats %}
+      <div class="mb-5">
+        <!-- Cabecera de sección -->
+        <div class="d-flex align-items-center justify-content-between mb-3 pb-2"
+             style="border-bottom:1px solid rgba(212,175,55,0.15);">
+          <div class="d-flex align-items-center gap-3">
+            <span style="font-size:0.6rem;font-family:monospace;letter-spacing:0.2em;color:var(--ryal-gold);opacity:.6;">
+              /{{ forloop.counter|stringformat:"02d" }}
+            </span>
+            <h2 class="mb-0 fw-semibold text-white" style="font-size:1.05rem;letter-spacing:0.04em;">
+              {{ entry.section.name }}
+            </h2>
+          </div>
+        </div>
+        <!-- Subcategorías de la sección -->
+        <div class="row g-3 g-md-4">
+          {% for sub in entry.subcats %}
+          <div class="col-6 col-md-4 col-lg-3">
+            {% include "catalog/_subcat_card.html" with sub=sub parent=parent %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% endfor %}
+
+      <!-- Subcategorías sin sección -->
+      {% if unassigned %}
+      <div class="mb-5">
+        <div class="d-flex align-items-center gap-3 mb-3 pb-2"
+             style="border-bottom:1px solid rgba(255,255,255,0.06);">
+          <h2 class="mb-0 fw-semibold" style="font-size:1.05rem;color:rgba(255,255,255,0.35);">Otros</h2>
+        </div>
+        <div class="row g-3 g-md-4">
+          {% for sub in unassigned %}
+          <div class="col-6 col-md-4 col-lg-3">
+            {% include "catalog/_subcat_card.html" with sub=sub parent=parent %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+    {% elif subcategories %}
+
+      <!-- ── Vista plana (sin secciones) ── -->
+      <div class="row g-3 g-md-4">
+        {% for sub in subcategories %}
+        <div class="col-6 col-md-4 col-lg-3">
+          {% include "catalog/_subcat_card.html" with sub=sub parent=parent %}
+        </div>
+        {% endfor %}
+      </div>
+
+    {% else %}
+    <div class="text-center py-5">
+      <i class="bi bi-box-seam text-gold opacity-50" style="font-size: 3rem;"></i>
+      <p class="mt-3 text-white-50">No hay subcategorías disponibles.</p>
+      <a href="{% url 'catalog:hub' %}" class="btn btn-outline-gold btn-sm mt-2">Volver al catálogo</a>
+    </div>
+    {% endif %}
+
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.ryal-breadcrumb {
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.ryal-breadcrumb .breadcrumb-item a {
+  color: var(--ryal-gold);
+  text-decoration: none;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+.ryal-breadcrumb .breadcrumb-item a:hover { opacity: 1; }
+.ryal-breadcrumb .breadcrumb-item.active { color: rgba(255,255,255,0.5); }
+.ryal-breadcrumb .breadcrumb-item + .breadcrumb-item::before { color: rgba(255,255,255,0.25); }
+
+.ryal-cat-card { border:1px solid rgba(255,255,255,0.07); border-radius:18px; transition:transform .35s ease, box-shadow .35s ease; }
+.ryal-cat-card:hover { transform:translateY(-4px); box-shadow:0 16px 40px rgba(0,0,0,.5); }
+.ryal-cat-card:hover .ryal-cat-img { transform:scale(1.07); }
+</style>
+{% endblock %}

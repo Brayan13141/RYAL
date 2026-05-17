@@ -1,0 +1,534 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Inicio — Panel RYAL{% endblock %}
+{% block page_title %}Gestión del inicio{% endblock %}
+
+{% block content %}
+
+<!-- ═══ HERO ══════════════════════════════════════════════════════════════ -->
+<div class="p-card" style="margin-bottom:18px;">
+  <div class="p-card-head">
+    <h2>Contenido del Hero</h2>
+    <span style="font-size:11px;color:#444;">Textos y estadísticas que se muestran sobre el slideshow de imágenes</span>
+  </div>
+  <div class="p-card-body fp">
+    <form method="post" style="display:flex;flex-direction:column;gap:14px;">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="hero">
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div>
+          <label>Eyebrow (texto pequeño)</label>
+          <input type="text" name="hero_eyebrow" value="{{ config.hero_eyebrow }}"
+                 placeholder="Mayoreo · Importación directa · MX">
+        </div>
+        <div>
+          <!-- preview hint -->
+          <label style="opacity:0;">—</label>
+          <div style="background:#0d0d0d;border:1px solid #1a1a1a;border-radius:6px;padding:10px 12px;font-size:11px;color:#444;line-height:1.5;">
+            Aparece en dorado y mayúsculas sobre el título
+          </div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div>
+          <label>Título — línea cursiva (dorada)</label>
+          <input type="text" name="hero_title_em" value="{{ config.hero_title_em }}"
+                 placeholder="Tu inventario,">
+        </div>
+        <div>
+          <label>Título — línea fuerte (mayúsculas)</label>
+          <input type="text" name="hero_title_strong" value="{{ config.hero_title_strong }}"
+                 placeholder="siempre asegurado">
+        </div>
+      </div>
+
+      <div>
+        <label>Texto descriptivo (subtítulo)</label>
+        <textarea name="hero_sub" rows="3"
+                  placeholder="Sneakers y gorras directo de fábrica.&#10;Disponibilidad constante, mejor margen y cero improvisación."
+                  style="resize:vertical;">{{ config.hero_sub }}</textarea>
+        <p style="font-size:11px;color:#444;margin-top:5px;">Cada salto de línea crea un &lt;br&gt; en el HTML.</p>
+      </div>
+
+      <div>
+        <label style="margin-bottom:8px;display:block;">Estadísticas (máx. 2)</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;">
+          <div>
+            <label style="font-size:11px;color:#555;">Stat 1 — valor</label>
+            <input type="text" name="hero_stat_1_value" value="{{ config.hero_stat_1_value }}" placeholder="+2K">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#555;">Stat 1 — etiqueta</label>
+            <input type="text" name="hero_stat_1_label" value="{{ config.hero_stat_1_label }}" placeholder="Productos">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#555;">Stat 2 — valor</label>
+            <input type="text" name="hero_stat_2_value" value="{{ config.hero_stat_2_value }}" placeholder="100%">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#555;">Stat 2 — etiqueta</label>
+            <input type="text" name="hero_stat_2_label" value="{{ config.hero_stat_2_label }}" placeholder="Stock real">
+          </div>
+        </div>
+        <p style="font-size:11px;color:#444;margin-top:6px;">Deja el valor en blanco para ocultar esa estadística.</p>
+      </div>
+
+      <button type="submit" class="btn-g" style="align-self:flex-start;">
+        <i class="bi bi-check-circle"></i> Guardar hero
+      </button>
+    </form>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start;">
+
+  <!-- ═══ COLUMNA IZQ ═══════════════════════════════════════════════════════ -->
+  <div style="display:flex;flex-direction:column;gap:18px;">
+
+    <!-- Productos destacados actuales -->
+    <div class="p-card">
+      <div class="p-card-head">
+        <h2>Destacados en "Nuevos ingresos"
+          <span style="color:#555;font-weight:400;"> ({{ featured|length }})</span>
+        </h2>
+        <span style="font-size:11px;color:#444;">
+          {% if featured|length == 0 %}Se muestran los 8 más recientes{% else %}Fijados manualmente{% endif %}
+        </span>
+      </div>
+      <div class="p-card-body">
+        {% if featured %}
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          {% for p in featured %}
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#0d0d0d;border:1px solid #1a1a1a;border-radius:6px;">
+            {% with img=p.cover_image %}
+            {% if img %}
+              <img src="{{ img.image.url }}" alt=""
+                   style="width:44px;height:44px;object-fit:cover;border-radius:4px;border:1px solid #222;flex-shrink:0;">
+            {% else %}
+              <div style="width:44px;height:44px;background:#1a1a1a;border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <i class="bi bi-image" style="color:#333;"></i>
+              </div>
+            {% endif %}
+            {% endwith %}
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:13px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ p.name }}</div>
+              <div style="font-size:11px;color:#444;font-family:monospace;">{{ p.sku }} · {{ p.category.name }}</div>
+            </div>
+            <form method="post" style="margin:0;flex-shrink:0;">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="remove_featured">
+              <input type="hidden" name="product_pk" value="{{ p.pk }}">
+              <button type="submit" class="btn-r btn-sm" title="Quitar de destacados">
+                <i class="bi bi-star-fill"></i> Quitar
+              </button>
+            </form>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div style="text-align:center;color:#444;padding:24px 0;font-size:13px;">
+          <i class="bi bi-star" style="font-size:1.8rem;display:block;margin-bottom:8px;opacity:.3;"></i>
+          Ningún producto destacado. El inicio muestra los 8 más recientes con imagen.
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══ COLUMNA DER ═══════════════════════════════════════════════════════ -->
+  <div>
+    <div class="p-card">
+      <div class="p-card-head"><h2>Buscar producto para destacar</h2></div>
+      <div class="p-card-body">
+
+        <!-- Búsqueda -->
+        <form method="get" style="display:flex;gap:8px;margin-bottom:16px;">
+          <input type="text" name="q" value="{{ q }}"
+                 placeholder="Nombre, SKU o categoría…"
+                 style="flex:1;background:#0d0d0d;border:1px solid #1a1a1a;color:#ccc;padding:8px 11px;border-radius:6px;font-size:13px;outline:none;"
+                 autofocus>
+          <button type="submit" class="btn-g btn-sm"><i class="bi bi-search"></i> Buscar</button>
+          {% if q %}<a href="{% url 'panel:home_config' %}" class="btn-o btn-sm"><i class="bi bi-x"></i></a>{% endif %}
+        </form>
+
+        <!-- Resultados -->
+        {% if q %}
+          {% if results %}
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            {% for p in results %}
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#0d0d0d;border:1px solid #1a1a1a;border-radius:6px;">
+              {% with img=p.cover_image %}
+              {% if img %}
+                <img src="{{ img.image.url }}" alt=""
+                     style="width:44px;height:44px;object-fit:cover;border-radius:4px;border:1px solid #222;flex-shrink:0;">
+              {% else %}
+                <div style="width:44px;height:44px;background:#1a1a1a;border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                  <i class="bi bi-image" style="color:#333;"></i>
+                </div>
+              {% endif %}
+              {% endwith %}
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:13px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ p.name }}</div>
+                <div style="font-size:11px;color:#444;font-family:monospace;">{{ p.sku }} · {{ p.category.name }}</div>
+              </div>
+              <form method="post" style="margin:0;flex-shrink:0;">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="add_featured">
+                <input type="hidden" name="product_pk" value="{{ p.pk }}">
+                <button type="submit" class="btn-g btn-sm" title="Destacar en inicio">
+                  <i class="bi bi-star"></i> Destacar
+                </button>
+              </form>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <div style="text-align:center;color:#444;padding:24px 0;font-size:13px;">
+            Sin resultados para "{{ q }}".
+          </div>
+          {% endif %}
+        {% else %}
+        <div style="text-align:center;color:#444;padding:24px 0;font-size:13px;">
+          Escribe un nombre o SKU para buscar productos y agregarlos al inicio.
+        </div>
+        {% endif %}
+
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══ SLIDES DEL HERO ═════════════════════════════════════════════════════ -->
+<div class="p-card" style="margin-top:18px;">
+  <div class="p-card-head">
+    <h2>Imágenes del Hero</h2>
+    <span style="font-size:11px;color:#444;">Si no hay slides activos se usan las portadas de categorías como fallback</span>
+  </div>
+  <div class="p-card-body">
+
+    <!-- Upload -->
+    <div style="margin-bottom:20px;">
+      <label style="cursor:pointer;margin:0;">
+        <input type="file" id="heroSlideInput" accept="image/*,video/mp4,video/webm,video/quicktime" multiple style="display:none;"
+               onchange="uploadHeroSlides(this)">
+        <span class="btn-g btn-sm" style="display:inline-flex;align-items:center;gap:6px;">
+          <i class="bi bi-upload"></i> Subir imágenes
+        </span>
+      </label>
+      <span style="font-size:11px;color:#444;margin-left:10px;">Puedes seleccionar varias a la vez · recomendado ≥ 1400 × 900 px</span>
+    </div>
+
+    <!-- Grid de slides actuales -->
+    <div id="heroSlidesGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;">
+      {% for slide in hero_slides_all %}
+      <div class="hero-slide-card" id="hsc-{{ slide.pk }}"
+           data-pk="{{ slide.pk }}"
+           style="background:#0d0d0d;border:1px solid {{ slide.is_active|yesno:'#2a3a2a,#1a1a1a' }};border-radius:8px;overflow:hidden;opacity:{{ slide.is_active|yesno:'1,.45' }};transition:all .2s;">
+
+        <div style="position:relative;aspect-ratio:16/9;overflow:hidden;background:#111;">
+          {% if slide.media_type == 'video' %}
+          <video src="{{ slide.video.url }}" muted preload="metadata"
+                 style="width:100%;height:100%;object-fit:cover;display:block;"></video>
+          {% else %}
+          <img src="{{ slide.image.url }}" alt="Slide {{ slide.display_order }}"
+               style="width:100%;height:100%;object-fit:cover;display:block;">
+          {% endif %}
+          <!-- orden badge -->
+          <span style="position:absolute;top:6px;left:6px;background:rgba(0,0,0,.7);color:#ccc;font-size:10px;font-family:monospace;padding:2px 7px;border-radius:4px;">#{{ slide.display_order }}</span>
+          <!-- tipo badge -->
+          {% if slide.media_type == 'video' %}
+          <span style="position:absolute;bottom:6px;left:6px;background:rgba(201,168,76,.85);color:#080808;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;letter-spacing:.06em;">VIDEO</span>
+          {% endif %}
+          {% if not slide.is_active %}
+          <span style="position:absolute;top:6px;right:6px;background:rgba(180,0,0,.75);color:#fff;font-size:9px;padding:2px 6px;border-radius:4px;letter-spacing:.06em;">OCULTO</span>
+          {% endif %}
+        </div>
+
+        <div style="padding:8px 10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+          <!-- up -->
+          <button class="btn-o btn-sm" title="Subir"
+                  onclick="reorderSlide({{ slide.pk }}, 'up')" style="padding:4px 8px;">
+            <i class="bi bi-arrow-up"></i>
+          </button>
+          <!-- down -->
+          <button class="btn-o btn-sm" title="Bajar"
+                  onclick="reorderSlide({{ slide.pk }}, 'down')" style="padding:4px 8px;">
+            <i class="bi bi-arrow-down"></i>
+          </button>
+          <!-- toggle -->
+          <button class="btn-sm {% if slide.is_active %}btn-g{% else %}btn-o{% endif %}"
+                  id="toggle-{{ slide.pk }}" title="{{ slide.is_active|yesno:'Ocultar,Mostrar' }}"
+                  onclick="toggleSlide({{ slide.pk }})" style="padding:4px 8px;flex:1;">
+            <i class="bi {% if slide.is_active %}bi-eye{% else %}bi-eye-slash{% endif %}"></i>
+          </button>
+          <!-- delete -->
+          <button class="btn-r btn-sm" title="Eliminar"
+                  onclick="deleteSlide({{ slide.pk }})" style="padding:4px 8px;">
+            <i class="bi bi-trash"></i>
+          </button>
+        </div>
+
+      </div>
+      {% empty %}
+      <p id="heroEmptyMsg" style="color:#444;font-size:13px;grid-column:1/-1;">
+        Ningún slide subido. Sube imágenes para reemplazar el fallback de categorías.
+      </p>
+      {% endfor %}
+    </div>
+
+  </div>
+</div>
+
+<script>
+const HERO_UPLOAD_URL  = "{% url 'panel:hero_slide_upload' %}";
+const CSRF             = "{{ csrf_token }}";
+
+function heroPost(url, extra) {
+  const fd = new FormData();
+  fd.append('csrfmiddlewaretoken', CSRF);
+  if (extra) Object.entries(extra).forEach(([k,v]) => fd.append(k, v));
+  return fetch(url, {method:'POST', body:fd}).then(r => r.json());
+}
+
+function uploadHeroSlides(input) {
+  if (!input.files.length) return;
+  const fd = new FormData();
+  fd.append('csrfmiddlewaretoken', CSRF);
+  Array.from(input.files).forEach(f => fd.append('files', f));
+  fetch(HERO_UPLOAD_URL, {method:'POST', body:fd})
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) { location.reload(); }
+      else showToast(d.error || 'Error al subir.');
+    });
+  input.value = '';
+}
+
+function deleteSlide(pk) {
+  ryalConfirm({title:'Eliminar slide',msg:'¿Eliminar este slide del hero?',okLabel:'Eliminar'}).then(function(ok) {
+    if (!ok) return;
+    heroPost(`/panel/hero/slides/${pk}/eliminar/`)
+      .then(d => { if (d.ok) document.getElementById('hsc-'+pk).remove(); });
+  });
+}
+
+function reorderSlide(pk, dir) {
+  heroPost(`/panel/hero/slides/${pk}/orden/`, {direction: dir})
+    .then(d => { if (d.ok) location.reload(); });
+}
+
+function toggleSlide(pk) {
+  heroPost(`/panel/hero/slides/${pk}/toggle/`)
+    .then(d => {
+      if (!d.ok) return;
+      const card = document.getElementById('hsc-'+pk);
+      const btn  = document.getElementById('toggle-'+pk);
+      if (d.is_active) {
+        card.style.opacity = '1';
+        card.style.borderColor = '#2a3a2a';
+        btn.className = 'btn-g btn-sm';
+        btn.innerHTML = '<i class="bi bi-eye"></i>';
+        btn.title = 'Ocultar';
+      } else {
+        card.style.opacity = '.45';
+        card.style.borderColor = '#1a1a1a';
+        btn.className = 'btn-o btn-sm';
+        btn.innerHTML = '<i class="bi bi-eye-slash"></i>';
+        btn.title = 'Mostrar';
+      }
+    });
+}
+</script>
+
+<!-- ═══ PORTADAS DE CATEGORÍAS ═════════════════════════════════════════════ -->
+<div class="p-card" style="margin-top:18px;">
+  <div class="p-card-head">
+    <h2>Portadas de categorías</h2>
+    <span style="font-size:11px;color:#444;">Imagen que se muestra en los tiles del inicio · Se usa también como fallback si no hay productos con imagen</span>
+  </div>
+  <div class="p-card-body">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px;">
+      {% for cat in top_cats %}
+      <div id="cat-card-{{ cat.pk }}"
+           data-upload-url="{% url 'panel:category_image_upload' cat.pk %}"
+           data-clear-url="{% url 'panel:category_image_clear' cat.pk %}"
+           style="background:#0d0d0d;border:1px solid #1a1a1a;border-radius:8px;overflow:hidden;">
+
+        <!-- imagen -->
+        <div style="position:relative;aspect-ratio:4/3;background:#111;overflow:hidden;">
+          <div id="cat-img-wrap-{{ cat.pk }}" style="width:100%;height:100%;">
+            {% if cat.image %}
+            <img src="{{ cat.image.url }}" alt="{{ cat.name }}"
+                 style="width:100%;height:100%;object-fit:cover;display:block;">
+            {% else %}
+            <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
+              <i class="bi bi-image" style="font-size:2rem;color:#2a2a2a;"></i>
+            </div>
+            {% endif %}
+          </div>
+          <div id="cat-spinner-{{ cat.pk }}"
+               style="display:none;position:absolute;inset:0;background:rgba(0,0,0,.75);align-items:center;justify-content:center;">
+            <div class="spinner-border spinner-border-sm text-warning" role="status"></div>
+          </div>
+        </div>
+
+        <!-- nombre y acciones -->
+        <div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px;">
+          <div style="font-size:13px;color:#ddd;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ cat.name }}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <label style="flex:1;cursor:pointer;margin:0;min-width:60px;">
+              <input type="file" accept="image/*" style="display:none;"
+                     onchange="uploadCatImg({{ cat.pk }}, this)">
+              <span class="btn-g btn-sm" style="display:flex;align-items:center;justify-content:center;gap:5px;width:100%;cursor:pointer;">
+                <i class="bi bi-upload"></i> Subir
+              </span>
+            </label>
+            <button class="btn-o btn-sm" title="Usar imagen de un producto de esta categoría"
+                    onclick="openProductPicker({{ cat.pk }})" style="padding:4px 8px;">
+              <i class="bi bi-images"></i>
+            </button>
+            <button class="btn-r btn-sm" id="cat-clear-{{ cat.pk }}"
+                    onclick="clearCatImg({{ cat.pk }})"
+                    title="Quitar imagen"
+                    {% if not cat.image %}style="display:none;"{% endif %}>
+              <i class="bi bi-trash"></i>
+            </button>
+          </div>
+        </div>
+
+      </div>
+      {% empty %}
+      <p style="color:#444;font-size:13px;">No hay categorías principales activas.</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<script>
+function uploadCatImg(pk, input) {
+  if (!input.files.length) return;
+  var card    = document.getElementById('cat-card-' + pk);
+  var spinner = document.getElementById('cat-spinner-' + pk);
+  var wrap    = document.getElementById('cat-img-wrap-' + pk);
+  spinner.style.display = 'flex';
+  var fd = new FormData();
+  fd.append('image', input.files[0]);
+  fd.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+  fetch(card.dataset.uploadUrl, {method: 'POST', body: fd})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      spinner.style.display = 'none';
+      if (d.ok) {
+        wrap.innerHTML = '<img src="' + d.url + '" style="width:100%;height:100%;object-fit:cover;display:block;">';
+        document.getElementById('cat-clear-' + pk).style.display = '';
+      } else {
+        showToast(d.error || 'Error al subir la imagen.');
+      }
+      input.value = '';
+    })
+    .catch(function() {
+      spinner.style.display = 'none';
+      showToast('Error de red al subir la imagen.');
+      input.value = '';
+    });
+}
+
+function clearCatImg(pk) {
+  ryalConfirm({title:'Quitar imagen',msg:'¿Quitar la imagen de esta categoría?',okLabel:'Quitar',danger:false}).then(function(ok) {
+    if (!ok) return;
+    var card = document.getElementById('cat-card-' + pk);
+    var wrap = document.getElementById('cat-img-wrap-' + pk);
+    var fd = new FormData();
+    fd.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+    fetch(card.dataset.clearUrl, {method: 'POST', body: fd})
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) {
+          wrap.innerHTML = '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;"><i class="bi bi-image" style="font-size:2rem;color:#2a2a2a;"></i></div>';
+          document.getElementById('cat-clear-' + pk).style.display = 'none';
+        }
+      });
+  });
+}
+
+var _pickerCatPk = null;
+
+function openProductPicker(catPk) {
+  _pickerCatPk = catPk;
+  var modal = document.getElementById('productPickerModal');
+  var grid  = document.getElementById('productPickerGrid');
+  grid.innerHTML = '<p style="color:#555;font-size:13px;grid-column:1/-1;">Cargando imágenes…</p>';
+  modal.style.display = 'flex';
+  fetch('/panel/categorias/' + catPk + '/imagenes/')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.images || !d.images.length) {
+        grid.innerHTML = '<p style="color:#555;font-size:13px;grid-column:1/-1;">No hay imágenes de productos en esta categoría.</p>';
+        return;
+      }
+      grid.innerHTML = d.images.map(function(img) {
+        return '<div onclick="selectProductImage(' + img.pk + ')" style="cursor:pointer;border:2px solid transparent;border-radius:6px;overflow:hidden;transition:border-color .18s;" onmouseover="this.style.borderColor=\'#d4af37\'" onmouseout="this.style.borderColor=\'transparent\'">'
+          + '<img src="' + img.url + '" style="width:100%;aspect-ratio:1;object-fit:cover;display:block;">'
+          + '<div style="padding:4px 6px;font-size:10px;color:#777;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:#0d0d0d;">' + img.product + '</div>'
+          + '</div>';
+      }).join('');
+    })
+    .catch(function() {
+      grid.innerHTML = '<p style="color:#833;font-size:13px;grid-column:1/-1;">Error al cargar imágenes.</p>';
+    });
+}
+
+function closeProductPicker() {
+  document.getElementById('productPickerModal').style.display = 'none';
+  _pickerCatPk = null;
+}
+
+function selectProductImage(imgPk) {
+  if (!_pickerCatPk) return;
+  var catPk   = _pickerCatPk;
+  var wrap    = document.getElementById('cat-img-wrap-' + catPk);
+  var spinner = document.getElementById('cat-spinner-' + catPk);
+  closeProductPicker();
+  spinner.style.display = 'flex';
+  var fd = new FormData();
+  fd.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+  fd.append('image_pk', imgPk);
+  fetch('/panel/categorias/' + catPk + '/imagen/de-producto/', {method: 'POST', body: fd})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      spinner.style.display = 'none';
+      if (d.ok) {
+        wrap.innerHTML = '<img src="' + d.url + '" style="width:100%;height:100%;object-fit:cover;display:block;">';
+        document.getElementById('cat-clear-' + catPk).style.display = '';
+      } else {
+        showToast(d.error || 'Error al asignar imagen.');
+      }
+    })
+    .catch(function() {
+      spinner.style.display = 'none';
+      showToast('Error de red.');
+    });
+}
+</script>
+
+<!-- Modal picker de imágenes de productos -->
+<div id="productPickerModal"
+     style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.88);
+            align-items:flex-start;justify-content:center;overflow-y:auto;padding:40px 16px;"
+     onclick="if(event.target===this)closeProductPicker()">
+  <div style="width:100%;max-width:720px;background:#111;border:1px solid #222;border-radius:10px;padding:22px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <span style="font-size:12px;color:#aaa;letter-spacing:.14em;text-transform:uppercase;">Seleccionar imagen de producto</span>
+      <button onclick="closeProductPicker()"
+              style="background:transparent;border:none;color:#555;font-size:22px;line-height:1;cursor:pointer;padding:0 4px;">&times;</button>
+    </div>
+    <div id="productPickerGrid"
+         style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;max-height:60vh;overflow-y:auto;">
+    </div>
+  </div>
+</div>
+
+{% endblock %}

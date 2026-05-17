@@ -1,0 +1,577 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}
+  {% if subcat %}{{ subcat.name }} — {{ parent.name }}
+  {% elif parent %}{{ parent.name }}
+  {% elif q %}Búsqueda: "{{ q }}"
+  {% else %}Todos los productos
+  {% endif %} — RYAL
+{% endblock %}
+{% block meta_description %}
+  {% if subcat %}{{ subcat.name }} en {{ parent.name }}: importación directa, precios de proveedor.
+  {% elif parent %}Colección {{ parent.name }} de RYAL. Importación directa sin intermediarios.
+  {% elif q %}Resultados de búsqueda para "{{ q }}" en RYAL.
+  {% else %}Todos los productos de RYAL — gorras, tenis, sudaderas de importación.
+  {% endif %}
+{% endblock %}
+{% block extra_head %}
+<meta property="og:title" content="{% if subcat %}{{ subcat.name }} — {{ parent.name }}{% elif parent %}{{ parent.name }}{% else %}Catálogo{% endif %} — RYAL">
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+{% endblock %}
+
+{% block content %}
+<div class="container py-4 py-md-5">
+
+  <!-- ── Encabezado ── -->
+  <div class="mb-4 pb-3" style="border-bottom: 1px solid var(--ryal-border);">
+    <nav aria-label="breadcrumb" class="mb-2">
+      <ol class="breadcrumb ryal-breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="{% url 'catalog:home' %}">Inicio</a></li>
+        <li class="breadcrumb-item"><a href="{% url 'catalog:hub' %}">Catálogo</a></li>
+        {% if parent %}
+          <li class="breadcrumb-item active" aria-current="page">{{ parent.name }}</li>
+        {% elif q %}
+          <li class="breadcrumb-item active" aria-current="page">Búsqueda: "{{ q }}"</li>
+        {% else %}
+          <li class="breadcrumb-item active" aria-current="page">Todos los productos</li>
+        {% endif %}
+      </ol>
+    </nav>
+
+    <div class="d-flex align-items-end justify-content-between gap-3 flex-wrap">
+      <h1 class="font-heading fw-normal mb-0 lh-1" style="font-size: clamp(2rem, 5vw, 3.2rem);">
+        {% if subcat %}{{ subcat.name }}
+        {% elif parent %}{{ parent.name }}
+        {% elif q %}<em class="fst-italic text-white-50" style="font-size: 0.6em;">"{{ q }}"</em>
+        {% else %}Todo el catálogo
+        {% endif %}
+      </h1>
+      {% if parent and subcat %}
+        <a href="{% url 'catalog:category' parent.slug %}"
+           class="text-gold text-decoration-none d-flex align-items-center gap-1"
+           style="font-size: 0.72rem; font-family: var(--font-display); letter-spacing: 0.16em; text-transform: uppercase; white-space: nowrap;">
+          <i class="bi bi-arrow-left"></i> Todas las subcategorías
+        </a>
+      {% elif parent %}
+        <a href="{% url 'catalog:hub' %}"
+           class="text-gold text-decoration-none d-flex align-items-center gap-1"
+           style="font-size: 0.72rem; font-family: var(--font-display); letter-spacing: 0.16em; text-transform: uppercase; white-space: nowrap;">
+          <i class="bi bi-arrow-left"></i> Ver categorías
+        </a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if subcat and subcat.banner_text %}
+  <div class="mb-4 p-3 p-md-4"
+       style="background:rgba(212,175,55,0.06);border:1px solid rgba(212,175,55,0.18);
+              border-radius:10px;white-space:pre-line;color:rgba(255,255,255,0.82);
+              font-size:0.9rem;line-height:1.75;">{{ subcat.banner_text }}</div>
+  {% elif not subcat and parent and parent.banner_text %}
+  <div class="mb-4 p-3 p-md-4"
+       style="background:rgba(212,175,55,0.06);border:1px solid rgba(212,175,55,0.18);
+              border-radius:10px;white-space:pre-line;color:rgba(255,255,255,0.82);
+              font-size:0.9rem;line-height:1.75;">{{ parent.banner_text }}</div>
+  {% endif %}
+
+  <!-- ── Barra de herramientas ── -->
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-4">
+    <!-- Izquierda: conteo + filtros activos -->
+    <div class="d-flex align-items-center gap-3 flex-wrap">
+      {% if sections %}
+        <span class="ryal-count">{{ sections|length }} secciones</span>
+      {% elif page_obj %}
+        <span class="ryal-count">
+          {{ page_obj.start_index }}–{{ page_obj.end_index }} / {{ paginator.count }}
+        </span>
+      {% endif %}
+      <!-- Tags activos como chips -->
+      {% for tag in selected_tags %}
+        <a href="?{% for t in selected_tags %}{% if t != tag %}tag={{ t }}&{% endif %}{% endfor %}{% if q %}q={{ q }}&{% endif %}"
+           class="ryal-chip ryal-chip--active">
+          {{ tag }} <i class="bi bi-x"></i>
+        </a>
+      {% endfor %}
+      {% if request.GET.precio_min or request.GET.precio_max %}
+        <a href="?{% for t in selected_tags %}tag={{ t }}&{% endfor %}{% if q %}q={{ q }}&{% endif %}"
+           class="ryal-chip ryal-chip--active">
+          Precio {% if request.GET.precio_min %}${{ request.GET.precio_min }}{% endif %}–{% if request.GET.precio_max %}${{ request.GET.precio_max }}{% endif %} <i class="bi bi-x"></i>
+        </a>
+      {% endif %}
+    </div>
+
+    <!-- Derecha: sort, per_page, filtros -->
+    <div class="d-flex align-items-center gap-2">
+      <select class="ryal-select" aria-label="Ordenar" onchange="
+        var p = new URLSearchParams(window.location.search);
+        if(this.value) p.set('orden', this.value); else p.delete('orden');
+        p.delete('page'); window.location.search = p.toString();">
+        <option value="" {% if not request.GET.orden %}selected{% endif %}>Nuevo primero</option>
+        <option value="precio_asc"  {% if request.GET.orden == 'precio_asc'  %}selected{% endif %}>Precio ↑</option>
+        <option value="precio_desc" {% if request.GET.orden == 'precio_desc' %}selected{% endif %}>Precio ↓</option>
+      </select>
+
+      <select class="ryal-select" aria-label="Por página" onchange="
+        var p = new URLSearchParams(window.location.search);
+        p.set('per_page', this.value); p.delete('page');
+        window.location.search = p.toString();">
+        <option value="12"  {% if per_page == '12'  %}selected{% endif %}>12</option>
+        <option value="50"  {% if per_page == '50'  %}selected{% endif %}>50</option>
+        <option value="100" {% if per_page == '100' %}selected{% endif %}>100</option>
+      </select>
+
+      <button class="ryal-filter-btn" type="button"
+              data-bs-toggle="offcanvas" data-bs-target="#filterOffcanvas"
+              aria-controls="filterOffcanvas">
+        <i class="bi bi-sliders"></i> Filtros
+        {% if selected_tags or request.GET.precio_min or request.GET.precio_max or request.GET.stock %}
+          <span class="ryal-filter-dot"></span>
+        {% endif %}
+      </button>
+    </div>
+  </div>
+
+  <!-- ══ Vista por secciones (categoría padre sin filtros) ══ -->
+  {% if sections %}
+    {% for section in sections %}
+    <div class="cat-section mb-5">
+
+      <!-- Cabecera de sección -->
+      <div class="cat-section-head">
+        <div class="cat-section-head-left">
+          <span class="cat-section-index">/{{ forloop.counter|stringformat:"02d" }}</span>
+          <h2 class="cat-section-title">{{ section.label }}</h2>
+        </div>
+        {% if section.ver_url %}
+        <a href="{{ section.ver_url }}" class="cat-section-link">
+          Ver los {{ section.total }} →
+        </a>
+        {% endif %}
+      </div>
+
+      <!-- Grid de la sección -->
+      <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-xl-4 g-3">
+        {% for product in section.products %}
+          <div class="col">
+            {% include "catalog/_product_card.html" with product=product %}
+          </div>
+        {% endfor %}
+      </div>
+
+    </div>
+    {% empty %}
+    <div class="text-center py-5">
+      <i class="bi bi-box-seam text-gold opacity-40" style="font-size: 2.5rem;"></i>
+      <p class="mt-3 text-white-50">No hay productos disponibles.</p>
+    </div>
+    {% endfor %}
+
+  <!-- ══ Vista plana (filtros activos o subcategoría específica) ══ -->
+  {% elif products %}
+    <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-xl-5 g-3" id="productGrid">
+      {% for product in products %}
+        <div class="col">
+          {% include "catalog/_product_card.html" with product=product %}
+        </div>
+      {% endfor %}
+    </div>
+
+    <!-- Paginación -->
+    {% if paginator.num_pages > 1 %}
+    <nav class="mt-5" aria-label="Paginación">
+      <ul class="pagination justify-content-center">
+        {% if page_obj.has_previous %}
+          <li class="page-item">
+            <a class="page-link" href="{% querystring page=page_obj.previous_page_number %}">← Anterior</a>
+          </li>
+        {% else %}
+          <li class="page-item disabled"><span class="page-link">← Anterior</span></li>
+        {% endif %}
+        <li class="page-item active">
+          <span class="page-link">{{ page_obj.number }} / {{ paginator.num_pages }}</span>
+        </li>
+        {% if page_obj.has_next %}
+          <li class="page-item">
+            <a class="page-link" href="{% querystring page=page_obj.next_page_number %}">Siguiente →</a>
+          </li>
+        {% else %}
+          <li class="page-item disabled"><span class="page-link">Siguiente →</span></li>
+        {% endif %}
+      </ul>
+    </nav>
+    {% endif %}
+
+  {% else %}
+    <div class="text-center py-5">
+      <i class="bi bi-search text-gold opacity-40" style="font-size: 2.5rem;"></i>
+      <p class="mt-3 mb-4 text-white-50">Sin resultados para tu búsqueda.</p>
+      {% if parent %}
+        <a href="{% url 'catalog:category' parent.slug %}" class="btn btn-outline-gold btn-sm">
+          Limpiar filtros
+        </a>
+      {% else %}
+        <a href="{% url 'catalog:hub' %}" class="btn btn-outline-gold btn-sm">Ver catálogo</a>
+      {% endif %}
+    </div>
+  {% endif %}
+
+</div>
+
+
+<!-- ── Offcanvas de filtros ── -->
+<div class="offcanvas offcanvas-end" tabindex="-1" id="filterOffcanvas" aria-labelledby="filterOffcanvasLabel"
+     style="width: 300px; max-width: 90vw;">
+  <div class="offcanvas-header" style="border-bottom: 1px solid var(--ryal-border);">
+    <h5 class="offcanvas-title" id="filterOffcanvasLabel">Filtros</h5>
+    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
+  </div>
+  <div class="offcanvas-body">
+    <form method="get" action="">
+      {% for t in selected_tags %}<input type="hidden" name="tag" value="{{ t }}">{% endfor %}
+      {% if request.GET.orden %}<input type="hidden" name="orden" value="{{ request.GET.orden }}">{% endif %}
+      {% if request.GET.per_page %}<input type="hidden" name="per_page" value="{{ request.GET.per_page }}">{% endif %}
+      {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+
+      <!-- Tags -->
+      {% if all_tags %}
+      <div class="mb-4">
+        <p class="ryal-filter-label">Tags</p>
+        {% for tag in all_tags %}
+          <div class="form-check mb-1">
+            <input class="form-check-input ryal-check" type="checkbox" name="tag" value="{{ tag.name }}"
+                   id="tag_{{ tag.name|slugify }}"
+                   {% if tag.name in selected_tags %}checked{% endif %}
+                   onchange="this.form.submit()">
+            <label class="form-check-label ryal-check-label" for="tag_{{ tag.name|slugify }}">
+              {{ tag.name }}
+            </label>
+          </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <!-- Precio -->
+      <div class="mb-4">
+        <p class="ryal-filter-label">Precio final (MXN)</p>
+
+        <!-- Rangos rápidos -->
+        <div class="ryal-price-chips">
+          {% with pmin=request.GET.precio_min pmax=request.GET.precio_max %}
+          {% for range in price_ranges %}
+            <a href="?{% for t in selected_tags %}tag={{ t }}&{% endfor %}{% if q %}q={{ q }}&{% endif %}{% if request.GET.orden %}orden={{ request.GET.orden }}&{% endif %}{% if request.GET.per_page %}per_page={{ request.GET.per_page }}&{% endif %}{% if range.min %}precio_min={{ range.min }}&{% endif %}{% if range.max %}precio_max={{ range.max }}{% endif %}"
+               class="ryal-price-chip {% if pmin|default:'' == range.min|default:'' and pmax|default:'' == range.max|default:'' %}active{% endif %}">
+              {{ range.label }}
+            </a>
+          {% endfor %}
+          {% endwith %}
+        </div>
+
+        <!-- Inputs manuales -->
+        <div class="d-flex align-items-center gap-2 mt-2">
+          <input type="number" name="precio_min" placeholder="Mín" min="0"
+                 value="{{ request.GET.precio_min }}" class="ryal-input flex-1">
+          <span class="text-white-50" style="font-size: 0.75rem;">–</span>
+          <input type="number" name="precio_max" placeholder="Máx" min="0"
+                 value="{{ request.GET.precio_max }}" class="ryal-input flex-1">
+        </div>
+        <button type="submit" class="ryal-apply-btn w-100 mt-2">Aplicar precio</button>
+      </div>
+
+      <!-- Disponibilidad -->
+      <div class="mb-4">
+        <p class="ryal-filter-label">Disponibilidad</p>
+        <div class="form-check mb-1">
+          <input class="form-check-input ryal-check" type="radio" name="stock" value=""
+                 id="stock_all" {% if not request.GET.stock %}checked{% endif %}
+                 onchange="this.form.submit()">
+          <label class="form-check-label ryal-check-label" for="stock_all">Todo</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input ryal-check" type="radio" name="stock" value="disponible"
+                 id="stock_avail" {% if request.GET.stock == 'disponible' %}checked{% endif %}
+                 onchange="this.form.submit()">
+          <label class="form-check-label ryal-check-label" for="stock_avail">En existencia</label>
+        </div>
+      </div>
+
+      {% if selected_tags or request.GET.precio_min or request.GET.precio_max or request.GET.stock %}
+      <a href="?{% if q %}q={{ q }}{% endif %}" class="ryal-clear-btn d-block text-center">
+        <i class="bi bi-x-circle me-1"></i> Limpiar filtros
+      </a>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ── Secciones por subcategoría ── */
+.cat-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--ryal-border);
+}
+.cat-section-head-left {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+.cat-section-index {
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  letter-spacing: 0.22em;
+  color: var(--ryal-gold);
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+.cat-section-title {
+  font-family: var(--font-heading);
+  font-size: clamp(1.5rem, 3vw, 2.2rem);
+  font-weight: 400;
+  margin: 0;
+  line-height: 1.1;
+  color: var(--ryal-white);
+}
+.cat-section-link {
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ryal-gold);
+  text-decoration: none;
+  opacity: 0.75;
+  white-space: nowrap;
+  transition: opacity 0.2s;
+  padding-bottom: 1px;
+  border-bottom: 1px solid rgba(212,175,55,0.35);
+  flex-shrink: 0;
+}
+.cat-section-link:hover { opacity: 1; color: var(--ryal-gold); }
+
+/* ── Breadcrumb ── */
+.ryal-breadcrumb {
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.ryal-breadcrumb .breadcrumb-item a {
+  color: var(--ryal-gold);
+  text-decoration: none;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+.ryal-breadcrumb .breadcrumb-item a:hover { opacity: 1; }
+.ryal-breadcrumb .breadcrumb-item.active { color: rgba(255,255,255,0.5); }
+.ryal-breadcrumb .breadcrumb-item + .breadcrumb-item::before { color: rgba(255,255,255,0.25); }
+
+/* ── Toolbar ── */
+.ryal-count {
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  color: rgba(255,255,255,0.45);
+  text-transform: uppercase;
+}
+.ryal-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border: 1px solid var(--ryal-border);
+  border-radius: 20px;
+  color: rgba(255,255,255,0.5);
+  text-decoration: none;
+  transition: border-color 0.2s, color 0.2s;
+}
+.ryal-chip--active {
+  border-color: rgba(212,175,55,0.5);
+  color: var(--ryal-gold);
+}
+.ryal-chip--active:hover {
+  border-color: var(--ryal-gold);
+  color: var(--ryal-gold);
+}
+.ryal-select {
+  background-color: #0f0f0f;
+  border: 1px solid rgba(212,175,55,0.45);
+  color: var(--ryal-gold);
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border-radius: 2px;
+  padding: 6px 28px 6px 10px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23d4af37' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.ryal-select:focus { outline: none; border-color: var(--ryal-gold); }
+.ryal-select option { background: #111; color: #fff; }
+.ryal-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  background: transparent;
+  border: 1px solid rgba(212,175,55,0.45);
+  color: var(--ryal-gold);
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 6px 14px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+.ryal-filter-btn:hover { border-color: var(--ryal-gold); background: rgba(212,175,55,0.08); }
+.ryal-filter-dot {
+  position: absolute;
+  top: 4px; right: 4px;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--ryal-gold);
+}
+
+/* ── Paginación ── */
+.pagination {
+  --bs-pagination-color:               rgba(255,255,255,0.6);
+  --bs-pagination-bg:                  transparent;
+  --bs-pagination-border-color:        var(--ryal-border);
+  --bs-pagination-hover-color:         var(--ryal-gold);
+  --bs-pagination-hover-bg:            #111;
+  --bs-pagination-hover-border-color:  rgba(212,175,55,0.5);
+  --bs-pagination-active-color:        #000;
+  --bs-pagination-active-bg:           var(--ryal-gold);
+  --bs-pagination-active-border-color: var(--ryal-gold);
+  --bs-pagination-disabled-color:      rgba(255,255,255,0.2);
+  --bs-pagination-disabled-bg:         transparent;
+  --bs-pagination-disabled-border-color: var(--ryal-border);
+  --bs-pagination-focus-box-shadow:    none;
+}
+.page-link {
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border-radius: 2px !important;
+}
+
+/* ── Offcanvas filtros ── */
+.offcanvas {
+  background-color: #0d0d0d !important;
+  border-left: 1px solid var(--ryal-border) !important;
+}
+.offcanvas-title {
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.8);
+}
+.btn-close-white { filter: invert(1) brightness(0.5); }
+.ryal-filter-label {
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.35);
+  margin-bottom: 10px;
+}
+.ryal-check {
+  background-color: #1a1a1a;
+  border-color: #333;
+}
+.ryal-check:checked {
+  background-color: var(--ryal-gold);
+  border-color: var(--ryal-gold);
+}
+.ryal-check:focus { box-shadow: none; }
+.ryal-check-label {
+  color: rgba(255,255,255,0.7);
+  font-size: 0.82rem;
+}
+.ryal-input {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #fff;
+  font-size: 0.82rem;
+  padding: 6px 10px;
+  border-radius: 2px;
+  width: 100%;
+  transition: border-color 0.2s;
+}
+.ryal-input:focus { outline: none; border-color: var(--ryal-gold); }
+.ryal-input::placeholder { color: rgba(255,255,255,0.25); }
+.flex-1 { flex: 1; }
+.ryal-apply-btn {
+  background: transparent;
+  border: 1px solid rgba(212,175,55,0.45);
+  color: var(--ryal-gold);
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding: 7px 14px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.ryal-apply-btn:hover { border-color: var(--ryal-gold); background: rgba(212,175,55,0.08); }
+.ryal-clear-btn {
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.35);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.ryal-clear-btn:hover { color: var(--ryal-gold); }
+.ryal-price-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.ryal-price-chip {
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-decoration: none;
+  padding: 4px 10px;
+  border: 1px solid rgba(212,175,55,0.25);
+  border-radius: 20px;
+  color: rgba(255,255,255,0.55);
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+  white-space: nowrap;
+}
+.ryal-price-chip:hover {
+  border-color: var(--ryal-gold);
+  color: var(--ryal-gold);
+}
+.ryal-price-chip.active {
+  border-color: var(--ryal-gold);
+  color: var(--ryal-gold);
+  background: rgba(212,175,55,0.1);
+}
+</style>
+{% endblock %}

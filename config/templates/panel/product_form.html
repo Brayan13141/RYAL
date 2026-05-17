@@ -1,0 +1,310 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}{% if is_edit %}Editar{% else %}Nuevo{% endif %} producto — Panel RYAL{% endblock %}
+{% block page_title %}{% if is_edit %}Editar: {{ product.name }}{% else %}Nuevo producto{% endif %}{% endblock %}
+
+{% block content %}
+
+<div style="display:flex;gap:10px;margin-bottom:20px;">
+  <a href="{% url 'panel:products_list' %}" class="btn-o btn-sm">
+    <i class="bi bi-arrow-left"></i> Volver
+  </a>
+</div>
+
+{% if errors %}
+<div class="p-alert p-alert-err">
+  {% for e in errors %}{{ e }}{% if not forloop.last %} · {% endif %}{% endfor %}
+</div>
+{% endif %}
+
+<form method="post">
+  {% csrf_token %}
+  <div style="display:grid;grid-template-columns:1fr 320px;gap:18px;align-items:start;">
+
+    <!-- Izq: datos principales -->
+    <div>
+      <div class="p-card" style="margin-bottom:16px;">
+        <div class="p-card-head"><h2>Información básica</h2></div>
+        <div class="p-card-body fp" style="display:flex;flex-direction:column;gap:14px;">
+
+          {% if not is_edit %}
+          <div>
+            <label>SKU *</label>
+            <input type="text" name="sku" value="{{ data.sku|default:'' }}"
+                   placeholder="Ej. RYL-CAP-045" required>
+          </div>
+          {% else %}
+          <div>
+            <label>SKU</label>
+            <input type="text" value="{{ product.sku }}" disabled style="opacity:.5;cursor:not-allowed;">
+          </div>
+          {% endif %}
+
+          <div>
+            <label>Nombre *</label>
+            <input type="text" name="name"
+                   value="{{ data.name|default:product.name|default:'' }}"
+                   placeholder="Nombre del producto" required>
+          </div>
+
+          <div>
+            <label>Descripción</label>
+            <textarea name="description" placeholder="Descripción opcional">{{ data.description|default:product.description|default:'' }}</textarea>
+          </div>
+
+          <div>
+            <label>URL del proveedor</label>
+            <input type="url" name="supplier_url"
+                   value="{{ data.supplier_url|default:product.supplier_url|default:'' }}"
+                   placeholder="https://...">
+          </div>
+
+        </div>
+      </div>
+
+      <div class="p-card">
+        <div class="p-card-head"><h2>Precios</h2></div>
+        <div class="p-card-body fp" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+
+          <div>
+            <label>Precio base * (MXN)</label>
+            <input type="number" name="base_price" step="0.01" min="0"
+                   value="{{ data.base_price|default:product.base_price|default:'' }}"
+                   placeholder="0.00" required>
+          </div>
+
+          <div>
+            <label>Override envío (MXN)</label>
+            <input type="number" name="shipping_override" step="0.01" min="0"
+                   value="{{ data.shipping_override|default:product.shipping_override|default:'' }}"
+                   placeholder="Vacío = usa categoría">
+          </div>
+
+          <div style="grid-column:1/-1;">
+            <label>
+              Precio final fijo (MXN)
+              <span style="font-size:11px;color:#555;font-weight:400;letter-spacing:0;">
+                — cuando se especifica, ignora base + envío + margen
+              </span>
+            </label>
+            <input type="number" name="price_override" step="0.01" min="0"
+                   value="{{ data.price_override|default:product.price_override|default:'' }}"
+                   placeholder="Vacío = precio calculado automáticamente">
+          </div>
+
+          <div>
+            <label>Cantidad mínima</label>
+            <input type="number" name="min_order_qty" min="1"
+                   value="{{ data.min_order_qty|default:product.min_order_qty|default:'1' }}">
+          </div>
+
+          {% if is_edit %}
+          <div style="grid-column:1/-1;">
+            <div style="background:#0d0d0d;border:1px solid #1a1a1a;border-radius:6px;padding:12px;">
+              <div style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Precio final actual</div>
+              <div style="font-size:20px;font-weight:700;color:var(--pg);">${{ product.final_price|floatformat:0 }} MXN</div>
+              <div style="font-size:11px;color:#444;margin-top:4px;">
+                {% if product.price_override %}precio fijo manual{% else %}base + envío + margen de la categoría{% endif %}
+              </div>
+            </div>
+          </div>
+          {% endif %}
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Der: estado y categoría -->
+    <div>
+      <div class="p-card" style="margin-bottom:16px;">
+        <div class="p-card-head"><h2>Clasificación</h2></div>
+        <div class="p-card-body fp" style="display:flex;flex-direction:column;gap:14px;">
+
+          <div>
+            <label>Categoría *</label>
+            <select name="category" required>
+              <option value="">Seleccionar…</option>
+              {% for cat in categories %}
+              <option value="{{ cat.pk }}"
+                {% if data.category == cat.pk|stringformat:"s" %}selected
+                {% elif is_edit and product.category_id == cat.pk %}selected
+                {% endif %}>
+                {{ cat.name }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div>
+            <label>Estado de stock</label>
+            <select name="status">
+              {% for s, lbl in status_choices %}
+              <option value="{{ s }}"
+                {% if data.status == s %}selected
+                {% elif is_edit and product.status == s %}selected
+                {% elif not is_edit and s == 'available' %}selected
+                {% endif %}>{{ lbl }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="fp-check">
+            <input type="checkbox" id="id_is_active" name="is_active"
+              {% if data.is_active == 'on' %}checked
+              {% elif is_edit and product.is_active %}checked
+              {% elif not is_edit %}checked
+              {% endif %}>
+            <label for="id_is_active" style="text-transform:none;letter-spacing:0;font-size:14px;color:#bbb;margin:0;cursor:pointer;">
+              Producto activo (visible en tienda)
+            </label>
+          </div>
+
+        </div>
+      </div>
+
+      <button type="submit" class="btn-g" style="width:100%;justify-content:center;padding:11px;">
+        <i class="bi bi-check-circle"></i>
+        {% if is_edit %}Guardar cambios{% else %}Crear producto{% endif %}
+      </button>
+    </div>
+
+  </div>
+</form>
+
+{% if is_edit %}
+<!-- ═══ IMÁGENES ═════════════════════════════════════════════════════════════ -->
+<div style="margin-top:20px;">
+  <div class="p-card">
+    <div class="p-card-head">
+      <h2>Imágenes
+        <span id="imgCountLabel" style="color:#555;font-weight:400;"> ({{ product.images.count }})</span>
+      </h2>
+      <label class="btn-g btn-sm" style="cursor:pointer;">
+        <i class="bi bi-upload"></i> Subir fotos
+        <input type="file" id="imgUploadInput" multiple accept="image/*" style="display:none;">
+      </label>
+    </div>
+    <div class="p-card-body">
+
+      <!-- Feedback subida -->
+      <div id="imgUploadBar" style="display:none;margin-bottom:12px;background:#0d0d0d;border:1px solid #1a1a1a;border-radius:6px;padding:10px 14px;font-size:12px;color:#888;align-items:center;gap:8px;">
+        <div class="spinner-border spinner-border-sm text-warning" role="status" style="width:14px;height:14px;border-width:2px;"></div>
+        <span>Subiendo imágenes…</span>
+      </div>
+
+      <!-- Grid -->
+      <div id="imgGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;">
+        {% for img in product.images.all %}
+        <div id="img-{{ img.pk }}" style="position:relative;background:#0d0d0d;border:1px solid {% if img.is_cover %}var(--pg){% else %}#1a1a1a{% endif %};border-radius:6px;overflow:hidden;transition:border-color .15s;">
+          <img src="{{ img.image.url }}" alt=""
+               style="width:100%;aspect-ratio:1/1;object-fit:cover;display:block;">
+          <div style="position:absolute;top:5px;left:5px;right:5px;display:flex;justify-content:space-between;align-items:flex-start;">
+            {% if img.is_cover %}
+              <span style="background:var(--pg);color:#000;font-size:9px;font-weight:700;padding:2px 7px;border-radius:3px;letter-spacing:.05em;">PORTADA</span>
+            {% else %}
+              <button type="button" onclick="setCover({{ img.pk }})"
+                      style="background:rgba(0,0,0,.7);border:1px solid #333;color:#888;font-size:11px;padding:2px 7px;border-radius:3px;cursor:pointer;"
+                      title="Poner como portada"
+                      onmouseover="this.style.borderColor='var(--pg)';this.style.color='var(--pg)'"
+                      onmouseout="this.style.borderColor='#333';this.style.color='#888'">
+                <i class="bi bi-star"></i>
+              </button>
+            {% endif %}
+            <button type="button" onclick="deleteImg({{ img.pk }})"
+                    style="background:rgba(180,30,30,.85);border:none;color:#fff;width:24px;height:24px;border-radius:3px;cursor:pointer;display:flex;align-items:center;justify-content:center;"
+                    title="Eliminar imagen">
+              <i class="bi bi-x" style="font-size:15px;"></i>
+            </button>
+          </div>
+        </div>
+        {% empty %}
+        <div id="imgEmptyMsg" style="grid-column:1/-1;color:#444;font-size:13px;padding:24px 0;text-align:center;">
+          <i class="bi bi-images" style="font-size:2rem;display:block;margin-bottom:8px;opacity:.3;"></i>
+          Sin imágenes. Usa el botón "Subir fotos" para agregar.
+        </div>
+        {% endfor %}
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+{% if is_edit %}
+<script>
+const _CSRF       = '{{ csrf_token }}';
+const _UPLOAD_URL = '{% url "panel:product_image_upload" product.pk %}';
+const _DEL_URL    = pk => `/panel/imagenes/${pk}/eliminar/`;
+const _COVER_URL  = pk => `/panel/imagenes/${pk}/portada/`;
+
+// ── Upload ────────────────────────────────────────────────────────────────────
+document.getElementById('imgUploadInput').addEventListener('change', async function () {
+  if (!this.files.length) return;
+  const bar = document.getElementById('imgUploadBar');
+  bar.style.display = 'flex';
+  const fd = new FormData();
+  fd.append('csrfmiddlewaretoken', _CSRF);
+  for (const f of this.files) fd.append('images', f);
+  try {
+    const res  = await fetch(_UPLOAD_URL, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.ok) {
+      const grid  = document.getElementById('imgGrid');
+      const empty = document.getElementById('imgEmptyMsg');
+      if (empty) empty.remove();
+      data.images.forEach(img => grid.insertAdjacentHTML('beforeend', buildCard(img)));
+      updateCount(data.images.length);
+    }
+  } catch { /* silent */ }
+  bar.style.display = 'none';
+  this.value = '';
+});
+
+// ── Delete ────────────────────────────────────────────────────────────────────
+async function deleteImg(pk) {
+  const ok = await ryalConfirm({ title: 'Eliminar imagen', msg: '¿Eliminar esta imagen? No se puede deshacer.', okLabel: 'Eliminar' });
+  if (!ok) return;
+  const res  = await fetch(_DEL_URL(pk), { method: 'POST', headers: { 'X-CSRFToken': _CSRF } });
+  const data = await res.json();
+  if (data.ok) {
+    document.getElementById(`img-${pk}`).remove();
+    updateCount(-1);
+    if (!document.querySelector('#imgGrid > div[id^="img-"]')) {
+      document.getElementById('imgGrid').insertAdjacentHTML('beforeend',
+        '<div id="imgEmptyMsg" style="grid-column:1/-1;color:#444;font-size:13px;padding:24px 0;text-align:center;">' +
+        '<i class="bi bi-images" style="font-size:2rem;display:block;margin-bottom:8px;opacity:.3;"></i>Sin imágenes.</div>');
+    }
+  }
+}
+
+// ── Set cover ─────────────────────────────────────────────────────────────────
+async function setCover(pk) {
+  const res  = await fetch(_COVER_URL(pk), { method: 'POST', headers: { 'X-CSRFToken': _CSRF } });
+  const data = await res.json();
+  if (data.ok) location.reload();
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function updateCount(delta) {
+  const lbl = document.getElementById('imgCountLabel');
+  const m   = lbl.textContent.match(/\d+/);
+  if (m) lbl.textContent = ` (${parseInt(m[0]) + delta})`;
+}
+
+function buildCard(img) {
+  const star = img.is_cover
+    ? '<span style="background:var(--pg);color:#000;font-size:9px;font-weight:700;padding:2px 7px;border-radius:3px;">PORTADA</span>'
+    : `<button type="button" onclick="setCover(${img.pk})" style="background:rgba(0,0,0,.7);border:1px solid #333;color:#888;font-size:11px;padding:2px 7px;border-radius:3px;cursor:pointer;"><i class="bi bi-star"></i></button>`;
+  return `<div id="img-${img.pk}" style="position:relative;background:#0d0d0d;border:1px solid ${img.is_cover ? 'var(--pg)' : '#1a1a1a'};border-radius:6px;overflow:hidden;">
+    <img src="${img.url}" alt="" style="width:100%;aspect-ratio:1/1;object-fit:cover;display:block;">
+    <div style="position:absolute;top:5px;left:5px;right:5px;display:flex;justify-content:space-between;align-items:flex-start;">
+      ${star}
+      <button type="button" onclick="deleteImg(${img.pk})" style="background:rgba(180,30,30,.85);border:none;color:#fff;width:24px;height:24px;border-radius:3px;cursor:pointer;display:flex;align-items:center;justify-content:center;"><i class="bi bi-x" style="font-size:15px;"></i></button>
+    </div>
+  </div>`;
+}
+</script>
+{% endif %}
+{% endblock %}

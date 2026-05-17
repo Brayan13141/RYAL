@@ -1,0 +1,942 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}RYAL — Importación Premium{% endblock %}</title>
+  <meta name="description" content="{% block meta_description %}Gorras, tenis y sudaderas de importación directa. Precios de proveedor, sin intermediarios.{% endblock %}">
+  {% block extra_head %}{% endblock %}
+
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Bootstrap Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Outfit:wght@300;400;500;600&family=Syne:wght@700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- Estilos base del proyecto (si existen) -->
+  <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+
+  <!-- Estilos personalizados para la nueva identidad premium -->
+  <style>
+    :root {
+      --ryal-black: #0a0a0a;
+      --ryal-gold: #D4AF37;
+      --ryal-gold-dark: #B4941E;
+      --ryal-gold-light: #F5E7B3;
+      --ryal-white: #F5F5F5;
+      --ryal-gray: #1C1C1C;
+      --ryal-border: #2A2A2A;
+      --font-heading: 'Cormorant Garamond', 'Times New Roman', serif;
+      --font-body: 'Outfit', system-ui, -apple-system, sans-serif;
+      --font-display: 'Syne', sans-serif;
+    }
+
+    body {
+      background-color: var(--ryal-black);
+      color: var(--ryal-white);
+      font-family: var(--font-body);
+      font-weight: 300;
+      letter-spacing: 0.02em;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* === TIPOGRAFÍA === */
+    h1, h2, h3, h4, h5, h6,
+    .font-heading {
+      font-family: var(--font-heading);
+      font-weight: 500;
+      letter-spacing: 0.04em;
+    }
+    .font-display {
+      font-family: var(--font-display);
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+    .text-gold {
+      color: var(--ryal-gold) !important;
+    }
+    .text-gold-light {
+      color: var(--ryal-gold-light) !important;
+    }
+    .bg-gold {
+      background-color: var(--ryal-gold) !important;
+      color: #000 !important;
+    }
+    .border-gold {
+      border-color: var(--ryal-gold) !important;
+    }
+    .border-soft {
+      border-color: var(--ryal-border) !important;
+    }
+
+    /* === NAVBAR TICKER === */
+    .navbar-ticker {
+      background: linear-gradient(135deg, #000000 0%, #1a1a1a 30%, var(--ryal-gold) 50%, #1a1a1a 70%, #000000 100%);
+      background-size: 200% auto;
+      color: #000;
+      font-size: 0.7rem;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      overflow: hidden;
+      white-space: nowrap;
+      padding: 0.4rem 0;
+      border-bottom: 1px solid var(--ryal-gold);
+    }
+    .navbar-ticker .ticker-track {
+      display: inline-block;
+      animation: ticker-scroll 25s linear infinite;
+    }
+    .navbar-ticker span {
+      margin: 0 1.5rem;
+      color: #fff;
+      mix-blend-mode: difference;
+    }
+    @keyframes ticker-scroll {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+
+    /* === NAVBAR === */
+    .navbar {
+      background-color: rgba(10, 10, 10, 0.97) !important;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--ryal-border);
+      padding: 0.6rem 0;
+      transition: background 0.3s ease;
+    }
+    .navbar-brand img {
+      height: 32px;
+      filter: brightness(0) invert(1);
+      transition: filter 0.3s ease;
+    }
+    .navbar-brand:hover img {
+      filter: brightness(0) invert(1) drop-shadow(0 0 6px rgba(212, 175, 55, 0.5));
+    }
+    .navbar .nav-link {
+      color: rgba(255, 255, 255, 0.8) !important;
+      font-size: 0.85rem;
+      font-weight: 400;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin: 0 0.2rem;
+      padding: 0.5rem 0.8rem !important;
+      position: relative;
+      transition: color 0.3s ease;
+    }
+    .navbar .nav-link::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 1px;
+      background-color: var(--ryal-gold);
+      transition: width 0.3s ease;
+    }
+    .navbar .nav-link:hover,
+    .navbar .nav-link.active {
+      color: var(--ryal-gold) !important;
+    }
+    .navbar .nav-link:hover::after,
+    .navbar .nav-link.active::after {
+      width: 60%;
+    }
+    .navbar-toggler {
+      border: none;
+      padding: 0.4rem;
+    }
+    .navbar-toggler:focus {
+      box-shadow: 0 0 0 2px var(--ryal-gold);
+    }
+    .navbar-toggler-icon {
+      background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba(212, 175, 55, 0.9)' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
+    }
+
+    /* === BOTONES === */
+    .btn-gold {
+      background: linear-gradient(135deg, var(--ryal-gold) 0%, var(--ryal-gold-dark) 100%);
+      color: #000;
+      border: none;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-size: 0.8rem;
+      padding: 0.65rem 1.8rem;
+      border-radius: 2px;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 15px rgba(212, 175, 55, 0.2);
+    }
+    .btn-gold:hover {
+      background: linear-gradient(135deg, #E5C344 0%, #C5A028 100%);
+      color: #000;
+      transform: translateY(-1px);
+      box-shadow: 0 8px 25px rgba(212, 175, 55, 0.35);
+    }
+    .btn-outline-gold {
+      background: transparent;
+      border: 1px solid var(--ryal-gold);
+      color: var(--ryal-gold);
+      font-weight: 400;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-size: 0.8rem;
+      padding: 0.55rem 1.6rem;
+      border-radius: 2px;
+      transition: all 0.3s ease;
+    }
+    .btn-outline-gold:hover {
+      background: var(--ryal-gold);
+      color: #000;
+      border-color: var(--ryal-gold);
+    }
+    .btn-link-icon {
+      width: 38px;
+      height: 38px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08) !important;
+      color: rgba(255,255,255,0.72);
+      font-size: 1.05rem;
+      padding: 0;
+      transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease, transform 0.2s ease;
+    }
+    .btn-link-icon:hover {
+      background: rgba(212,175,55,0.12);
+      border-color: rgba(212,175,55,0.40) !important;
+      color: var(--ryal-gold);
+      transform: translateY(-1px);
+    }
+    /* ── User dropdown ── */
+    .ryal-user-toggle::after { display: none; }
+    .ryal-user-toggle { padding: 0 !important; }
+    .ryal-navbar-avatar {
+      width: 26px; height: 26px; border-radius: 50%; object-fit: cover;
+      border: 1.5px solid rgba(212,175,55,0.5);
+    }
+    .ryal-navbar-initials {
+      width: 26px; height: 26px; border-radius: 50%;
+      background: rgba(212,175,55,0.15);
+      border: 1.5px solid rgba(212,175,55,0.45);
+      color: var(--ryal-gold);
+      font-size: 10px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      line-height: 1; letter-spacing: 0;
+    }
+    .ryal-user-menu {
+      background: #0f0f0f;
+      border: 1px solid #222;
+      border-radius: 10px;
+      min-width: 185px;
+      padding: 6px 0;
+      box-shadow: 0 12px 32px rgba(0,0,0,.6);
+      margin-top: 6px !important;
+    }
+    .ryal-user-menu-name {
+      font-family: var(--font-display);
+      font-size: 10px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--ryal-gold);
+      padding: 6px 14px 8px;
+      display: block;
+      border-bottom: 1px solid #1a1a1a;
+      margin-bottom: 4px;
+    }
+    .ryal-user-menu .dropdown-item {
+      font-size: 13px;
+      color: rgba(255,255,255,0.72);
+      padding: 8px 14px;
+      transition: background .15s, color .15s;
+    }
+    .ryal-user-menu .dropdown-item:hover,
+    .ryal-user-menu .dropdown-item:focus {
+      background: rgba(255,255,255,0.05);
+      color: #fff;
+    }
+    .ryal-user-menu .dropdown-divider { border-color: #1a1a1a; margin: 4px 0; }
+    .ryal-logout-btn {
+      width: 100%; text-align: left; background: none; border: none;
+      color: rgba(255,100,100,0.8) !important;
+      font-size: 13px; padding: 8px 14px; cursor: pointer;
+      transition: background .15s, color .15s;
+    }
+    .ryal-logout-btn:hover {
+      background: rgba(255,80,80,0.08) !important;
+      color: #ff8080 !important;
+    }
+
+    /* === SEARCH COLLAPSE === */
+    #searchCollapse .form-control {
+      background-color: var(--ryal-gray);
+      border: 1px solid var(--ryal-border);
+      color: #fff;
+      border-radius: 2px;
+      font-family: var(--font-body);
+      font-weight: 300;
+      transition: border-color 0.3s ease;
+    }
+    #searchCollapse .form-control:focus {
+      border-color: var(--ryal-gold);
+      box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.15);
+      background-color: var(--ryal-gray);
+      color: #fff;
+    }
+    #searchCollapse .form-control::placeholder {
+      color: rgba(255,255,255,0.35);
+      letter-spacing: 0.05em;
+    }
+
+    /* === CART BADGE === */
+    .cart-badge {
+      position: absolute;
+      top: -4px;
+      right: -8px;
+      background: var(--ryal-gold);
+      color: #000;
+      font-size: 0.65rem;
+      font-weight: 600;
+      min-width: 18px;
+      height: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      padding: 0 4px;
+      line-height: 1;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+    }
+
+    /* === OFFCANVAS CARRITO === */
+    #cartOffcanvas {
+      --bs-offcanvas-bg: var(--ryal-black);
+      --bs-offcanvas-color: var(--ryal-white);
+      background-color: var(--ryal-black);
+      color: var(--ryal-white);
+      border-left: 1px solid var(--ryal-border);
+    }
+    #cartOffcanvas .offcanvas-header {
+      border-bottom: 1px solid #222;
+      padding: 1.2rem 1.5rem;
+    }
+    #cartOffcanvas .offcanvas-title {
+      font-family: var(--font-heading);
+      font-size: 1.4rem;
+      letter-spacing: 0.05em;
+    }
+    #cartOffcanvas .btn-close {
+      filter: invert(1);
+      opacity: 0.6;
+      transition: opacity 0.2s;
+    }
+    #cartOffcanvas .btn-close:hover {
+      opacity: 1;
+    }
+    #cartOffcanvas .offcanvas-body {
+      padding: 1.5rem;
+    }
+    #cartOffcanvas .offcanvas-footer {
+      background-color: rgba(0,0,0,0.6);
+      border-top: 1px solid #222;
+    }
+    .cart-empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+    }
+    .cart-empty-state i {
+      font-size: 3rem;
+      color: var(--ryal-gold);
+      opacity: 0.4;
+    }
+    .cart-items {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .cart-items li {
+      display: flex;
+      gap: 1rem;
+      padding: 1rem 0;
+      border-bottom: 1px solid #1a1a1a;
+      align-items: center;
+    }
+    .cart-items img {
+      width: 60px;
+      height: 60px;
+      object-fit: cover;
+      border-radius: 2px;
+      border: 1px solid #222;
+    }
+    .cart-totals {
+      font-size: 0.9rem;
+      margin-bottom: 1rem;
+    }
+    .cart-totals .cart-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.3rem 0;
+    }
+    .cart-totals .cart-row--total {
+      font-weight: 600;
+      font-size: 1.1rem;
+      border-top: 1px solid #333;
+      padding-top: 0.6rem;
+      margin-top: 0.4rem;
+    }
+    .cart-disclaimer {
+      font-size: 0.7rem;
+      color: #666;
+      text-align: center;
+      margin-top: 0.8rem;
+    }
+
+    /* === MAIN CONTENT === */
+    main {
+      min-height: 60vh;
+    }
+
+    /* === FOOTER === */
+    .footer {
+      background-color: #050505;
+      border-top: 1px solid #1a1a1a;
+      font-size: 0.85rem;
+      color: #999;
+    }
+    .footer a {
+      color: #aaa;
+      text-decoration: none;
+      transition: color 0.3s ease;
+    }
+    .footer a:hover {
+      color: var(--ryal-gold);
+    }
+    .footer h6 {
+      font-family: var(--font-display);
+      font-size: 0.8rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--ryal-gold);
+      margin-bottom: 1rem;
+    }
+    .footer-logo {
+      filter: brightness(0) invert(1);
+      opacity: 0.8;
+      margin-bottom: 0.8rem;
+    }
+    .footer .newsletter-form {
+      display: flex;
+      gap: 0.4rem;
+      margin-top: 1rem;
+    }
+    .footer .newsletter-form input {
+      background: #111;
+      border: 1px solid #2a2a2a;
+      color: #fff;
+      padding: 0.5rem 0.8rem;
+      border-radius: 2px;
+      font-size: 0.8rem;
+      flex: 1;
+      transition: border 0.3s;
+    }
+    .footer .newsletter-form input:focus {
+      outline: none;
+      border-color: var(--ryal-gold);
+    }
+    .footer .newsletter-form button {
+      background: var(--ryal-gold);
+      color: #000;
+      border: none;
+      padding: 0.5rem 1rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      border-radius: 2px;
+      transition: background 0.3s;
+    }
+    .footer .newsletter-form button:hover {
+      background: #c5a028;
+    }
+    .footer-bottom {
+      border-top: 1px solid #111;
+      padding-top: 1.5rem;
+      margin-top: 2rem;
+      font-size: 0.75rem;
+      color: #555;
+    }
+
+    /* === WHATSAPP FLOAT (multi-número) === */
+    .wa-wrap {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      z-index: 1050;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+    }
+    .wa-bubble {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #141414;
+      border: 1px solid rgba(37,211,102,.2);
+      border-radius: 24px;
+      padding: 9px 16px 9px 12px;
+      color: #ddd;
+      font-size: 0.82rem;
+      text-decoration: none;
+      white-space: nowrap;
+      opacity: 0;
+      transform: translateY(10px) scale(0.95);
+      transition: opacity 0.18s ease, transform 0.2s ease, border-color 0.18s;
+      pointer-events: none;
+      box-shadow: 0 4px 18px rgba(0,0,0,.55);
+    }
+    .wa-bubble i { color: #25D366; font-size: 1rem; }
+    .wa-bubble:hover { border-color: rgba(37,211,102,.5); color: #fff; }
+    .wa-wrap.open .wa-bubble,
+    .wa-wrap:not(.open):hover .wa-bubble {
+      opacity: 1; transform: none; pointer-events: auto;
+    }
+    .wa-wrap.open .wa-bubble:first-child,
+    .wa-wrap:not(.open):hover .wa-bubble:first-child { transition-delay: .04s; }
+    .wa-btn {
+      background: linear-gradient(135deg, #25D366, #128C7E);
+      color: white;
+      width: 56px; height: 56px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.5), 0 0 0 2px rgba(212,175,55,.3);
+      cursor: pointer;
+      border: none;
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+      flex-shrink: 0;
+    }
+    .wa-btn:hover { transform: scale(1.08); box-shadow: 0 12px 35px rgba(0,0,0,0.6), 0 0 0 4px rgba(212,175,55,.5); }
+    .wa-btn i { font-size: 1.8rem; pointer-events: none; }
+
+    /* === DJANGO MESSAGES y TOAST === */
+    .django-message {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      z-index: 9999;
+      background: var(--ryal-gray);
+      color: #fff;
+      border-left: 3px solid var(--ryal-gold);
+      padding: 0.8rem 1.5rem;
+      border-radius: 2px;
+      font-size: 0.85rem;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+      animation: fadeInRight 0.4s ease;
+    }
+    @keyframes fadeInRight {
+      from { opacity: 0; transform: translateX(30px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    /* === RESPONSIVE FINE-TUNING === */
+    @media (max-width: 768px) {
+      .navbar .nav-link {
+        font-size: 0.9rem;
+        padding: 0.7rem 0 !important;
+        border-bottom: 1px solid #1a1a1a;
+      }
+      .navbar .nav-link::after {
+        display: none;
+      }
+      .navbar-collapse {
+        background: rgba(10,10,10,0.98);
+        padding: 1rem;
+        margin-top: 0.5rem;
+        border-radius: 3px;
+      }
+    }
+  </style>
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════
+       TICKER DE PROMOCIONES
+  ═══════════════════════════════════════════ -->
+  <div class="navbar-ticker">
+    <div class="ticker-track">
+      <span>Envío gratis en todos los pedidos</span>
+      <span>·</span>
+      <span>Nuevos drops cada semana</span>
+      <span>·</span>
+      <span>Importación directa — 100% calidad</span>
+      <span>·</span>
+      <span>Cierra tu pedido por WhatsApp</span>
+      <span>·</span>
+      <span>Envío gratis en todos los pedidos</span>
+      <span>·</span>
+      <span>Nuevos drops cada semana</span>
+      <span>·</span>
+      <span>Importación directa — 100% calidad</span>
+      <span>·</span>
+      <span>Cierra tu pedido por WhatsApp</span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       NAVBAR PRINCIPAL
+  ═══════════════════════════════════════════ -->
+  <nav class="navbar navbar-expand-lg sticky-top" aria-label="Navegación principal">
+    <div class="container">
+      <!-- Logo -->
+      <a class="navbar-brand" href="{% url 'catalog:home' %}">
+        <img src="{% static 'img/logo-ryal-white.png' %}" alt="RYAL" height="32">
+      </a>
+
+      <!-- Toggler mobile -->
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarMain"
+              aria-controls="navbarMain" aria-expanded="false" aria-label="Abrir menú">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+
+      <!-- Contenido colapsable -->
+      <div class="collapse navbar-collapse" id="navbarMain">
+        <!-- Links centrales -->
+        <ul class="navbar-nav mx-auto mb-2 mb-lg-0 align-items-lg-center">
+          <li class="nav-item">
+            <a class="nav-link {% if request.resolver_match.url_name == 'home' %}active{% endif %}"
+               href="{% url 'catalog:home' %}">Inicio</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link {% if request.resolver_match.url_name == 'hub' or request.resolver_match.url_name == 'category' or request.resolver_match.url_name == 'product_list' or request.resolver_match.url_name == 'search' %}active{% endif %}"
+               href="{% url 'catalog:hub' %}">Catálogo</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link {% if request.resolver_match.url_name == 'nosotros' %}active{% endif %}"
+               href="{% url 'catalog:nosotros' %}">Nosotros</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link {% if request.resolver_match.url_name == 'order_track' %}active{% endif %}"
+               href="{% url 'orders:order_track' %}">Rastrear pedido</a>
+          </li>
+          {% if user.is_authenticated %}
+          <li class="nav-item">
+            <a class="nav-link {% if request.resolver_match.url_name == 'my_orders' %}active{% endif %}"
+               href="{% url 'orders:my_orders' %}">Mis pedidos</a>
+          </li>
+          {% endif %}
+        </ul>
+
+        <!-- Herramientas -->
+        <div class="d-flex align-items-center gap-2 gap-lg-3">
+          <!-- Búsqueda -->
+          <button class="btn btn-link-icon" type="button" data-bs-toggle="collapse"
+                  data-bs-target="#searchCollapse" aria-expanded="false" aria-controls="searchCollapse"
+                  aria-label="Buscar">
+            <i class="bi bi-search" style="font-size:0.95rem;"></i>
+          </button>
+
+          <!-- Cuenta / dropdown -->
+          {% if user.is_authenticated %}
+          <div class="dropdown">
+            <button class="btn btn-link-icon ryal-user-toggle dropdown-toggle"
+                    type="button" data-bs-toggle="dropdown" aria-expanded="false"
+                    aria-label="Mi cuenta">
+              {% if user.profile.avatar %}
+                <img src="{{ user.profile.avatar.url }}" alt="{{ user.first_name }}"
+                     class="ryal-navbar-avatar">
+              {% else %}
+                <span class="ryal-navbar-initials">
+                  {{ user.first_name|first|upper|default:user.username|first|upper }}
+                </span>
+              {% endif %}
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end ryal-user-menu">
+              <li>
+                <span class="dropdown-header ryal-user-menu-name">
+                  {{ user.first_name|default:user.username }}
+                </span>
+              </li>
+              <li><a class="dropdown-item" href="{% url 'accounts:profile' %}">
+                <i class="bi bi-person me-2"></i>Mi perfil
+              </a></li>
+              {% if user.is_staff %}
+              <li><a class="dropdown-item" href="{% url 'panel:dashboard' %}">
+                <i class="bi bi-sliders2 me-2"></i>Panel admin
+              </a></li>
+              {% endif %}
+              <li><hr class="dropdown-divider"></li>
+              <li>
+                <form method="post" action="{% url 'accounts:logout' %}" style="margin:0;">
+                  {% csrf_token %}
+                  <button type="submit" class="dropdown-item ryal-logout-btn">
+                    <i class="bi bi-box-arrow-right me-2"></i>Cerrar sesión
+                  </button>
+                </form>
+              </li>
+            </ul>
+          </div>
+          {% else %}
+            <a href="{% url 'account_login' %}" class="btn btn-link-icon" aria-label="Iniciar sesión">
+              <i class="bi bi-person" style="font-size:1.05rem;"></i>
+            </a>
+          {% endif %}
+
+          <!-- Carrito -->
+          <button class="btn btn-link-icon position-relative" id="cartToggle"
+                  aria-label="Carrito" data-bs-toggle="offcanvas" data-bs-target="#cartOffcanvas"
+                  aria-controls="cartOffcanvas">
+            <i class="bi bi-cart3" style="font-size:1rem;"></i>
+            <span class="cart-badge {% if cart_count == 0 %}d-none{% endif %}" id="cartBadge">
+              {{ cart_count }}
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Collapse de búsqueda -->
+    <div class="collapse w-100" id="searchCollapse">
+      <div class="container py-3">
+        <form action="{% url 'catalog:search' %}" method="get" class="d-flex" role="search">
+          <input class="form-control me-2" type="search" name="q"
+                 placeholder="Buscar gorras, tenis, sudaderas…"
+                 value="{{ request.GET.q }}" autocomplete="off" aria-label="Buscar">
+          <button class="btn btn-gold px-4" type="submit">Buscar</button>
+        </form>
+      </div>
+    </div>
+  </nav>
+
+
+  <!-- ═══════════════════════════════════════════
+       CONTENIDO PRINCIPAL
+  ═══════════════════════════════════════════ -->
+  <main id="main">
+    {% if messages %}
+      {% for message in messages %}
+        <div class="django-message {{ message.tags }}" role="alert">
+          {{ message }}
+          <button type="button" class="btn-close btn-close-white ms-2" onclick="this.closest('.django-message').remove()" aria-label="Cerrar"></button>
+        </div>
+      {% endfor %}
+    {% endif %}
+
+    {% block content %}{% endblock %}
+  </main>
+
+
+  <!-- ═══════════════════════════════════════════
+       FOOTER
+  ═══════════════════════════════════════════ -->
+  <footer class="footer pt-5 pb-4 mt-5">
+    <div class="container">
+      <div class="row g-4">
+        <!-- Brand -->
+        <div class="col-lg-4 col-md-6">
+          <img src="{% static 'img/logo-ryal-white.png' %}" alt="RYAL" height="28" class="footer-logo">
+          <p class="mt-2 mb-1">Importamos directo para que tengas acceso a lo mejor sin salir de México.</p>
+          <form class="newsletter-form mt-3" id="newsletterForm">
+            <input type="email" placeholder="Tu correo" required>
+            <button type="submit">Suscribir</button>
+          </form>
+        </div>
+
+        <!-- Tienda -->
+        <div class="col-lg-2 col-md-6 col-6">
+          <h6>Tienda</h6>
+          <ul class="list-unstyled">
+            {% for cat in nav_categories|slice:":4" %}
+            <li><a href="{% url 'catalog:category' cat.slug %}">{{ cat.name }}</a></li>
+            {% endfor %}
+            <li><a href="{% url 'catalog:hub' %}">Ver todo</a></li>
+          </ul>
+        </div>
+
+        <!-- Info -->
+        <div class="col-lg-2 col-md-6 col-6">
+          <h6>Info</h6>
+          <ul class="list-unstyled">
+            <li><a href="{% url 'catalog:nosotros' %}">Nosotros</a></li>
+            <li><a href="#">Envíos</a></li>
+            <li><a href="#">FAQ</a></li>
+            <li><a href="#">Privacidad</a></li>
+          </ul>
+        </div>
+
+        <!-- Contacto -->
+        <div class="col-lg-2 col-md-6 col-6">
+          <h6>Contacto</h6>
+          <ul class="list-unstyled">
+            <li><a href="https://wa.me/524451129186" target="_blank" rel="noopener">WA · 4451 129186</a></li>
+            <li><a href="https://wa.me/524451076015" target="_blank" rel="noopener">WA · 4451 076015</a></li>
+            <li><a href="mailto:ryalsneackershop@gmail.com">ryalsneackershop@gmail.com</a></li>
+            <li><a href="https://www.instagram.com/ryalsneackers" target="_blank" rel="noopener">Instagram</a></li>
+            <li><a href="https://www.tiktok.com/@ryalsneackershop" target="_blank" rel="noopener">TikTok</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer-bottom d-flex flex-wrap justify-content-between align-items-center">
+        <span>© {% now "Y" %} RYAL — Todos los derechos reservados</span>
+        <span>Ciudad de México, México</span>
+      </div>
+    </div>
+  </footer>
+
+
+  <!-- ═══════════════════════════════════════════
+       OFFCANVAS CARRITO (Bootstrap 5)
+  ═══════════════════════════════════════════ -->
+  <div class="offcanvas offcanvas-end" tabindex="-1" id="cartOffcanvas"
+       aria-labelledby="cartOffcanvasLabel" style="width: 400px; max-width: 90vw;">
+    <!-- Encabezado -->
+    <div class="offcanvas-header">
+      <h5 class="offcanvas-title text-gold" id="cartOffcanvasLabel">
+        Carrito <span id="ocItemCount" class="text-white">({{ cart_count }})</span>
+      </h5>
+      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas"
+              aria-label="Cerrar carrito" id="cartClose"></button>
+    </div>
+
+    <!-- Cuerpo -->
+    <div class="offcanvas-body" id="cartBody">
+      <!-- Loading -->
+      <div class="text-center py-4 d-none" id="cartLoading">
+        <div class="spinner-border text-gold" role="status">
+          <span class="visually-hidden">Cargando...</span>
+        </div>
+      </div>
+
+      <!-- Vacío -->
+      <div class="cart-empty-state {% if cart_count > 0 %}d-none{% endif %}" id="cartEmpty">
+        <i class="bi bi-cart3"></i>
+        <p class="mt-3 mb-4">Tu carrito está vacío</p>
+        <a href="{% url 'catalog:hub' %}" class="btn btn-outline-gold btn-sm">Explorar catálogo</a>
+      </div>
+
+      <!-- Items -->
+      <ul class="cart-items {% if cart_count == 0 %}d-none{% endif %}" id="cartItems"></ul>
+    </div>
+
+    <!-- Footer (totales y checkout) -->
+    <div class="offcanvas-footer p-3 {% if cart_count == 0 %}d-none{% endif %}" id="cartFoot">
+      <div class="cart-totals">
+        <div class="cart-row"><span>Subtotal</span><span id="ocSubtotal">$0 MXN</span></div>
+        <div class="cart-row cart-row--ship"><span>Envío</span><span id="ocShipping">A calcular</span></div>
+        <div class="cart-row cart-row--total"><span>Total</span><span id="ocTotal">$0 MXN</span></div>
+      </div>
+      <div id="ocCategoryWarnings" class="d-none"></div>
+      <a href="{% url 'orders:checkout' %}" class="btn btn-gold w-100 py-2" id="ocCheckoutBtn">
+        Proceder al checkout
+      </a>
+      <p class="cart-disclaimer">No se cobra nada hasta confirmar por WhatsApp</p>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════
+       BOTÓN FLOTANTE WHATSAPP
+  ═══════════════════════════════════════════ -->
+  <div class="wa-wrap" id="waWrap">
+    <a href="https://wa.me/524451129186" target="_blank" rel="noopener" class="wa-bubble">
+      <i class="bi bi-whatsapp"></i> +52 4451 129186
+    </a>
+    <a href="https://wa.me/524451076015" target="_blank" rel="noopener" class="wa-bubble">
+      <i class="bi bi-whatsapp"></i> +52 4451 076015
+    </a>
+    <button class="wa-btn" id="waBtn" aria-label="Contactar por WhatsApp">
+      <i class="bi bi-whatsapp"></i>
+    </button>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════
+       TOAST / NOTIFICACIONES (opcional)
+  ═══════════════════════════════════════════ -->
+  <div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastContainer">
+    <!-- Los toasts dinámicos se insertarán aquí con JS -->
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════
+       SCRIPTS
+  ═══════════════════════════════════════════ -->
+  <!-- Bootstrap JS Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Variables y rutas para JS personalizado -->
+  <script>
+    const CSRF_TOKEN = '{{ csrf_token }}';
+    const URLS = {
+      cartAdd:    '{% url "orders:cart_add" %}',
+      cartRemove: '{% url "orders:cart_remove" %}',
+      cartUpdate: '{% url "orders:cart_update" %}',
+      cartGet:    '{% url "orders:cart_get" %}',
+      checkout:   '{% url "orders:checkout" %}',
+    };
+
+    // Inicializar Offcanvas manualmente para compatibilidad si es necesario
+    document.addEventListener('DOMContentLoaded', function() {
+      // El data-bs-toggle ya maneja apertura. Aseguramos cierre con botón específico.
+      const cartOffcanvas = document.getElementById('cartOffcanvas');
+      if (cartOffcanvas) {
+        // Para que cart.js pueda cerrarlo programáticamente si lo necesita
+        window.cartOffcanvasInstance = bootstrap.Offcanvas.getInstance(cartOffcanvas) ||
+                                       new bootstrap.Offcanvas(cartOffcanvas);
+      }
+    });
+  </script>
+
+  <!-- Scripts propios del proyecto -->
+  <script src="{% static 'js/cart.js' %}"></script>
+  <script src="{% static 'js/ui.js' %}"></script>
+
+  <!-- Rotación automática de imágenes en cards -->
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      document.querySelectorAll('.card-rotating-img[data-imgs]').forEach(function (img) {
+        var urls = img.dataset.imgs.split(',').filter(Boolean);
+        if (urls.length <= 1) return;
+        img.style.transition = 'opacity 0.25s ease';
+        var idx = 0;
+        setInterval(function () {
+          idx = (idx + 1) % urls.length;
+          img.style.opacity = '0';
+          setTimeout(function () { img.src = urls[idx]; img.style.opacity = '1'; }, 250);
+        }, 3500);
+      });
+    });
+  </script>
+
+  <!-- WhatsApp multi-número toggle -->
+  <script>
+    (function () {
+      var btn  = document.getElementById('waBtn');
+      var wrap = document.getElementById('waWrap');
+      if (!btn) return;
+      btn.addEventListener('click', function (e) {
+        wrap.classList.toggle('open');
+        e.stopPropagation();
+      });
+      document.addEventListener('click', function () {
+        wrap.classList.remove('open');
+      });
+    })();
+  </script>
+
+{% block extra_js %}{% endblock %}
+
+</body>
+</html>

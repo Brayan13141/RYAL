@@ -1,0 +1,558 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Productos — Panel RYAL{% endblock %}
+{% block page_title %}Productos{% endblock %}
+
+{% block content %}
+
+<!-- ═══ ACCIÓN PRINCIPAL ══════════════════════════════════════════════════════ -->
+<div style="display:flex;justify-content:flex-end;margin-bottom:14px;">
+  <a href="{% url 'panel:product_create' %}" class="btn-g">
+    <i class="bi bi-plus-circle"></i> Nuevo producto
+  </a>
+</div>
+
+<!-- ═══ FILTROS ═══════════════════════════════════════════════════════════════ -->
+<form method="get" id="filterForm" class="fbar" style="margin-bottom:10px;flex-wrap:wrap;gap:6px;">
+  <input type="text" name="q" value="{{ q }}" placeholder="Nombre o SKU…" style="width:200px;">
+  <select name="cat" style="min-width:170px;">
+    <option value="">Todas las categorías</option>
+    {% for parent in parent_cats %}
+      {% if parent.subcategories.all %}
+        <optgroup label="{{ parent.name }}">
+          <option value="{{ parent.slug }}" {% if cat_filter == parent.slug %}selected{% endif %}>
+            — Todo {{ parent.name }}
+          </option>
+          {% for sub in parent.subcategories.all %}
+            <option value="{{ sub.slug }}" {% if cat_filter == sub.slug %}selected{% endif %}>
+              &nbsp;&nbsp;{{ sub.name }}
+            </option>
+          {% endfor %}
+        </optgroup>
+      {% else %}
+        <option value="{{ parent.slug }}" {% if cat_filter == parent.slug %}selected{% endif %}>
+          {{ parent.name }}
+        </option>
+      {% endif %}
+    {% endfor %}
+  </select>
+  <select name="active">
+    <option value="">Activos e inactivos</option>
+    <option value="1" {% if active_filter == '1' %}selected{% endif %}>Solo activos</option>
+    <option value="0" {% if active_filter == '0' %}selected{% endif %}>Solo inactivos</option>
+  </select>
+  <select name="no_image">
+    <option value="">Con y sin foto</option>
+    <option value="1" {% if no_image == '1' %}selected{% endif %}>Sin foto</option>
+  </select>
+  <button type="submit" class="btn-g btn-sm"><i class="bi bi-search"></i> Filtrar</button>
+  {% if cat_filter or active_filter or q or no_image %}
+  <a href="{% url 'panel:products_list' %}" class="btn-o btn-sm"><i class="bi bi-x"></i> Limpiar</a>
+  {% endif %}
+</form>
+
+<!-- ═══ HERRAMIENTAS RÁPIDAS ═══════════════════════════════════════════════════ -->
+<div style="display:flex;align-items:center;gap:6px;margin-bottom:14px;flex-wrap:wrap;padding:10px 14px;background:#111;border:1px solid #1a1a1a;border-radius:6px;">
+  <span style="font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:#444;font-weight:600;margin-right:4px;">Acciones globales</span>
+
+  <button onclick="quickAction('deactivate','no_image')"
+          class="btn-o btn-sm"
+          title="Desactiva todos los productos del catálogo que no tienen foto">
+    <i class="bi bi-image-x"></i> Sin foto → Desactivar
+    <span class="tool-badge">{{ no_image_count }}</span>
+  </button>
+
+  <button onclick="quickAction('activate','no_image')"
+          class="btn-o btn-sm"
+          title="Activa todos los productos sin foto">
+    <i class="bi bi-image"></i> Sin foto → Activar
+    <span class="tool-badge">{{ no_image_count }}</span>
+  </button>
+
+  <span style="color:#222;font-size:16px;margin:0 2px;">|</span>
+
+  <button onclick="quickAction('deactivate','all')"
+          class="btn-o btn-sm"
+          title="Desactiva todos los productos que coincidan con el filtro actual">
+    <i class="bi bi-slash-circle"></i> Desactivar filtro
+    <span class="tool-badge">{{ total_count }}</span>
+  </button>
+
+  <button onclick="quickAction('activate','all')"
+          class="btn-o btn-sm"
+          title="Activa todos los productos que coincidan con el filtro actual">
+    <i class="bi bi-check-circle"></i> Activar filtro
+    <span class="tool-badge">{{ total_count }}</span>
+  </button>
+
+  <button onclick="quickAction('delete','all')"
+          class="btn-r btn-sm"
+          title="Elimina permanentemente todos los productos del filtro actual">
+    <i class="bi bi-trash3"></i> Eliminar filtro
+    <span class="tool-badge">{{ total_count }}</span>
+  </button>
+</div>
+
+<!-- ═══ BARRA DE SELECCIÓN MASIVA (aparece al seleccionar rows) ════════════════ -->
+<div id="bulkBar" style="display:none;background:#161616;border:1px solid #2a2a2a;border-radius:6px;padding:10px 14px;margin-bottom:12px;align-items:center;gap:10px;flex-wrap:wrap;">
+  <span id="bulkCount" style="font-size:12px;color:#aaa;font-family:monospace;white-space:nowrap;"></span>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;">
+    <button onclick="bulkAction('activate')"   class="btn-g btn-sm"><i class="bi bi-check-circle"></i> Activar</button>
+    <button onclick="bulkAction('deactivate')" class="btn-o btn-sm"><i class="bi bi-slash-circle"></i> Desactivar</button>
+    <button onclick="bulkAction('delete')"     class="btn-r btn-sm"><i class="bi bi-trash"></i> Eliminar</button>
+    <button onclick="openPriceModal()"         class="btn-o btn-sm"><i class="bi bi-tag"></i> Cambiar precio</button>
+  </div>
+  <button id="selectAllResultsBtn"
+          onclick="selectAllResults()"
+          style="display:none;background:none;border:none;color:var(--pg);cursor:pointer;font-size:12px;text-decoration:underline;padding:0;">
+    Seleccionar todos los <strong id="totalResultsCount">0</strong> resultados del filtro
+  </button>
+  <span id="selectedAllMsg" style="display:none;font-size:12px;color:var(--pg);">
+    Todos los <strong>{{ total_count }}</strong> resultados seleccionados
+  </span>
+  <button onclick="clearSelection()" style="margin-left:auto;background:none;border:none;color:#555;cursor:pointer;font-size:15px;" title="Cancelar selección">
+    <i class="bi bi-x-lg"></i>
+  </button>
+</div>
+
+<!-- ═══ TABLA ══════════════════════════════════════════════════════════════════ -->
+<div class="p-card">
+  <div class="p-card-head" style="padding:9px 16px;">
+    <span style="font-size:12px;color:#555;">
+      <strong style="color:#888;">{{ total_count }}</strong> producto{{ total_count|pluralize }}
+      {% if page_obj.has_other_pages %}— pág. {{ page_obj.number }}/{{ page_obj.paginator.num_pages }}{% endif %}
+    </span>
+    <select onchange="
+      var p = new URLSearchParams(window.location.search);
+      p.set('per_page', this.value);
+      p.delete('page');
+      window.location.search = p.toString();
+    " style="background:#0d0d0d;border:1px solid #1a1a1a;color:#666;font-size:11px;font-family:monospace;padding:3px 6px;border-radius:3px;cursor:pointer;">
+      <option value="50"   {% if per_page == '50'   %}selected{% endif %}>50 / pág.</option>
+      <option value="100"  {% if per_page == '100'  %}selected{% endif %}>100 / pág.</option>
+      <option value="200"  {% if per_page == '200'  %}selected{% endif %}>200 / pág.</option>
+      <option value="todos"{% if per_page == 'todos' %}selected{% endif %}>Todos</option>
+    </select>
+  </div>
+  <div style="overflow-x:auto;">
+    <table class="p-table">
+      <thead>
+        <tr>
+          <th style="width:36px;padding:10px 4px 10px 14px;">
+            <input type="checkbox" id="checkAll" title="Seleccionar/deseleccionar página"
+                   style="accent-color:var(--pg);width:15px;height:15px;cursor:pointer;">
+          </th>
+          <th style="width:72px;"></th>
+          <th class="col-sku">SKU</th>
+          <th>Nombre</th>
+          <th class="col-cat">Categoría</th>
+          <th style="text-align:right;">Precio</th>
+          <th class="col-stock">Stock</th>
+          <th style="text-align:center;">Activo</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in page_obj %}
+        <tr id="row-{{ p.pk }}">
+          <td style="padding:8px 4px 8px 14px;">
+            <input type="checkbox" class="row-check" value="{{ p.pk }}"
+                   style="accent-color:var(--pg);width:15px;height:15px;cursor:pointer;">
+          </td>
+          <td style="padding:6px 8px;">
+            {% with img=p.cover_image %}
+            {% if img %}
+            <img src="{{ img.image.url }}" alt=""
+                 style="width:60px;height:60px;object-fit:cover;border-radius:5px;border:1px solid #1a1a1a;display:block;">
+            {% else %}
+            <div style="width:60px;height:60px;background:#1a1a1a;border-radius:5px;display:flex;align-items:center;justify-content:center;" title="Sin imagen">
+              <i class="bi bi-image" style="color:#2a2a2a;font-size:20px;"></i>
+            </div>
+            {% endif %}
+            {% endwith %}
+          </td>
+          <td class="col-sku" style="font-family:monospace;font-size:11px;color:#555;">{{ p.sku }}</td>
+          <td><a href="{% url 'panel:product_edit' p.pk %}">{{ p.name }}</a></td>
+          <td class="col-cat" style="color:#555;font-size:12px;">{{ p.category.name }}</td>
+          <td style="text-align:right;font-weight:600;color:#ddd;">${{ p.final_price|floatformat:0 }}</td>
+          <td class="col-stock"><span class="bs bs-{{ p.status }}">{{ p.get_status_display }}</span></td>
+          <td style="text-align:center;">
+            <label class="tog" title="{% if p.is_active %}Desactivar{% else %}Activar{% endif %}">
+              <input type="checkbox" class="tog-input" data-pk="{{ p.pk }}"
+                     {% if p.is_active %}checked{% endif %}>
+              <span class="tog-sl"></span>
+            </label>
+          </td>
+          <td style="white-space:nowrap;">
+            <a href="{% url 'panel:product_edit' p.pk %}" class="btn-o btn-sm" title="Editar">
+              <i class="bi bi-pencil"></i>
+            </a>
+            <button type="button" class="btn-r btn-sm btn-del"
+                    data-pk="{{ p.pk }}" data-name="{{ p.name }}" title="Eliminar">
+              <i class="bi bi-trash"></i>
+            </button>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="9" style="text-align:center;color:#444;padding:40px;">
+            No hay productos{% if q or cat_filter or active_filter or no_image %} con ese filtro{% endif %}.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══ PAGINACIÓN ════════════════════════════════════════════════════════════ -->
+{% if page_obj.has_other_pages and per_page != 'todos' %}
+<div class="p-pages">
+  {% if page_obj.has_previous %}
+    <a href="?page={{ page_obj.previous_page_number }}&q={{ q }}&cat={{ cat_filter }}&active={{ active_filter }}&no_image={{ no_image }}&per_page={{ per_page }}">
+      <i class="bi bi-chevron-left"></i>
+    </a>
+  {% endif %}
+  {% for num in page_obj.paginator.page_range %}
+    {% if page_obj.number == num %}
+      <span class="cur">{{ num }}</span>
+    {% elif num > page_obj.number|add:"-3" and num < page_obj.number|add:"3" %}
+      <a href="?page={{ num }}&q={{ q }}&cat={{ cat_filter }}&active={{ active_filter }}&no_image={{ no_image }}&per_page={{ per_page }}">{{ num }}</a>
+    {% endif %}
+  {% endfor %}
+  {% if page_obj.has_next %}
+    <a href="?page={{ page_obj.next_page_number }}&q={{ q }}&cat={{ cat_filter }}&active={{ active_filter }}&no_image={{ no_image }}&per_page={{ per_page }}">
+      <i class="bi bi-chevron-right"></i>
+    </a>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- ═══ TOAST FEEDBACK ════════════════════════════════════════════════════════ -->
+<div id="actionToast" style="display:none;position:fixed;bottom:24px;right:24px;z-index:9999;
+     background:#1a1a1a;border:1px solid #2a2a2a;border-radius:6px;padding:12px 18px;
+     font-size:13px;box-shadow:0 4px 20px rgba(0,0,0,.6);min-width:260px;">
+  <span id="actionToastMsg"></span>
+</div>
+
+<!-- ═══ MODAL ELIMINAR (individual) ══════════════════════════════════════════ -->
+<div class="modal fade" id="delModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:380px;">
+    <div class="modal-content" style="background:#111;border:1px solid #222;color:#ddd;">
+      <div class="modal-header" style="border-color:#222;">
+        <h5 class="modal-title" style="font-size:15px;">Eliminar producto</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="font-size:14px;color:#aaa;">
+        ¿Eliminar <strong id="delName" style="color:#ddd;"></strong>? Esta acción no se puede deshacer.
+      </div>
+      <div class="modal-footer" style="border-color:#222;">
+        <button type="button" class="btn-o" data-bs-dismiss="modal">Cancelar</button>
+        <form id="delForm" method="post" style="margin:0;">
+          {% csrf_token %}
+          <button type="submit" class="btn-r"><i class="bi bi-trash"></i> Eliminar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL CAMBIAR PRECIO ══════════════════════════════════════════════ -->
+<div class="modal fade" id="priceModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:360px;">
+    <div class="modal-content" style="background:#111;border:1px solid #222;color:#ddd;">
+      <div class="modal-header" style="border-color:#222;">
+        <h5 class="modal-title" style="font-size:15px;">Cambiar precio base</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="font-size:14px;color:#aaa;">
+        <p id="priceModalDesc" style="margin-bottom:12px;"></p>
+        <label style="font-size:12px;color:#777;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:6px;">
+          Nuevo precio base (MXN)
+        </label>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="color:#555;font-size:18px;">$</span>
+          <input type="number" id="newPriceInput" min="0" step="1" placeholder="0"
+                 style="flex:1;background:#0d0d0d;border:1px solid #2a2a2a;color:#ddd;padding:8px 10px;border-radius:4px;font-size:15px;font-family:monospace;">
+        </div>
+        <p style="margin-top:10px;font-size:11px;color:#444;">
+          El precio final visible al cliente = precio base + flete + margen de categoría.
+        </p>
+      </div>
+      <div class="modal-footer" style="border-color:#222;">
+        <button type="button" class="btn-o" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn-g" onclick="confirmPriceChange()">
+          <i class="bi bi-check-lg"></i> Aplicar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.tool-badge {
+  display: inline-block;
+  background: #222;
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-family: monospace;
+  margin-left: 3px;
+  color: #777;
+}
+
+/* Columnas opcionales: se ocultan en pantallas pequeñas */
+@media (max-width: 900px) {
+  .col-sku   { display: none; }
+}
+@media (max-width: 680px) {
+  .col-cat   { display: none; }
+}
+@media (max-width: 520px) {
+  .col-stock { display: none; }
+  /* Imagen un poco más pequeña en móvil */
+  .p-table td:nth-child(2) img,
+  .p-table td:nth-child(2) div { width: 44px !important; height: 44px !important; }
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF        = '{{ csrf_token }}';
+const TOTAL_COUNT = {{ total_count }};
+const PAGE_COUNT  = {{ page_obj.object_list|length }};
+const FILTERS     = {
+  q:        '{{ q|escapejs }}',
+  cat:      '{{ cat_filter|escapejs }}',
+  active:   '{{ active_filter|escapejs }}',
+  no_image: '{{ no_image|escapejs }}',
+};
+const BULK_URL  = '{% url "panel:product_bulk_action" %}';
+const TOGGLE_URL = pk => `/panel/productos/${pk}/toggle/`;
+
+let selectedAll = false;
+
+// ─── Selección ───────────────────────────────────────────────────────────────
+
+document.getElementById('checkAll').addEventListener('change', e => {
+  document.querySelectorAll('.row-check').forEach(c => c.checked = e.target.checked);
+  selectedAll = false;
+  updateBulkBar();
+});
+
+document.querySelectorAll('.row-check').forEach(c => {
+  c.addEventListener('change', () => { selectedAll = false; updateBulkBar(); });
+});
+
+function updateBulkBar() {
+  const checked = document.querySelectorAll('.row-check:checked');
+  const bar     = document.getElementById('bulkBar');
+  if (checked.length === 0) {
+    bar.style.display = 'none';
+    selectedAll = false;
+    document.getElementById('checkAll').indeterminate = false;
+    document.getElementById('checkAll').checked = false;
+    return;
+  }
+
+  bar.style.display    = 'flex';
+  const allOnPage      = document.querySelectorAll('.row-check').length;
+  const allChecked     = checked.length === allOnPage;
+  document.getElementById('checkAll').indeterminate = !allChecked && checked.length > 0;
+  document.getElementById('checkAll').checked = allChecked;
+
+  const selectAllBtn = document.getElementById('selectAllResultsBtn');
+  const selectedMsg  = document.getElementById('selectedAllMsg');
+  const countEl      = document.getElementById('bulkCount');
+
+  if (selectedAll) {
+    countEl.textContent = '';
+    selectAllBtn.style.display = 'none';
+    selectedMsg.style.display  = 'inline';
+  } else {
+    countEl.textContent        = `${checked.length} seleccionado${checked.length !== 1 ? 's' : ''}`;
+    selectedMsg.style.display  = 'none';
+    // Mostrar "seleccionar todos" solo si la página está completa y hay más resultados
+    selectAllBtn.style.display = (allChecked && TOTAL_COUNT > PAGE_COUNT) ? 'inline' : 'none';
+    document.getElementById('totalResultsCount').textContent = TOTAL_COUNT;
+  }
+}
+
+function selectAllResults() {
+  selectedAll = true;
+  updateBulkBar();
+}
+
+function clearSelection() {
+  selectedAll = false;
+  document.querySelectorAll('.row-check').forEach(c => c.checked = false);
+  document.getElementById('checkAll').checked = false;
+  updateBulkBar();
+}
+
+// ─── Acciones masivas (selección) ────────────────────────────────────────────
+
+async function bulkAction(action) {
+  const checked = document.querySelectorAll('.row-check:checked');
+  const labels  = { activate: 'activar', deactivate: 'desactivar', delete: 'eliminar' };
+
+  let confirmMsg;
+  if (selectedAll) {
+    confirmMsg = `¿${labels[action].charAt(0).toUpperCase() + labels[action].slice(1)} TODOS los ${TOTAL_COUNT} resultados del filtro actual?`;
+  } else {
+    confirmMsg = `¿${labels[action].charAt(0).toUpperCase() + labels[action].slice(1)} ${checked.length} producto${checked.length !== 1 ? 's' : ''}?`;
+  }
+  const ok = await ryalConfirm({
+    title: action === 'delete' ? 'Eliminar productos' : 'Confirmar acción',
+    msg: confirmMsg,
+    okLabel: action === 'delete' ? 'Eliminar' : 'Confirmar',
+    danger: action === 'delete',
+  });
+  if (!ok) return;
+
+  const fd = new FormData();
+  fd.append('csrfmiddlewaretoken', CSRF);
+  fd.append('action', action);
+
+  if (selectedAll) {
+    fd.append('scope', 'all');
+    Object.entries(FILTERS).forEach(([k, v]) => fd.append(k, v));
+  } else {
+    fd.append('scope', 'selected');
+    checked.forEach(c => fd.append('pks', c.value));
+  }
+
+  await sendBulk(fd);
+}
+
+// ─── Acciones rápidas globales ────────────────────────────────────────────────
+
+async function quickAction(action, scope) {
+  const labels = { activate: 'activar', deactivate: 'desactivar', delete: 'ELIMINAR PERMANENTEMENTE' };
+  const counts = { no_image: {{ no_image_count }}, all: TOTAL_COUNT };
+  const targets = {
+    no_image: `los ${counts.no_image} productos sin foto del catálogo completo`,
+    all:      `los ${counts.all} productos del filtro actual`,
+  };
+
+  const ok = await ryalConfirm({
+    title: action === 'delete' ? 'Eliminar productos' : 'Confirmar acción',
+    msg: `¿${labels[action].charAt(0).toUpperCase() + labels[action].slice(1)} ${targets[scope]}?`,
+    okLabel: action === 'delete' ? 'Eliminar' : 'Confirmar',
+    danger: action === 'delete',
+  });
+  if (!ok) return;
+
+  const fd = new FormData();
+  fd.append('csrfmiddlewaretoken', CSRF);
+  fd.append('action', action);
+  fd.append('scope', scope);
+  if (scope === 'all') {
+    Object.entries(FILTERS).forEach(([k, v]) => fd.append(k, v));
+  }
+
+  await sendBulk(fd);
+}
+
+// ─── Envío y feedback ─────────────────────────────────────────────────────────
+
+async function sendBulk(formData) {
+  try {
+    const res  = await fetch(BULK_URL, { method: 'POST', body: formData });
+    const data = await res.json();
+    if (data.ok) {
+      const verbs = { activate: 'activados', deactivate: 'desactivados', delete: 'eliminados' };
+      showToast(`✓ ${data.count} productos ${verbs[data.action]}`, '#50c878');
+      setTimeout(() => location.reload(), 900);
+    } else {
+      showToast(`✗ ${data.error || 'Error'}`, '#e05560');
+    }
+  } catch {
+    showToast('Error de conexión', '#e05560');
+  }
+}
+
+function showToast(msg, color = '#ddd') {
+  const t = document.getElementById('actionToast');
+  document.getElementById('actionToastMsg').innerHTML = `<span style="color:${color}">${msg}</span>`;
+  t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 3500);
+}
+
+// ─── Toggle individual ────────────────────────────────────────────────────────
+
+document.querySelectorAll('.tog-input').forEach(inp => {
+  inp.addEventListener('change', async () => {
+    const res  = await fetch(TOGGLE_URL(inp.dataset.pk), {
+      method: 'POST',
+      headers: { 'X-CSRFToken': CSRF, 'X-Requested-With': 'XMLHttpRequest' },
+    });
+    const data = await res.json();
+    if (!data.ok) inp.checked = !inp.checked;
+  });
+});
+
+// ─── Modal cambiar precio ─────────────────────────────────────────────────────
+
+const priceModal = new bootstrap.Modal(document.getElementById('priceModal'));
+
+function openPriceModal() {
+  const checked = document.querySelectorAll('.row-check:checked');
+  const desc = selectedAll
+    ? `Cambiar precio de los <strong>${TOTAL_COUNT}</strong> resultados del filtro actual.`
+    : `Cambiar precio de <strong>${checked.length}</strong> producto${checked.length !== 1 ? 's' : ''}.`;
+  document.getElementById('priceModalDesc').innerHTML = desc;
+  document.getElementById('newPriceInput').value = '';
+  priceModal.show();
+}
+
+async function confirmPriceChange() {
+  const val = document.getElementById('newPriceInput').value.trim();
+  if (val === '' || isNaN(val) || Number(val) < 0) {
+    showToast('Ingresa un precio válido', '#e05560');
+    return;
+  }
+  priceModal.hide();
+
+  const fd = new FormData();
+  fd.append('csrfmiddlewaretoken', CSRF);
+  fd.append('action', 'set_price');
+  fd.append('new_price', val);
+
+  if (selectedAll) {
+    fd.append('scope', 'all');
+    Object.entries(FILTERS).forEach(([k, v]) => fd.append(k, v));
+  } else {
+    fd.append('scope', 'selected');
+    document.querySelectorAll('.row-check:checked').forEach(c => fd.append('pks', c.value));
+  }
+
+  try {
+    const res  = await fetch(BULK_URL, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.ok) {
+      showToast(`✓ Precio actualizado en ${data.count} productos`, '#50c878');
+      setTimeout(() => location.reload(), 900);
+    } else {
+      showToast(`✗ ${data.error || 'Error'}`, '#e05560');
+    }
+  } catch {
+    showToast('Error de conexión', '#e05560');
+  }
+}
+
+// ─── Modal eliminar individual ────────────────────────────────────────────────
+
+const delModal = new bootstrap.Modal(document.getElementById('delModal'));
+document.querySelectorAll('.btn-del').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.getElementById('delName').textContent = btn.dataset.name;
+    document.getElementById('delForm').action = `/panel/productos/${btn.dataset.pk}/eliminar/`;
+    delModal.show();
+  });
+});
+</script>
+{% endblock %}

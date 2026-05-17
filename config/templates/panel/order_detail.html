@@ -1,0 +1,318 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Pedido {{ order.order_code }} — Panel RYAL{% endblock %}
+{% block page_title %}Pedido {{ order.order_code }}{% endblock %}
+
+{% block content %}
+
+<!-- Acciones -->
+<div style="display:flex;gap:10px;margin-bottom:20px;align-items:center;">
+  <a href="{% url 'panel:orders_list' %}" class="btn-o btn-sm">
+    <i class="bi bi-arrow-left"></i> Volver
+  </a>
+  <a href="{% url 'panel:order_ticket_pdf' order.pk %}" class="btn-o btn-sm">
+    <i class="bi bi-file-earmark-pdf"></i> Descargar PDF
+  </a>
+  <button id="btnWA" class="btn-o btn-sm" style="background:#1a3d2b;color:#25D366;border-color:#25D366;">
+    <i class="bi bi-whatsapp"></i> Enviar ticket
+  </button>
+  <span style="margin-left:auto;" id="statusBadge">
+    <span class="bs bs-{{ order.status }}">{{ order.get_status_display }}</span>
+  </span>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 320px;gap:18px;align-items:start;">
+
+  <!-- Izq: datos + items -->
+  <div>
+    <!-- Datos del cliente -->
+    <div class="p-card" style="margin-bottom:16px;">
+      <div class="p-card-head"><h2>Datos del cliente</h2></div>
+      <div class="p-card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div>
+            <div style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;">Nombre</div>
+            <div style="color:#ddd;font-weight:500;">{{ order.customer_name }}</div>
+          </div>
+          <div>
+            <div style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;">Teléfono</div>
+            <div style="color:#ddd;">
+              <a href="https://wa.me/{{ order.customer_phone }}" target="_blank"
+                 style="color:#25D366;text-decoration:none;">
+                <i class="bi bi-whatsapp"></i> {{ order.customer_phone }}
+              </a>
+            </div>
+          </div>
+          {% if order.customer_email %}
+          <div>
+            <div style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;">Correo</div>
+            <div style="color:#ddd;">{{ order.customer_email }}</div>
+          </div>
+          {% endif %}
+          {% if order.notes %}
+          <div style="grid-column:1/-1;">
+            <div style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;">Notas</div>
+            <div style="color:#aaa;">{{ order.notes }}</div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Items -->
+    <div class="p-card">
+      <div class="p-card-head"><h2>Productos ({{ order.total_items }} items)</h2></div>
+      <table class="p-table">
+        <thead>
+          <tr>
+            <th>SKU</th>
+            <th>Producto</th>
+            <th>Variante</th>
+            <th style="text-align:center;">Qty</th>
+            <th style="text-align:right;">Precio</th>
+            <th style="text-align:right;">Subtotal</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in order.items.all %}
+          <tr>
+            <td style="font-family:monospace;color:#666;font-size:12px;">{{ item.sku_snapshot }}</td>
+            <td style="color:#ddd;">{{ item.name_snapshot }}</td>
+            <td style="color:#666;">{{ item.variant_snapshot|default:"—" }}</td>
+            <td style="text-align:center;">{{ item.quantity }}</td>
+            <td style="text-align:right;">${{ item.price_snapshot|floatformat:0 }}</td>
+            <td style="text-align:right;font-weight:600;color:#ddd;">${{ item.subtotal|floatformat:0 }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="5" style="text-align:right;padding:12px;color:#888;font-size:13px;font-weight:600;border-top:1px solid #222;">TOTAL</td>
+            <td style="text-align:right;padding:12px;font-size:16px;font-weight:700;color:var(--pg);border-top:1px solid #222;">
+              ${{ order.total|floatformat:0 }} MXN
+            </td>
+          </tr>
+          <tr>
+            <td colspan="5" style="text-align:right;padding:6px 12px;color:#555;font-size:11px;font-weight:600;letter-spacing:.06em;">GANANCIA EST.</td>
+            <td style="text-align:right;padding:6px 12px;font-size:13px;font-weight:600;color:#50c878;">
+              ${{ order.ganancia }} MXN
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+
+  <!-- Der: estado + info -->
+  <div>
+    <!-- Cambiar estado -->
+    <div class="p-card" style="margin-bottom:16px;">
+      <div class="p-card-head"><h2>Estado del pedido</h2></div>
+      <div class="p-card-body">
+        <form id="statusForm">
+          {% csrf_token %}
+          <div style="margin-bottom:12px;">
+            <select id="statusSelect" style="width:100%;background:#0d0d0d;border:1px solid #1a1a1a;color:#e0e0e0;padding:9px 12px;border-radius:6px;font-size:14px;outline:none;">
+              {% for s, lbl in status_choices %}
+              <option value="{{ s }}" {% if order.status == s %}selected{% endif %}>{{ lbl }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <button type="button" id="btnStatus" class="btn-g" style="width:100%;">
+            <i class="bi bi-check-circle"></i> Actualizar estado
+          </button>
+          <div id="statusMsg" style="display:none;margin-top:10px;font-size:12px;text-align:center;color:#50c878;"></div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Pago -->
+    <div class="p-card" style="margin-bottom:16px;">
+      <div class="p-card-head"><h2>Pago</h2></div>
+      <div class="p-card-body" style="display:flex;flex-direction:column;gap:11px;">
+
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:12px;color:#666;">Total del pedido</span>
+          <span style="font-weight:700;color:#ddd;">${{ order.total|floatformat:0 }} MXN</span>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:12px;color:#666;">Ganancia estimada</span>
+          <span style="font-weight:600;color:#50c878;">${{ order.ganancia }} MXN</span>
+        </div>
+
+        <hr style="border:none;border-top:1px solid #1a1a1a;margin:2px 0;">
+
+        <div>
+          <label style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:5px;">Adelanto recibido</label>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="color:#555;font-size:14px;">$</span>
+            <input type="number" id="depositInput" value="{{ order.deposit|floatformat:0 }}" min="0" step="1"
+                   style="flex:1;background:#0d0d0d;border:1px solid #1a1a1a;color:#ddd;padding:7px 10px;border-radius:4px;font-size:14px;font-family:monospace;outline:none;">
+            <span style="font-size:11px;color:#555;">MXN</span>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:12px;color:#666;">Saldo pendiente</span>
+          <span id="balanceDue" style="font-weight:600;color:{% if order.balance_due <= 0 %}#50c878{% else %}#e8a020{% endif %};">
+            ${{ order.balance_due|floatformat:0 }} MXN
+          </span>
+        </div>
+
+        <hr style="border:none;border-top:1px solid #1a1a1a;margin:2px 0;">
+
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:12px;color:#888;">Liquidado</span>
+          <label class="tog" title="{% if order.is_paid %}Marcar como pendiente{% else %}Marcar como liquidado{% endif %}">
+            <input type="checkbox" id="isPaidCheck" class="tog-input-plain" {% if order.is_paid %}checked{% endif %}>
+            <span class="tog-sl"></span>
+          </label>
+        </div>
+
+        <button type="button" id="btnSavePago" class="btn-g" style="width:100%;margin-top:2px;">
+          <i class="bi bi-check-lg"></i> Guardar pago
+        </button>
+        <div id="pagoMsg" style="display:none;font-size:12px;text-align:center;"></div>
+
+      </div>
+    </div>
+
+    <!-- Info pedido -->
+    <div class="p-card">
+      <div class="p-card-head"><h2>Información</h2></div>
+      <div class="p-card-body" style="display:flex;flex-direction:column;gap:10px;">
+        <div>
+          <div style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px;">Código</div>
+          <div style="font-family:monospace;color:#ddd;font-size:15px;font-weight:700;">{{ order.order_code }}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px;">Creado</div>
+          <div style="color:#aaa;">{{ order.created_at|date:"d/m/Y H:i" }}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px;">Actualizado</div>
+          <div style="color:#aaa;">{{ order.updated_at|date:"d/m/Y H:i" }}</div>
+        </div>
+        {% if order.user %}
+        <div>
+          <div style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px;">Usuario</div>
+          <div style="color:#aaa;">{{ order.user.email }}</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = '{{ csrf_token }}';
+const URL_STATUS = '{% url "panel:order_status_update" order.pk %}';
+
+// ── Botón WhatsApp ────────────────────────────────────────────────────────────
+document.getElementById('btnWA').addEventListener('click', () => {
+  const phone = '{{ order.customer_phone }}'.replace(/\D/g, '');
+  const items = [
+    {% for item in order.items.all %}
+    {
+      qty:      {{ item.quantity }},
+      name:     '{{ item.name_snapshot|escapejs }}',
+      variant:  '{{ item.variant_snapshot|escapejs }}',
+      subtotal: {{ item.subtotal }},
+    },
+    {% endfor %}
+  ];
+
+  const itemLines = items.map(i => {
+    const v = i.variant ? ` (${i.variant})` : '';
+    return `• ${i.qty}x ${i.name}${v} — $${Math.round(i.subtotal)} MXN`;
+  }).join('\n');
+
+  const trackUrl = `${window.location.origin}/rastrear/?codigo={{ order.order_code }}`;
+
+  const msg = [
+    `Hola {{ order.customer_name|escapejs }},`,
+    ``,
+    `Tu pedido *{{ order.order_code }}* está en estado: *{{ order.get_status_display|escapejs }}*`,
+    ``,
+    `Detalle:`,
+    itemLines,
+    ``,
+    `*Total: ${{ order.total|floatformat:0 }} MXN*`,
+    ``,
+    `Rastrea tu pedido:`,
+    trackUrl,
+    ``,
+    `— RYAL`,
+  ].join('\n');
+
+  window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+});
+
+// ── Pago ─────────────────────────────────────────────────────────────────────
+const URL_PAGO   = '{% url "panel:order_payment_update" order.pk %}';
+const ORDER_TOTAL = {{ order.total }};
+const depositInput = document.getElementById('depositInput');
+
+function updateBalance() {
+  const deposit = parseFloat(depositInput.value) || 0;
+  const balance = ORDER_TOTAL - deposit;
+  const el = document.getElementById('balanceDue');
+  el.textContent = `$${Math.round(balance)} MXN`;
+  el.style.color = balance <= 0 ? '#50c878' : '#e8a020';
+}
+depositInput.addEventListener('input', updateBalance);
+
+function syncPaidState() {
+  const paid = document.getElementById('isPaidCheck').checked;
+  depositInput.disabled      = paid;
+  depositInput.style.opacity = paid ? '0.35' : '1';
+  depositInput.style.cursor  = paid ? 'not-allowed' : '';
+}
+document.getElementById('isPaidCheck').addEventListener('change', syncPaidState);
+syncPaidState();
+
+document.getElementById('btnSavePago').addEventListener('click', async () => {
+  const msg    = document.getElementById('pagoMsg');
+  const isPaid = document.getElementById('isPaidCheck').checked ? '1' : '0';
+  const fd     = new FormData();
+  fd.append('csrfmiddlewaretoken', CSRF);
+  fd.append('deposit', depositInput.value || '0');
+  fd.append('is_paid', isPaid);
+
+  const res  = await fetch(URL_PAGO, { method: 'POST', body: fd });
+  const data = await res.json();
+  msg.style.color   = data.ok ? '#50c878' : '#e05560';
+  msg.textContent   = data.ok ? 'Guardado.' : 'Error al guardar.';
+  msg.style.display = 'block';
+  setTimeout(() => { msg.style.display = 'none'; }, 2500);
+});
+
+// ── Estado ───────────────────────────────────────────────────────────────────
+document.getElementById('btnStatus').addEventListener('click', async () => {
+  const sel = document.getElementById('statusSelect');
+  const msg = document.getElementById('statusMsg');
+  const badge = document.getElementById('statusBadge');
+
+  const res = await fetch(URL_STATUS, {
+    method: 'POST',
+    headers: {
+      'X-CSRFToken': CSRF,
+      'X-Requested-With': 'XMLHttpRequest',
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: `status=${sel.value}`,
+  });
+  const data = await res.json();
+  if (data.ok) {
+    badge.innerHTML = `<span class="bs bs-${data.status}">${data.label}</span>`;
+    msg.textContent = 'Estado actualizado.';
+    msg.style.display = 'block';
+    setTimeout(() => { msg.style.display = 'none'; }, 2500);
+  }
+});
+</script>
+{% endblock %}

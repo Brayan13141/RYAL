@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Catálogo — RYAL{% endblock %}
+{% block meta_description %}Explora nuestro catálogo de importación: gorras, tenis, sudaderas y más. Precios directos de proveedor.{% endblock %}
+{% block extra_head %}
+<meta property="og:title" content="Catálogo — RYAL">
+<meta property="og:description" content="Explora nuestro catálogo de importación: gorras, tenis, sudaderas y más.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+{% endblock %}
+
+{% block content %}
+<section class="py-5 py-md-6">
+  <div class="container">
+
+    <!-- Encabezado -->
+    <div class="d-flex justify-content-between align-items-end mb-4 mb-md-5 pb-3"
+         style="border-bottom: 1px solid var(--ryal-border);">
+      <div>
+        <nav aria-label="breadcrumb" class="mb-2">
+          <ol class="breadcrumb ryal-breadcrumb mb-0">
+            <li class="breadcrumb-item"><a href="{% url 'catalog:home' %}">Inicio</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Catálogo</li>
+          </ol>
+        </nav>
+        <h1 class="font-heading fw-normal mb-0 lh-1"
+            style="font-size: clamp(2.2rem, 5vw, 3.8rem);">
+          Catálogo
+        </h1>
+      </div>
+      <span class="display-1 fw-bold text-white opacity-10 font-display d-none d-md-block"
+            style="font-size: 8rem; line-height: 0.6; transform: translateY(20px);">
+        {{ categories|length }}
+      </span>
+    </div>
+
+    <!-- Grid de categorías -->
+    {% if categories %}
+    <div class="row g-3 g-md-4">
+      {% for cat in categories %}
+      <div class="col-6 col-md-4 col-lg-3">
+        <a href="{% url 'catalog:category' cat.obj.slug %}"
+           class="ryal-cat-card d-block text-decoration-none position-relative overflow-hidden">
+          <div class="position-relative overflow-hidden" style="aspect-ratio:3/4;">
+            {% if cat.cover_url %}
+              <img src="{{ cat.cover_url }}" alt="{{ cat.obj.name }}" loading="lazy"
+                   class="ryal-cat-img w-100 h-100" style="object-fit:cover;transition:transform .6s ease;">
+            {% else %}
+              <div class="w-100 h-100 d-flex align-items-center justify-content-center"
+                   style="background:linear-gradient(135deg,#111,#1a1a1a);">
+                <i class="bi bi-box-seam text-gold opacity-50" style="font-size:2.5rem;"></i>
+              </div>
+            {% endif %}
+            <!-- Gradiente permanente -->
+            <div style="position:absolute;bottom:0;left:0;right:0;height:60%;
+                        background:linear-gradient(to top,rgba(8,8,8,0.92) 0%,transparent 100%);
+                        pointer-events:none;"></div>
+            <!-- Info superpuesta -->
+            <div style="position:absolute;bottom:0;left:0;right:0;padding:12px 14px;
+                        display:flex;justify-content:space-between;align-items:flex-end;">
+              <div>
+                <span class="d-block text-white fw-semibold" style="font-size:0.95rem;line-height:1.2;">
+                  {{ cat.obj.name }}
+                </span>
+                <span style="font-size:0.62rem;color:var(--ryal-gold);font-family:monospace;letter-spacing:0.18em;">
+                  {% if cat.subcat_count > 0 %}
+                    {{ cat.subcat_count }} subcategoría{% if cat.subcat_count != 1 %}s{% endif %}
+                  {% else %}
+                    {{ cat.product_count }} producto{% if cat.product_count != 1 %}s{% endif %}
+                  {% endif %}
+                </span>
+              </div>
+              <i class="bi bi-arrow-up-right text-gold" style="font-size:1.1rem;flex-shrink:0;margin-left:8px;"></i>
+            </div>
+          </div>
+        </a>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center py-5">
+      <i class="bi bi-box-seam text-gold opacity-50" style="font-size: 3rem;"></i>
+      <p class="mt-3 text-white-50">No hay categorías disponibles aún.</p>
+    </div>
+    {% endif %}
+
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.ryal-breadcrumb {
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.ryal-breadcrumb .breadcrumb-item a {
+  color: var(--ryal-gold);
+  text-decoration: none;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+.ryal-breadcrumb .breadcrumb-item a:hover { opacity: 1; }
+.ryal-breadcrumb .breadcrumb-item.active { color: rgba(255,255,255,0.5); }
+.ryal-breadcrumb .breadcrumb-item + .breadcrumb-item::before { color: rgba(255,255,255,0.25); }
+
+.ryal-cat-card { border:1px solid rgba(255,255,255,0.07); border-radius:18px; transition:transform .35s ease, box-shadow .35s ease; }
+.ryal-cat-card:hover { transform:translateY(-4px); box-shadow:0 16px 40px rgba(0,0,0,.5); }
+.ryal-cat-card:hover .ryal-cat-img { transform:scale(1.07); }
+</style>
+{% endblock %}

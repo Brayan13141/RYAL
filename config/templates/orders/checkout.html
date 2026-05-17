@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Checkout — RYAL{% endblock %}
+
+{% block content %}
+{% if not cart_items %}
+<div class="container py-5 text-center">
+  <p class="lead text-white-50 mb-4">Tu carrito está vacío.</p>
+  <a href="{% url 'catalog:hub' %}" class="btn btn-gold px-4">Ver catálogo</a>
+</div>
+{% else %}
+
+<div class="container py-4 py-lg-5">
+  <div class="row g-4 g-lg-5">
+
+    <!-- ══ FORMULARIO ══════════════════════════════════════════════════════ -->
+    <div class="col-lg-6 col-xl-7 order-2 order-lg-1">
+      {% if category_warnings %}
+      <div class="mb-4" style="background:rgba(220,53,69,.1);border:1px solid rgba(220,53,69,.3);padding:1rem;">
+        <p class="mb-2" style="font-family:var(--f-mono);font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:#e05560;font-weight:600;">
+          <i class="bi bi-exclamation-triangle-fill me-1"></i> Pedido mínimo no cumplido
+        </p>
+        {% for w in category_warnings %}
+        <div class="small" style="color:var(--ink-2);font-family:var(--f-mono);">
+          {{ w.name }}: {{ w.current }}/{{ w.min }} piezas — faltan {{ w.missing }}
+        </div>
+        {% endfor %}
+        <p class="mb-0 mt-2 small" style="color:var(--ink-3);font-family:var(--f-mono);">
+          Agrega más productos al carrito antes de confirmar.
+        </p>
+      </div>
+      {% endif %}
+
+      {% if user.is_authenticated %}
+
+      <!-- ── Usuario registrado ─────────────────────────────── -->
+      <div class="d-flex align-items-center gap-2 mb-4 p-3"
+           style="background:rgba(212,175,55,.07);border:1px solid rgba(212,175,55,.25);border-radius:0;">
+        <i class="bi bi-person-check-fill" style="color:var(--gold);font-size:1.1rem;"></i>
+        <div class="flex-grow-1">
+          <div style="font-size:12px;color:var(--gold);font-family:var(--f-mono);letter-spacing:.08em;">
+            Comprando como
+          </div>
+          <div style="font-size:13px;color:var(--ink);">{{ user.email }}</div>
+        </div>
+        <form method="post" action="{% url 'account_logout' %}" style="margin:0;">
+          {% csrf_token %}
+          <button type="submit" style="background:none;border:none;padding:0;cursor:pointer;font-size:11px;color:var(--ink-3);font-family:var(--f-mono);">
+            No soy yo
+          </button>
+        </form>
+      </div>
+
+      <h2 class="fw-normal mb-1" style="font-family:var(--f-display);font-size:clamp(1.6rem,4vw,2.2rem);">
+        Confirma tu pedido
+      </h2>
+      <p class="text-muted small mb-4" style="font-family:var(--f-mono);letter-spacing:.1em;">
+        Recibirás un código de seguimiento al confirmar
+      </p>
+
+      <form method="post" action="{% url 'orders:checkout_confirm' %}">
+        {% csrf_token %}
+
+        <div class="mb-3">
+          <label class="form-label" style="font-family:var(--f-mono);font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-3);">
+            Nombre / Empresa *
+          </label>
+          <input type="text" name="nombre" required maxlength="100"
+                 value="{{ user.first_name|default:'' }}{% if user.last_name %} {{ user.last_name }}{% endif %}"
+                 placeholder="Tu nombre o razón social"
+                 class="form-control ryal-input">
+        </div>
+
+        <div class="mb-4">
+          <label class="form-label" style="font-family:var(--f-mono);font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-3);">
+            Teléfono (WhatsApp) *
+          </label>
+          <input type="tel" name="telefono" required maxlength="10" pattern="[0-9]{10}"
+                 value="{{ profile.phone|default:'' }}"
+                 placeholder="10 dígitos"
+                 class="form-control ryal-input">
+          {% if not profile.phone %}
+          <div class="mt-1" style="font-size:11px;color:var(--ink-3);font-family:var(--f-mono);">
+            Guarda tu teléfono en <a href="{% url 'accounts:profile' %}" style="color:var(--gold);">tu perfil</a> para no ingresarlo cada vez.
+          </div>
+          {% endif %}
+        </div>
+
+        <div class="p-3 mb-4" style="background:var(--bg-2);border:1px solid var(--line);border-radius:0;">
+          <p class="mb-0 small" style="font-size:0.82rem;color:#fff;">
+            Al confirmar recibirás un <strong style="color:var(--gold)">código de pedido</strong>.
+            Tu pedido quedará vinculado a tu cuenta. No se realiza ningún cobro automático.
+          </p>
+        </div>
+
+        <button type="submit" class="btn btn-gold w-100 py-3"
+                style="font-family:var(--f-mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;border-radius:0;">
+          Confirmar pedido →
+        </button>
+      </form>
+
+      {% else %}
+
+      <!-- ── Invitado ───────────────────────────────────────── -->
+      <h2 class="fw-normal mb-1" style="font-family:var(--f-display);font-size:clamp(1.6rem,4vw,2.2rem);">
+        Datos de contacto
+      </h2>
+      <p class="text-muted small mb-4" style="font-family:var(--f-mono);letter-spacing:.1em;">
+        Recibirás un código de pedido al confirmar
+      </p>
+
+      <!-- Nudge login -->
+      <div class="d-flex align-items-center gap-2 mb-4 p-3"
+           style="background:var(--bg-2);border:1px solid var(--line);border-radius:0;">
+        <i class="bi bi-person" style="color:var(--ink-3);font-size:1rem;"></i>
+        <span class="small" style="color:var(--ink-3);font-family:var(--f-mono);font-size:11px;">
+          ¿Ya tienes cuenta?
+          <a href="{% url 'account_login' %}?next={% url 'orders:checkout' %}"
+             style="color:var(--gold);text-decoration:none;">Inicia sesión</a>
+          para autocompletar tus datos.
+        </span>
+      </div>
+
+      <form method="post" action="{% url 'orders:checkout_confirm' %}">
+        {% csrf_token %}
+
+        <div class="mb-3">
+          <label class="form-label" style="font-family:var(--f-mono);font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-3);">
+            Nombre / Empresa *
+          </label>
+          <input type="text" name="nombre" required maxlength="100" placeholder="Tu nombre o razón social"
+                 class="form-control ryal-input">
+        </div>
+
+        <div class="mb-4">
+          <label class="form-label" style="font-family:var(--f-mono);font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-3);">
+            Teléfono (WhatsApp) *
+          </label>
+          <input type="tel" name="telefono" required placeholder="10 dígitos"
+                 maxlength="10" pattern="[0-9]{10}"
+                 class="form-control ryal-input">
+        </div>
+
+        <div class="p-3 mb-4" style="background:var(--bg-2);border:1px solid var(--line);border-radius:0;">
+          <p class="mb-0 small" style="font-size:0.82rem;color:#fff;">
+            Al confirmar recibirás un <strong style="color:var(--gold)">código de pedido</strong>.
+            Compártelo con tu asesor para dar seguimiento. No se realiza ningún cobro automático.
+          </p>
+        </div>
+
+        <button type="submit" class="btn btn-gold w-100 py-3"
+                style="font-family:var(--f-mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;border-radius:0;">
+          Confirmar pedido →
+        </button>
+      </form>
+
+      {% endif %}
+
+    </div>
+
+    <!-- ══ RESUMEN ═════════════════════════════════════════════════════════ -->
+    <div class="col-lg-6 col-xl-5 order-1 order-lg-2 checkout-summary-col">
+        <div style="background:var(--bg-2);border:1px solid var(--line);padding:1.5rem;">
+          <h5 class="mb-3 pb-2" style="border-bottom:1px solid var(--line);font-family:var(--f-mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-3);font-weight:400;">
+            Resumen del pedido
+          </h5>
+
+          <ul class="list-unstyled mb-0">
+            {% for item in cart_items %}
+            <li class="d-flex gap-3 mb-3 pb-3" style="border-bottom:1px solid var(--line);">
+              <div style="width:56px;height:56px;flex-shrink:0;background:var(--bg-3);border:1px solid var(--line);">
+                {% if item.cover_image %}
+                  <img src="{{ item.cover_image.image.url }}" alt="{{ item.name_snapshot }}"
+                       style="width:100%;height:100%;object-fit:cover;">
+                {% endif %}
+              </div>
+              <div class="flex-grow-1">
+                <div class="small fw-medium" style="color:var(--ink);">{{ item.name_snapshot }}</div>
+                {% if item.variant_snapshot %}
+                  <div class="small text-muted">{{ item.variant_snapshot }}</div>
+                {% endif %}
+                <div class="small" style="color:var(--ink-3);font-family:var(--f-mono);">× {{ item.quantity }}</div>
+              </div>
+              <div class="small fw-medium text-nowrap" style="color:var(--gold);font-family:var(--f-mono);">
+                ${{ item.subtotal|floatformat:0 }}
+              </div>
+            </li>
+            {% endfor %}
+          </ul>
+
+          <div class="pt-2">
+            <div class="d-flex justify-content-between mb-2 small" style="color:var(--ink-2);">
+              <span>Subtotal</span>
+              <span style="font-family:var(--f-mono);">${{ subtotal|floatformat:0 }} MXN</span>
+            </div>
+            <div class="d-flex justify-content-between pt-2 mt-2" style="border-top:1px solid var(--line);">
+              <span class="fw-medium" style="color:var(--ink);">Total</span>
+              <span class="fw-medium" style="color:var(--gold);font-family:var(--f-mono);font-size:1.1rem;">
+                ${{ total|floatformat:0 }} MXN
+              </span>
+            </div>
+          </div>
+        </div>
+    </div>
+
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.ryal-input {
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  color: var(--ink);
+  border-radius: 0;
+  font-family: var(--f-mono);
+  font-size: 13px;
+}
+.ryal-input:focus {
+  background: var(--bg-2);
+  border-color: var(--gold);
+  color: var(--ink);
+  box-shadow: none;
+}
+.ryal-input::placeholder { color: var(--ink-3); }
+.btn-gold {
+  background: var(--gold);
+  color: #080808;
+  border: none;
+  transition: opacity .2s;
+}
+.btn-gold:hover { opacity: .85; color: #080808; }
+</style>
+{% endblock %}

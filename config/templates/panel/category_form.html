@@ -1,0 +1,174 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}{% if is_edit %}Editar{% else %}Nueva{% endif %} categoría raíz — Panel RYAL{% endblock %}
+{% block page_title %}{% if is_edit %}Editar categoría: {{ cat.name }}{% else %}Nueva categoría raíz{% endif %}{% endblock %}
+
+{% block content %}
+
+<div style="display:flex;gap:10px;margin-bottom:20px;">
+  <a href="{% url 'panel:catalog_config' %}" class="btn-o btn-sm">
+    <i class="bi bi-arrow-left"></i> Volver al catálogo
+  </a>
+</div>
+
+{% if errors %}
+<div class="p-alert p-alert-err" style="margin-bottom:16px;">
+  {% for e in errors %}{{ e }}{% if not forloop.last %} · {% endif %}{% endfor %}
+</div>
+{% endif %}
+
+{% if delete_error %}
+<div class="p-alert p-alert-err" style="margin-bottom:16px;">
+  <i class="bi bi-exclamation-triangle-fill me-1"></i> {{ delete_error }}
+</div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data">
+  {% csrf_token %}
+  <div style="display:grid;grid-template-columns:1fr 300px;gap:18px;align-items:start;">
+
+    <!-- ── Columna principal ── -->
+    <div style="display:flex;flex-direction:column;gap:16px;">
+
+      <!-- Información básica -->
+      <div class="p-card">
+        <div class="p-card-head"><h2>Información básica</h2></div>
+        <div class="p-card-body fp" style="display:flex;flex-direction:column;gap:14px;">
+
+          <div>
+            <label>Nombre *</label>
+            <input type="text" name="name"
+                   value="{% if data.name %}{{ data.name }}{% elif is_edit %}{{ cat.name }}{% endif %}"
+                   placeholder="Ej. Gorras" required>
+          </div>
+
+          <div>
+            <label>Slug <span style="color:#555;font-size:11px;">(se genera automático si lo dejas vacío)</span></label>
+            <input type="text" name="slug"
+                   value="{% if data.slug %}{{ data.slug }}{% elif is_edit %}{{ cat.slug }}{% endif %}"
+                   placeholder="gorras">
+          </div>
+
+          <div>
+            <label>Mensaje informativo <span style="color:#555;font-size:11px;">(opcional, se muestra en la página de la categoría)</span></label>
+            <textarea name="banner_text" rows="4"
+                      style="width:100%;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:6px;
+                             color:#ccc;font-size:13px;padding:10px;resize:vertical;font-family:inherit;
+                             transition:border-color .15s;"
+                      onfocus="this.style.borderColor='var(--pg)'"
+                      onblur="this.style.borderColor='#1a1a1a'"
+                      placeholder="Ej. Pedido mínimo 20 piezas, modelos variados…">{% if data.banner_text %}{{ data.banner_text }}{% elif is_edit %}{{ cat.banner_text }}{% endif %}</textarea>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Precios y reglas -->
+      <div class="p-card">
+        <div class="p-card-head"><h2>Precios y reglas</h2></div>
+        <div class="p-card-body fp" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+
+          <div>
+            <label>Costo de envío (MXN)</label>
+            <input type="number" name="shipping_cost" step="0.01" min="0"
+                   value="{% if data.shipping_cost %}{{ data.shipping_cost }}{% elif is_edit %}{{ cat.shipping_cost }}{% else %}0{% endif %}"
+                   placeholder="0.00">
+          </div>
+
+          <div>
+            <label>Margen de ganancia (MXN)</label>
+            <input type="number" name="profit_margin" step="0.01" min="0"
+                   value="{% if data.profit_margin %}{{ data.profit_margin }}{% elif is_edit %}{{ cat.profit_margin }}{% else %}100{% endif %}"
+                   placeholder="100.00">
+          </div>
+
+          <div>
+            <label>Mínimo de piezas</label>
+            <input type="number" name="min_order_qty" min="1"
+                   value="{% if data.min_order_qty %}{{ data.min_order_qty }}{% elif is_edit %}{{ cat.min_order_qty }}{% else %}1{% endif %}">
+          </div>
+
+          <div>
+            <label>Orden de aparición</label>
+            <input type="number" name="display_order" min="0"
+                   value="{% if data.display_order %}{{ data.display_order }}{% elif is_edit %}{{ cat.display_order }}{% else %}0{% endif %}">
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Columna lateral ── -->
+    <div style="display:flex;flex-direction:column;gap:16px;">
+
+      <!-- Imagen -->
+      <div class="p-card">
+        <div class="p-card-head"><h2>Imagen</h2></div>
+        <div class="p-card-body fp">
+          {% if is_edit and cat.image %}
+          <div style="margin-bottom:10px;border-radius:6px;overflow:hidden;border:1px solid #1a1a1a;">
+            <img src="{{ cat.image.url }}" alt="{{ cat.name }}"
+                 style="width:100%;aspect-ratio:3/4;object-fit:cover;display:block;">
+          </div>
+          {% endif %}
+          <label style="font-size:12px;color:#777;display:block;margin-bottom:6px;">
+            {% if is_edit and cat.image %}Reemplazar imagen{% else %}Subir imagen{% endif %}
+          </label>
+          <input type="file" name="image" accept="image/*"
+                 style="font-size:12px;color:#aaa;width:100%;">
+        </div>
+      </div>
+
+      <!-- Estado -->
+      <div class="p-card">
+        <div class="p-card-head"><h2>Estado</h2></div>
+        <div class="p-card-body fp">
+          <div class="fp-check">
+            <input type="checkbox" id="id_is_active" name="is_active"
+              {% if data.is_active == 'on' %}checked
+              {% elif is_edit and cat.is_active %}checked
+              {% elif not is_edit %}checked
+              {% endif %}>
+            <label for="id_is_active"
+                   style="text-transform:none;letter-spacing:0;font-size:14px;color:#bbb;margin:0;cursor:pointer;">
+              Activa (visible en tienda)
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Guardar -->
+      <button type="submit" class="btn-g" style="width:100%;justify-content:center;padding:11px;">
+        <i class="bi bi-check-circle"></i>
+        {% if is_edit %}Guardar cambios{% else %}Crear categoría{% endif %}
+      </button>
+
+    </div>
+  </div>
+</form>
+
+{% if is_edit %}
+<!-- Zona de peligro -->
+<div class="p-card" style="margin-top:24px;border-color:rgba(255,80,80,.2);">
+  <div class="p-card-head" style="border-bottom-color:rgba(255,80,80,.15);">
+    <h2 style="color:#ef4444;">Zona de peligro</h2>
+  </div>
+  <div class="p-card-body fp" style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+    <div>
+      <div style="font-size:13px;color:#ccc;margin-bottom:4px;">Eliminar categoría</div>
+      <div style="font-size:11px;color:#555;">
+        Solo es posible si no tiene subcategorías ni productos asignados.
+      </div>
+    </div>
+    <form method="post" action="{% url 'panel:category_hard_delete' cat.pk %}"
+          onsubmit="return confirm('¿Eliminar la categoría «{{ cat.name }}»? Esta acción no se puede deshacer.');">
+      {% csrf_token %}
+      <button type="submit" class="btn-r btn-sm">
+        <i class="bi bi-trash3"></i> Eliminar categoría
+      </button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,111 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Pedidos — Panel RYAL{% endblock %}
+{% block page_title %}Pedidos{% endblock %}
+
+{% block content %}
+
+<!-- Filtros -->
+<form method="get" class="fbar" style="margin-bottom:18px;">
+  <input type="text" name="q" value="{{ q }}" placeholder="Buscar código, cliente, tel…" style="width:240px;">
+  <select name="status">
+    <option value="">Todos los estados</option>
+    {% for s, lbl in status_choices %}
+    <option value="{{ s }}" {% if status_filter == s %}selected{% endif %}>{{ lbl }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="btn-g btn-sm"><i class="bi bi-search"></i> Filtrar</button>
+  {% if status_filter or q %}
+  <a href="{% url 'panel:orders_list' %}" class="btn-o btn-sm">
+    <i class="bi bi-x"></i> Limpiar
+  </a>
+  {% endif %}
+  <span style="margin-left:auto;font-size:12px;color:#555;">
+    {{ page_obj.paginator.count }} pedido{{ page_obj.paginator.count|pluralize }}
+  </span>
+  <a href="{% url 'panel:orders_export' %}{% if status_filter or q %}?status={{ status_filter }}&q={{ q }}{% endif %}"
+     class="btn-o btn-sm">
+    <i class="bi bi-download"></i> Exportar CSV
+  </a>
+</form>
+
+<!-- Tabla -->
+<div class="p-card">
+  <div style="overflow-x:auto;">
+    <table class="p-table">
+      <thead>
+        <tr>
+          <th>Código</th>
+          <th>Cliente</th>
+          <th>Teléfono</th>
+          <th>Correo</th>
+          <th style="text-align:right;">Total</th>
+          <th>Pago</th>
+          <th>Estado</th>
+          <th>Fecha</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in page_obj %}
+        <tr>
+          <td><a href="{% url 'panel:order_detail' o.pk %}">{{ o.order_code }}</a></td>
+          <td style="color:#ddd;font-weight:500;">{{ o.customer_name }}</td>
+          <td>{{ o.customer_phone }}</td>
+          <td style="color:#555;">{{ o.customer_email|default:"—" }}</td>
+          <td style="text-align:right;font-weight:600;color:#ddd;">${{ o.total|floatformat:0 }}</td>
+          <td>
+            {% if o.is_paid %}
+              <span class="bs" style="background:rgba(80,200,120,.12);color:#50c878;border-color:#50c878;">Liquidado</span>
+            {% elif o.deposit > 0 %}
+              <span class="bs" style="background:rgba(232,160,32,.1);color:#e8a020;border-color:#e8a020;">Adelanto</span>
+            {% else %}
+              <span style="color:#333;font-size:12px;">—</span>
+            {% endif %}
+          </td>
+          <td><span class="bs bs-{{ o.status }}">{{ o.get_status_display }}</span></td>
+          <td style="color:#555;white-space:nowrap;">{{ o.created_at|date:"d/m/y H:i" }}</td>
+          <td style="white-space:nowrap;">
+            <a href="{% url 'panel:order_detail' o.pk %}" class="btn-o btn-sm">
+              <i class="bi bi-eye"></i>
+            </a>
+            <a href="{% url 'panel:order_ticket' o.pk %}" class="btn-o btn-sm" target="_blank">
+              <i class="bi bi-printer"></i>
+            </a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="9" style="text-align:center;color:#444;padding:32px;">
+            No hay pedidos{% if status_filter or q %} con ese filtro{% endif %}.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Paginación -->
+{% if page_obj.has_other_pages %}
+<div class="p-pages">
+  {% if page_obj.has_previous %}
+    <a href="?page={{ page_obj.previous_page_number }}&status={{ status_filter }}&q={{ q }}">
+      <i class="bi bi-chevron-left"></i>
+    </a>
+  {% endif %}
+  {% for num in page_obj.paginator.page_range %}
+    {% if page_obj.number == num %}
+      <span class="cur">{{ num }}</span>
+    {% elif num > page_obj.number|add:"-3" and num < page_obj.number|add:"3" %}
+      <a href="?page={{ num }}&status={{ status_filter }}&q={{ q }}">{{ num }}</a>
+    {% endif %}
+  {% endfor %}
+  {% if page_obj.has_next %}
+    <a href="?page={{ page_obj.next_page_number }}&status={{ status_filter }}&q={{ q }}">
+      <i class="bi bi-chevron-right"></i>
+    </a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}

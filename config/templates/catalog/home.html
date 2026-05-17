@@ -1,0 +1,564 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}RYAL — Importación Premium{% endblock %}
+
+{% block content %}
+
+<!-- ═══════════════════════════════════════════
+     HERO
+═══════════════════════════════════════════ -->
+<section class="hero">
+
+  <!-- ── Copy ─────────────────────────────────── -->
+  <div class="hero-copy">
+    {% if site_config.hero_eyebrow %}<div class="hero-tag">{{ site_config.hero_eyebrow }}</div>{% endif %}
+
+    <h1>
+      {% if site_config.hero_title_em %}<em>{{ site_config.hero_title_em }}</em>{% endif %}
+      {% if site_config.hero_title_strong %}<strong>{{ site_config.hero_title_strong }}</strong>{% endif %}
+    </h1>
+
+    {% if site_config.hero_sub %}
+    <p class="sub">{{ site_config.hero_sub|linebreaksbr }}</p>
+    {% endif %}
+
+    <div class="hero-cta">
+      <a href="{% url 'catalog:hub' %}" class="btn-hero-primary">Ver catálogo</a>
+      <a href="{% url 'catalog:search' %}?tag=Nuevo" class="btn-hero-ghost">Nuevo drop →</a>
+    </div>
+
+    {% if site_config.hero_stat_1_value or site_config.hero_stat_2_value %}
+    <div class="hero-side-stats">
+      {% if site_config.hero_stat_1_value %}
+      <div class="stat">
+        <span class="k">{{ site_config.hero_stat_1_value }}</span>
+        <span class="l">{{ site_config.hero_stat_1_label }}</span>
+      </div>
+      {% endif %}
+      {% if site_config.hero_stat_2_value %}
+      <div class="stat">
+        <span class="k">{{ site_config.hero_stat_2_value }}</span>
+        <span class="l">{{ site_config.hero_stat_2_label }}</span>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ── Media: slideshow ──────────────────────── -->
+  <div class="hero-media" id="heroMedia">
+    {% if hero_slides %}
+      {% for slide in hero_slides %}
+        {% if slide.media_type == 'video' %}
+        <video class="hero-slide hero-slide--video" autoplay muted loop playsinline preload="auto">
+          <source src="{{ slide.video.url }}">
+        </video>
+        {% else %}
+        <div class="hero-slide" style="background-image:url('{{ slide.image.url }}');"></div>
+        {% endif %}
+      {% endfor %}
+    {% else %}
+      {% for cat in home_categories %}
+        {% if cat.cover_url %}
+        <div class="hero-slide" style="background-image:url('{{ cat.cover_url }}');"></div>
+        {% endif %}
+      {% endfor %}
+    {% endif %}
+
+    <!-- Overlay izquierdo — blend con el copy -->
+    <div class="hero-media-blend"></div>
+    <!-- Overlay oscuro general -->
+    <div class="hero-media-dim"></div>
+
+    <!-- Líneas de cuadrícula decorativas -->
+    <div class="hero-grid-overlay"></div>
+
+    <!-- Logo flotante -->
+    <div class="hero-logo-mark">
+      <img src="{% static 'img/logo-ryal-white.png' %}" alt="RYAL">
+    </div>
+
+    <!-- Texto vertical decorativo -->
+    <div class="hero-bg-text">RYAL</div>
+
+    <!-- Coordenadas -->
+    <div class="hero-coord">23.6°N · 99.1°W · MX</div>
+
+    <!-- Indicadores de slide -->
+    <div class="hero-dots" id="heroDots"></div>
+  </div>
+
+</section>
+
+
+<!-- ═══════════════════════════════════════════
+     CATEGORÍAS
+═══════════════════════════════════════════ -->
+{% if home_categories %}
+<section class="py-5 py-md-6">
+  <div class="container">
+    <!-- Encabezado de sección -->
+    <div class="d-flex justify-content-between align-items-end mb-4 mb-md-5 pb-3 border-bottom border-soft"
+         style="border-color: var(--ryal-border) !important;">
+      <div>
+        <p class="font-monospace text-gold mb-1" style="font-size: 0.65rem; letter-spacing: 0.2em;">/01</p>
+        <h2 class="font-heading display-5 fw-normal mb-0 lh-1"
+            style="font-size: clamp(2rem, 5vw, 3.5rem);">
+          Categorías
+        </h2>
+      </div>
+      <span class="display-1 fw-bold text-white opacity-10 font-display d-none d-md-block"
+            style="font-size: 8rem; line-height: 0.6; transform: translateY(20px);">01</span>
+    </div>
+
+    <!-- Grid de categorías -->
+    <div class="row g-3 g-md-4">
+      {% for cat in home_categories %}
+      <div class="col-6 col-md-4 col-lg-3">
+        <a href="{% url 'catalog:category' cat.slug %}"
+           class="d-block text-decoration-none position-relative overflow-hidden bg-dark group"
+           style="border: 1px solid rgba(255,255,255,0.07); border-radius: 18px; transition: transform 0.35s ease, box-shadow 0.35s ease;"
+           onmouseover="this.style.transform='translateY(-4px)';this.style.boxShadow='0 16px 40px rgba(0,0,0,.5)'"
+           onmouseout="this.style.transform='';this.style.boxShadow=''">
+          <!-- Imagen -->
+          <div class="position-relative overflow-hidden" style="aspect-ratio: 3/4;">
+            {% if cat.cover_url %}
+              <img src="{{ cat.cover_url }}" alt="{{ cat.name }}" loading="lazy"
+                   class="w-100 h-100 object-fit-cover"
+                   style="transition: transform 0.6s ease;">
+            {% else %}
+              <div class="w-100 h-100 d-flex align-items-center justify-content-center"
+                   style="background: linear-gradient(135deg, #111, #1a1a1a);">
+                <i class="bi bi-box-seam text-gold opacity-50" style="font-size: 2rem;"></i>
+              </div>
+            {% endif %}
+            <!-- Gradiente permanente en la base para legibilidad del nombre -->
+            <div class="position-absolute bottom-0 start-0 w-100"
+                 style="height:55%;background:linear-gradient(to top, rgba(8,8,8,0.88) 0%, transparent 100%);pointer-events:none;"></div>
+            <!-- Nombre sobre la imagen -->
+            <div class="position-absolute bottom-0 start-0 w-100 p-3 d-flex justify-content-between align-items-end">
+              <span class="text-white fw-semibold" style="font-size:0.95rem;line-height:1.2;">{{ cat.name }}</span>
+              <i class="bi bi-arrow-up-right text-gold" style="font-size:1.1rem;flex-shrink:0;margin-left:8px;"></i>
+            </div>
+          </div>
+        </a>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
+
+<!-- ═══════════════════════════════════════════
+     NUEVOS INGRESOS
+═══════════════════════════════════════════ -->
+{% if new_products %}
+<section class="py-5 py-md-6">
+  <div class="container">
+    <!-- Encabezado -->
+    <div class="d-flex justify-content-between align-items-end mb-4 mb-md-5 pb-3 border-bottom border-soft"
+         style="border-color: var(--ryal-border) !important;">
+      <div>
+        <p class="font-monospace text-gold mb-1" style="font-size: 0.65rem; letter-spacing: 0.2em;">/02</p>
+        <h2 class="font-heading display-5 fw-normal mb-0 lh-1"
+            style="font-size: clamp(2rem, 5vw, 3.5rem); color: var(--ryal-gold);">
+          Nuevos ingresos
+        </h2>
+      </div>
+      <a href="{% url 'catalog:hub' %}"
+         class="text-gold text-decoration-none font-display align-self-end pb-1 border-bottom border-gold"
+         style="font-size: 0.65rem; letter-spacing: 0.2em; text-transform: uppercase; transition: opacity 0.3s;"
+         onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'">
+        Ver todos →
+      </a>
+    </div>
+
+    <!-- Grid de productos -->
+    <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3 g-md-4">
+      {% for product in new_products %}
+        <div class="col">
+          {% include "catalog/_product_card.html" with product=product %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
+
+<!-- ═══════════════════════════════════════════
+     BANNER WHATSAPP
+═══════════════════════════════════════════ -->
+<section class="py-5" style="background-color: #050505; border-top: 1px solid var(--ryal-border); border-bottom: 1px solid var(--ryal-border);">
+  <div class="container">
+    <div class="row align-items-center justify-content-between">
+      <div class="col-md-7 col-lg-8 mb-3 mb-md-0">
+        <h3 class="font-heading display-6 text-white mb-2 fw-normal"
+            style="font-size: clamp(1.6rem, 4vw, 2.4rem);">
+          ¿Tienes dudas? Escríbenos.
+        </h3>
+        <p class="text-white-50 fw-light mb-0" style="font-size: 0.95rem;">
+          Atención personalizada por WhatsApp. Te respondemos en minutos.
+        </p>
+      </div>
+      <div class="col-md-5 col-lg-4 text-md-end">
+        <a href="https://wa.me/{{ site_config.whatsapp }}?text=Hola%2C%20quiero%20información%20sobre%20sus%20productos"
+           target="_blank" rel="noopener"
+           class="btn btn-gold px-4 py-3 d-inline-flex align-items-center gap-2"
+           style="font-size: 0.85rem;">
+          <i class="bi bi-whatsapp fs-5"></i> Abrir WhatsApp
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════
+     MANIFESTO
+═══════════════════════════════════════════ -->
+<section class="py-5 py-md-6">
+  <div class="container">
+    <div class="d-flex justify-content-between align-items-end mb-4 mb-md-5 pb-3 border-bottom border-soft"
+         style="border-color: var(--ryal-border) !important;">
+      <div>
+        <p class="font-monospace text-gold mb-1" style="font-size: 0.65rem; letter-spacing: 0.2em;">/03</p>
+        <h2 class="font-heading display-5 fw-normal mb-0 lh-1"
+            style="font-size: clamp(2rem, 5vw, 3.5rem);">
+          Importamos <em class="text-gold fst-italic">lo bueno</em>
+        </h2>
+      </div>
+      <span class="display-1 fw-bold text-white opacity-10 font-display d-none d-md-block"
+            style="font-size: 8rem; line-height: 0.6; transform: translateY(20px);">03</span>
+    </div>
+
+    <div class="row g-4 g-md-5">
+      <div class="col-md-6">
+        <p class="text-white-50 fw-light" style="font-size: 1rem; line-height: 1.8;">
+          Cada pieza que ves en el catálogo pasó por nuestra selección. No son originales, pero la calidad habla por sí sola. Importación directa de proveedores en Asia, sin el markup del intermediario.
+        </p>
+      </div>
+      <div class="col-md-6">
+        <p class="text-white-50 fw-light" style="font-size: 1rem; line-height: 1.8;">
+          Nuestro modelo es simple: acceso directo al proveedor significa precios reales sin el markup del intermediario. Tú recibes más por menos, y nosotros construimos una comunidad que sabe lo que vale su dinero.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     SÍGUENOS EN REDES
+═══════════════════════════════════════════ -->
+<section class="py-5 py-md-6">
+  <div class="container">
+    <div class="d-flex justify-content-between align-items-end mb-4 mb-md-5 pb-3 border-bottom border-soft"
+         style="border-color: var(--ryal-border) !important;">
+      <div>
+        <p class="font-monospace text-gold mb-1" style="font-size:.65rem;letter-spacing:.2em;">/04</p>
+        <h2 class="font-heading display-5 fw-normal mb-0 lh-1" style="font-size:clamp(2rem,5vw,3.5rem);">
+          Síguenos <em class="text-gold fst-italic">en redes</em>
+        </h2>
+      </div>
+      <span class="display-1 fw-bold text-white opacity-10 font-display d-none d-md-block"
+            style="font-size:8rem;line-height:.6;transform:translateY(20px);">04</span>
+    </div>
+
+    <div class="row g-3 justify-content-center">
+
+      <!-- WhatsApp -->
+      <div class="col-12 col-sm-4 d-flex flex-column gap-2">
+        <a href="https://wa.me/524451129186" target="_blank" rel="noopener" class="social-btn social-btn--wa">
+          <i class="bi bi-whatsapp social-btn__icon"></i>
+          <span class="social-btn__label">WhatsApp</span>
+          <span class="social-btn__handle">+52 4451 129186</span>
+        </a>
+        <a href="https://wa.me/524451076015" target="_blank" rel="noopener" class="social-btn social-btn--wa">
+          <i class="bi bi-whatsapp social-btn__icon"></i>
+          <span class="social-btn__label">WhatsApp</span>
+          <span class="social-btn__handle">+52 4451 076015</span>
+        </a>
+      </div>
+
+      <!-- Instagram -->
+      <div class="col-12 col-sm-4">
+        <a href="https://www.instagram.com/ryalsneackers" target="_blank" rel="noopener" class="social-btn social-btn--ig">
+          <i class="bi bi-instagram social-btn__icon"></i>
+          <span class="social-btn__label">Instagram</span>
+          <span class="social-btn__handle">@ryalsneackers</span>
+        </a>
+      </div>
+
+      <!-- TikTok -->
+      <div class="col-12 col-sm-4">
+        <a href="https://www.tiktok.com/@ryalsneackershop" target="_blank" rel="noopener" class="social-btn social-btn--tt">
+          <i class="bi bi-tiktok social-btn__icon"></i>
+          <span class="social-btn__label">TikTok</span>
+          <span class="social-btn__handle">@ryalsneackershop</span>
+        </a>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     ENCUÉNTRANOS
+═══════════════════════════════════════════ -->
+<section class="py-5 py-md-6" style="background:#050505;border-top:1px solid var(--ryal-border);">
+  <div class="container">
+
+    <div class="d-flex justify-content-between align-items-end mb-4 mb-md-5 pb-3 border-bottom border-soft"
+         style="border-color:var(--ryal-border) !important;">
+      <div>
+        <p class="font-monospace text-gold mb-1" style="font-size:.65rem;letter-spacing:.2em;">/05</p>
+        <h2 class="font-heading display-5 fw-normal mb-0 lh-1" style="font-size:clamp(2rem,5vw,3.5rem);">
+          Encuéntranos
+        </h2>
+      </div>
+      <span class="display-1 fw-bold text-white opacity-10 font-display d-none d-md-block"
+            style="font-size:8rem;line-height:.6;transform:translateY(20px);">05</span>
+    </div>
+
+    <div class="row g-4 g-lg-5 align-items-start">
+
+      <!-- Info de contacto -->
+      <div class="col-lg-4">
+        <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:28px;">
+          <div style="display:flex;align-items:flex-start;gap:12px;">
+            <i class="bi bi-geo-alt-fill text-gold" style="font-size:1rem;margin-top:3px;flex-shrink:0;"></i>
+            <span class="text-white-50 fw-light" style="font-size:.9rem;line-height:1.6;">
+              RYALSNEACKERS<br>Moroléon, Guanajuato, México
+            </span>
+          </div>
+          <div style="display:flex;align-items:flex-start;gap:12px;">
+            <i class="bi bi-whatsapp text-gold" style="font-size:1rem;margin-top:3px;flex-shrink:0;"></i>
+            <div style="display:flex;flex-direction:column;gap:5px;">
+              <a href="https://wa.me/524451129186" target="_blank" rel="noopener"
+                 class="text-white-50 fw-light text-decoration-none"
+                 style="font-size:.9rem;transition:color .18s;"
+                 onmouseover="this.style.color='var(--ryal-gold)'" onmouseout="this.style.color=''">
+                +52 4451 129186
+              </a>
+              <a href="https://wa.me/524451076015" target="_blank" rel="noopener"
+                 class="text-white-50 fw-light text-decoration-none"
+                 style="font-size:.9rem;transition:color .18s;"
+                 onmouseover="this.style.color='var(--ryal-gold)'" onmouseout="this.style.color=''">
+                +52 4451 076015
+              </a>
+            </div>
+          </div>
+          <div style="display:flex;align-items:flex-start;gap:12px;">
+            <i class="bi bi-envelope text-gold" style="font-size:1rem;margin-top:3px;flex-shrink:0;"></i>
+            <a href="mailto:ryalsneackershop@gmail.com"
+               class="text-white-50 fw-light text-decoration-none"
+               style="font-size:.9rem;word-break:break-all;transition:color .18s;"
+               onmouseover="this.style.color='var(--ryal-gold)'" onmouseout="this.style.color=''">
+              ryalsneackershop@gmail.com
+            </a>
+          </div>
+          <div style="display:flex;align-items:flex-start;gap:12px;">
+            <i class="bi bi-instagram text-gold" style="font-size:1rem;margin-top:3px;flex-shrink:0;"></i>
+            <a href="https://www.instagram.com/ryalsneackers" target="_blank" rel="noopener"
+               class="text-white-50 fw-light text-decoration-none"
+               style="font-size:.9rem;transition:color .18s;"
+               onmouseover="this.style.color='var(--ryal-gold)'" onmouseout="this.style.color=''">
+              @ryalsneackers
+            </a>
+          </div>
+          <div style="display:flex;align-items:flex-start;gap:12px;">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" style="width:15px;height:15px;fill:var(--ryal-gold);flex-shrink:0;margin-top:4px;">
+              <path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9.01a6.27 6.27 0 00-.79-.05 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.33-6.34V8.69a8.22 8.22 0 004.82 1.55V6.79a4.85 4.85 0 01-1.05-.1z"/>
+            </svg>
+            <a href="https://www.tiktok.com/@ryalsneackershop" target="_blank" rel="noopener"
+               class="text-white-50 fw-light text-decoration-none"
+               style="font-size:.9rem;transition:color .18s;"
+               onmouseover="this.style.color='var(--ryal-gold)'" onmouseout="this.style.color=''">
+              @ryalsneackershop
+            </a>
+          </div>
+        </div>
+
+        <a href="https://maps.app.goo.gl/rkEk1tTJJzLWwvA37" target="_blank" rel="noopener"
+           class="btn btn-outline-gold d-inline-flex align-items-center gap-2" style="font-size:.82rem;">
+          <i class="bi bi-map"></i> Abrir en Google Maps
+        </a>
+      </div>
+
+      <!-- Mapa interactivo -->
+      <div class="col-lg-8">
+        <div style="border:1px solid var(--ryal-border);border-radius:8px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.5);">
+          <iframe
+            src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3764.0!2d-101.1818647!3d20.1337855!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x842cfb0044518213%3A0x834ca804ec449531!2sRYALSNEACKERS!5e0!3m2!1ses-419!2smx!4v1746000000"
+            width="100%" height="420"
+            style="border:0;display:block;"
+            allowfullscreen="" loading="lazy"
+            referrerpolicy="no-referrer-when-downgrade"
+            title="Ubicación RYALSNEACKERS — Moroléon, Gto.">
+          </iframe>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  /* Estilos adicionales para la página Home */
+  .min-vh-75 {
+    min-height: 75vh;
+  }
+  @media (min-width: 768px) {
+    .min-vh-75 {
+      min-height: 85vh;
+    }
+  }
+  .opacity-5 { opacity: 0.05 !important; }
+  .opacity-10 { opacity: 0.1 !important; }
+  .opacity-15 { opacity: 0.15 !important; }
+  .opacity-25 { opacity: 0.25 !important; }
+  .opacity-50 { opacity: 0.5 !important; }
+  .object-fit-cover { object-fit: cover; }
+  .group:hover img {
+    transform: scale(1.07);
+  }
+  /* Bordes suaves personalizados (border-soft ya declarado en base) */
+  .border-soft {
+    border-color: var(--ryal-border) !important;
+  }
+
+  /* TikTok grid cells */
+  .tiktok-cell {
+    position: relative;
+    display: block;
+    aspect-ratio: 9/16;
+    overflow: hidden;
+    background: #0d0d0d;
+    text-decoration: none;
+  }
+  .tiktok-cell img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transition: transform .35s ease;
+    display: block;
+  }
+  .tiktok-overlay {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,.25);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0;
+    transition: opacity .25s;
+  }
+  .tiktok-overlay i {
+    font-size: 2rem;
+    color: #fff;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,.7));
+  }
+  .tiktok-cell:hover .tiktok-overlay { opacity: 1; }
+  .tiktok-cell:hover img { transform: scale(1.04); }
+  .tiktok-views {
+    position: absolute;
+    bottom: 6px; right: 8px;
+    font-size: .68rem;
+    color: #fff;
+    display: flex; align-items: center; gap: 3px;
+    text-shadow: 0 1px 4px rgba(0,0,0,.8);
+  }
+
+  /* Instagram grid cells */
+  .ig-cell {
+    position: relative;
+    display: block;
+    aspect-ratio: 1;
+    overflow: hidden;
+    background: #0d0d0d;
+    text-decoration: none;
+  }
+  .ig-cell img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transition: transform .35s ease;
+    display: block;
+  }
+  .ig-overlay {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,.22);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0;
+    transition: opacity .25s;
+  }
+  .ig-overlay i {
+    font-size: 1.6rem;
+    color: #fff;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,.7));
+  }
+  .ig-cell:hover .ig-overlay { opacity: 1; }
+  .ig-cell:hover img { transform: scale(1.04); }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  const slides = Array.from(document.querySelectorAll('.hero-slide'));
+  const dotsWrap = document.getElementById('heroDots');
+  if (!slides.length || !dotsWrap) return;
+
+  const INTERVAL = 5200;
+  let current = 0;
+  let timer = null;
+
+  function isVideo(el) { return el.tagName === 'VIDEO'; }
+
+  function activateSlide(el) {
+    el.classList.add('active');
+    if (isVideo(el)) { el.currentTime = 0; el.play().catch(() => {}); }
+  }
+
+  function deactivateSlide(el) {
+    el.classList.remove('active');
+    if (isVideo(el)) { el.pause(); }
+  }
+
+  /* Build dot buttons */
+  const dots = slides.map((_, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'hero-dot' + (i === 0 ? ' active' : '');
+    btn.setAttribute('aria-label', 'Slide ' + (i + 1));
+    btn.addEventListener('click', () => goTo(i, true));
+    dotsWrap.appendChild(btn);
+    return btn;
+  });
+
+  function goTo(idx, resetTimer) {
+    deactivateSlide(slides[current]);
+    dots[current].classList.remove('active');
+    current = (idx + slides.length) % slides.length;
+    activateSlide(slides[current]);
+    dots[current].classList.add('active');
+    if (resetTimer) {
+      clearInterval(timer);
+      timer = setInterval(advance, INTERVAL);
+    }
+  }
+
+  function advance() { goTo(current + 1, false); }
+
+  /* Init first slide */
+  activateSlide(slides[0]);
+  timer = setInterval(advance, INTERVAL);
+
+  /* Pause slideshow on hover */
+  const media = document.getElementById('heroMedia');
+  if (media) {
+    media.addEventListener('mouseenter', () => clearInterval(timer));
+    media.addEventListener('mouseleave', () => { timer = setInterval(advance, INTERVAL); });
+  }
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,154 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                        WEB_RYAL — ARCHIVOS DE SINCRONIZACIÓN                ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+── SCRAPERS (raíz del proyecto) ────────────────────────────────────────────────
+
+  scrape_modaverse_final.py
+  ─────────────────────────
+  Scraper de gorras, camisetas y sudaderas desde modaverse.vip.
+  Abre browser (Playwright) para que el SPA Vue lance sus XHR, las captura,
+  y luego llama la API REST directamente para obtener todas las páginas.
+  También extrae el árbol completo de categorías/subcategorías.
+  Salida: scraped_modaverse.json
+  Requiere browser porque sin él la API no responde.
+
+  scrape_camisetas.py
+  ───────────────────
+  Scraper dedicado para Camisetas Calidad G5 y Calidad 1:1 en modaverse.
+  Lee los IDs de subcategorías directamente desde scraped_modaverse.json
+  (no hardcodea IDs). Hace scrape por subcategoría + categoría padre y fusiona
+  al JSON sin borrar productos existentes. Deduplica por productId.
+  Salida: scraped_modaverse.json (fusiona sobre el existente)
+
+  Uso:
+      python scrape_camisetas.py          # G5 + 1:1
+      python scrape_camisetas.py --g5     # solo Calidad G5
+      python scrape_camisetas.py --11     # solo Calidad 1:1
+
+  scrape_yupoo.py
+  ───────────────
+  Scraper prototipo (legacy). Lista hasta 2 páginas de álbumes generales de
+  putianshoefactory.x.yupoo.com, filtra Nike/Adidas/Jordan, y entra al
+  detalle de los primeros 5. Salida: scraped_yupoo.json
+  LIMITACIÓN: incompleto — solo 5 productos con detalle. Usar scrape_yupoo_pf.py.
+
+  scrape_yupoo_pf.py
+  ──────────────────
+  Scraper completo de tenis desde putianshoefactory.x.yupoo.com.
+  Recorre TODAS las marcas (26 categorías) paginando cada una, extrae nombre,
+  precio y thumbnail de cada álbum. Crea la categoría padre "Calzado" con
+  subcategorías por marca (Nike, Adidas, Air Jordan, Yeezy, Balenciaga, etc.).
+  Salida: scraped_yupoo_pf.json
+
+  Uso:
+      python scrape_yupoo_pf.py                       # todas las marcas
+      python scrape_yupoo_pf.py --brands Nike Adidas  # solo esas marcas
+      python scrape_yupoo_pf.py --limit 50            # máx 50 álbumes por marca
+      python scrape_yupoo_pf.py --with-detail         # entra a cada álbum (más fotos, lento)
+      python scrape_yupoo_pf.py --resume              # continúa sin repetir ya guardados
+
+  Nota: el modo por defecto usa el thumbnail del listado (rápido). --with-detail
+  visita cada álbum para obtener hasta 8 fotos por producto (tarda mucho más).
+
+  sync_catalog.bat
+  ────────────────
+  Doble clic en Windows. Activa el venv y corre manage.py sync_catalog.
+  Equivalente a: cd config && python manage.py sync_catalog
+
+── MANAGEMENT COMMANDS (config/catalog/management/commands/) ───────────────────
+
+  sync_catalog.py                        [COMANDO PRINCIPAL — usa este]
+  ───────────────
+  Orquesta el ciclo completo: scraping → carga en BD → reparación de imágenes.
+
+  Uso:
+      python manage.py sync_catalog                    # solo modaverse (default)
+      python manage.py sync_catalog --only tenis       # yupoo legacy (scraped_yupoo.json)
+      python manage.py sync_catalog --only all         # modaverse + tenis legacy
+      python manage.py sync_catalog --skip-scraping    # usa JSONs existentes, no re-scrapea
+      python manage.py sync_catalog --no-images        # no descarga imágenes
+      python manage.py sync_catalog --skip-repair      # no corre repair al final
+
+  Nota: calzado (yupoo_pf) se carga manualmente con load_productos --only calzado.
+  No está integrado en sync_catalog porque se scrapea por separado.
+
+  load_productos.py
+  ─────────────────
+  Lee los JSONs y crea productos en BD. Deduplica por supplier_url (nunca duplica).
+  Crea categorías automáticamente si no existen. Descarga hasta 4 imágenes por producto.
+  Categorías no reconocidas van a "General".
+
+  Fuentes que maneja:
+      modaverse  → scraped_modaverse.json  → categorías desde el árbol JSON
+      tenis      → scraped_yupoo.json      → categoría Zapato/Tenis (legacy)
+      calzado    → scraped_yupoo_pf.json   → categoría Calzado → subcategorías por marca
+
+  Uso:
+      python manage.py load_productos                   # solo modaverse
+      python manage.py load_productos --only tenis      # tenis legacy
+      python manage.py load_productos --only calzado    # calzado por marcas (yupoo_pf)
+      python manage.py load_productos --only all        # todo
+      python manage.py load_productos --no-images       # sin descargar imágenes
+      python manage.py load_productos --recategorize    # mueve productos de "General" a su categoría real
+
+  repair_images.py
+  ────────────────
+  Detecta y corrige imágenes con paths incorrectos en BD. Mueve archivos al path
+  correcto (products/SKU_N.jpg) y actualiza la BD.
+
+  Uso:
+      python manage.py repair_images              # corrige y actualiza
+      python manage.py repair_images --dry-run    # solo muestra qué corregiría
+      python manage.py repair_images --redownload-missing   # re-descarga imágenes faltantes
+
+  Regla post-repair: después de --redownload-missing, reactivar productos con imagen:
+      Product.objects.filter(is_active=False).annotate(n=Count('images')).filter(n__gt=0).update(is_active=True)
+
+  import_images.py
+  ────────────────
+  Descarga imágenes en paralelo SOLO para productos que ya están en BD pero no
+  tienen imágenes. No crea productos. Usa 10 hilos por defecto.
+
+  Uso:
+      python manage.py import_images
+      python manage.py import_images --only gorras
+      python manage.py import_images --workers 20
+      python manage.py import_images --max-per-product 2
+      python manage.py import_images --force       # re-descarga aunque ya tenga imgs
+
+── JSONS (raíz del proyecto) ───────────────────────────────────────────────────
+
+  scraped_modaverse.json   ← producido por scrape_modaverse_final.py + scrape_camisetas.py
+  scraped_yupoo.json       ← producido por scrape_yupoo.py (legacy)
+  scraped_yupoo_pf.json    ← producido por scrape_yupoo_pf.py (calzado por marcas)
+
+  Estructura modaverse/yupoo_pf:
+      { "categories": [...árbol padre→subcategorías...], "products": [...] }
+  Estructura yupoo legacy:
+      { "albums_list": [...], "products": [...5 con detalle...] }
+
+── FLUJO TÍPICO ────────────────────────────────────────────────────────────────
+
+  Drop nuevo de gorras/camisetas (modaverse):
+      python manage.py sync_catalog --skip-scraping   # si ya tienes el JSON
+      python manage.py sync_catalog                   # o re-scrapear + cargar
+
+  Primera carga de calzado por marcas:
+      python scrape_yupoo_pf.py --resume              # scrapea (10-30 min)
+      python manage.py load_productos --only calzado  # carga en BD
+
+  Drop nuevo de calzado (ya tienes productos en BD):
+      python scrape_yupoo_pf.py --resume              # agrega solo URLs nuevas
+      python manage.py load_productos --only calzado  # carga solo los nuevos
+
+  Re-intentar imágenes fallidas:
+      python manage.py repair_images --redownload-missing
+      python manage.py import_images --only gorras
+
+  Categorías en panel (/panel/catalogo/):
+      Zapato  → toggle para activar/desactivar tenis legacy
+      Calzado → toggle para activar/desactivar calzado por marcas
+      Calzado → subcategorías → toggle por marca individual
+
+══════════════════════════════════════════════════════════════════════════════════

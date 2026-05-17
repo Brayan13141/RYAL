@@ -1,0 +1,218 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Secciones — Panel RYAL{% endblock %}
+{% block page_title %}Secciones del catálogo{% endblock %}
+
+{% block content %}
+
+<p style="color:#555;font-size:12px;margin-bottom:20px;">
+  Las secciones agrupan subcategorías dentro de una categoría padre.
+  Úsalas para organizar el catálogo por marca, tipo de producto, etc.
+</p>
+
+{% if not cat_data %}
+<div class="p-card">
+  <div class="p-card-body" style="text-align:center;padding:40px;">
+    <i class="bi bi-grid-3x3-gap" style="font-size:32px;color:#333;display:block;margin-bottom:12px;"></i>
+    <p style="color:#555;">No hay categorías con subcategorías disponibles.</p>
+    <p style="color:#444;font-size:12px;margin-top:6px;">
+      Primero carga productos con subcategorías usando <code>load_productos</code>.
+    </p>
+  </div>
+</div>
+{% endif %}
+
+{% for entry in cat_data %}
+<div class="p-card" id="cat-{{ entry.cat.pk }}" style="margin-bottom:18px;">
+
+  <!-- Header categoría padre -->
+  <div class="p-card-head" style="cursor:pointer;" onclick="toggleCat({{ entry.cat.pk }})">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <i id="sec-chevron-{{ entry.cat.pk }}" class="bi bi-chevron-down"
+         style="font-size:12px;color:#555;transition:transform .2s;flex-shrink:0;transform:rotate(-90deg);"></i>
+      <h2>{{ entry.cat.name }}</h2>
+      <span style="background:rgba(212,175,55,.1);color:var(--pg);border:1px solid rgba(212,175,55,.25);
+                   padding:2px 9px;border-radius:12px;font-size:11px;">
+        {{ entry.sections|length }} sección{% if entry.sections|length != 1 %}es{% endif %}
+      </span>
+    </div>
+    <span style="font-size:11px;color:#444;">{{ entry.subcats|length }} subcategorías</span>
+  </div>
+
+  <div id="sec-body-{{ entry.cat.pk }}" style="display:none;">
+    <div class="p-card-body">
+
+      <!-- ── Secciones existentes ── -->
+      {% for item in entry.sections %}
+      {% with sec=item.sec available=item.available %}
+      <div style="border:1px solid #1e2020;border-radius:6px;padding:14px;margin-bottom:10px;background:#0c0c0c;">
+
+        <!-- Nombre + acciones -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+
+          <form method="post" action="{% url 'panel:section_rename' sec.pk %}"
+                style="display:flex;gap:6px;flex:1;min-width:180px;">
+            {% csrf_token %}
+            <input name="name" value="{{ sec.name }}"
+                   style="flex:1;background:#111;border:1px solid #222;color:#e0e0e0;
+                          padding:6px 10px;border-radius:5px;font-size:13px;outline:none;min-width:0;"
+                   onfocus="this.style.borderColor='var(--pg)'"
+                   onblur="this.style.borderColor='#222'">
+            <button type="submit" class="btn-o btn-sm">Guardar</button>
+          </form>
+
+          <!-- Reordenar -->
+          <div style="display:flex;gap:4px;">
+            <form method="post" action="{% url 'panel:section_reorder' sec.pk %}" style="margin:0;">
+              {% csrf_token %}
+              <button name="direction" value="up" class="btn-o btn-sm" title="Subir sección"
+                      style="padding:4px 9px !important;">
+                <i class="bi bi-arrow-up"></i>
+              </button>
+            </form>
+            <form method="post" action="{% url 'panel:section_reorder' sec.pk %}" style="margin:0;">
+              {% csrf_token %}
+              <button name="direction" value="down" class="btn-o btn-sm" title="Bajar sección"
+                      style="padding:4px 9px !important;">
+                <i class="bi bi-arrow-down"></i>
+              </button>
+            </form>
+          </div>
+
+          <!-- Eliminar -->
+          <form method="post" action="{% url 'panel:section_delete' sec.pk %}" style="margin:0;">
+            {% csrf_token %}
+            <button type="button" class="btn-r btn-sm" title="Eliminar sección"
+                    onclick="ryalConfirm({title:'Eliminar sección',msg:'¿Eliminar la sección \'{{ sec.name|escapejs }}\'? Esta acción no se puede deshacer.',okLabel:'Eliminar'}).then(function(ok){if(ok)this.closest('form').submit();}.bind(this))">
+              <i class="bi bi-trash"></i>
+            </button>
+          </form>
+        </div>
+
+        <!-- Subcategorías en esta sección -->
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;min-height:26px;">
+          {% for cat in sec.categories.all %}
+          <span style="display:inline-flex;align-items:center;gap:6px;
+                       background:rgba(212,175,55,.08);border:1px solid rgba(212,175,55,.2);
+                       color:#d4af37;padding:3px 4px 3px 10px;border-radius:20px;font-size:12px;">
+            {{ cat.name }}
+            <form method="post" action="{% url 'panel:section_remove_cat' sec.pk cat.pk %}"
+                  style="display:inline;margin:0;">
+              {% csrf_token %}
+              <button type="submit"
+                      style="background:none;border:none;color:#666;cursor:pointer;
+                             padding:1px 5px;line-height:1;font-size:14px;border-radius:50%;
+                             transition:color .12s;"
+                      title="Quitar {{ cat.name }}"
+                      onmouseenter="this.style.color='#ff6060'"
+                      onmouseleave="this.style.color='#666'">×</button>
+            </form>
+          </span>
+          {% empty %}
+          <span style="color:#444;font-size:12px;font-style:italic;">
+            Sin subcategorías — agrega una abajo
+          </span>
+          {% endfor %}
+        </div>
+
+        <!-- Agregar subcategoría -->
+        {% if available %}
+        <form method="post" action="{% url 'panel:section_add_cat' sec.pk %}"
+              style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          {% csrf_token %}
+          <select name="cat_id"
+                  style="flex:1;min-width:180px;background:#111;border:1px solid #222;
+                         color:#ccc;padding:6px 10px;border-radius:5px;font-size:13px;outline:none;">
+            <option value="">— Agregar subcategoría —</option>
+            {% for sub in available %}
+            <option value="{{ sub.pk }}">{{ sub.name }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn-g btn-sm">
+            <i class="bi bi-plus"></i> Agregar
+          </button>
+        </form>
+        {% else %}
+        <p style="font-size:12px;color:#444;font-style:italic;">
+          Todas las subcategorías ya están en esta sección.
+        </p>
+        {% endif %}
+
+      </div>
+      {% endwith %}
+      {% empty %}
+      <p style="color:#555;font-size:13px;margin-bottom:16px;">
+        No hay secciones para esta categoría. Crea la primera abajo.
+      </p>
+      {% endfor %}
+
+      <!-- ── Nueva sección ── -->
+      <div style="border:1px dashed #222;border-radius:6px;padding:14px;margin-top:4px;">
+        <p style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;
+                  color:#444;margin-bottom:10px;font-weight:600;">Nueva sección</p>
+        <form method="post" action="{% url 'panel:section_create' %}"
+              style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          {% csrf_token %}
+          <input type="hidden" name="parent_id" value="{{ entry.cat.pk }}">
+          <input name="name" placeholder="Nombre (ej: Marcas de lujo, Colección Trendy…)" required
+                 style="flex:1;min-width:200px;background:#111;border:1px solid #222;color:#e0e0e0;
+                        padding:7px 12px;border-radius:5px;font-size:13px;outline:none;"
+                 onfocus="this.style.borderColor='var(--pg)'"
+                 onblur="this.style.borderColor='#222'">
+          <button type="submit" class="btn-g">
+            <i class="bi bi-plus-circle"></i> Crear sección
+          </button>
+        </form>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const _SEC_STORE = 'ryal_sections_collapse';
+function _secState() {
+  try { return JSON.parse(localStorage.getItem(_SEC_STORE) || '{}'); } catch { return {}; }
+}
+function toggleCat(pk) {
+  var body    = document.getElementById('sec-body-' + pk);
+  var chevron = document.getElementById('sec-chevron-' + pk);
+  var open = body.style.display === 'none';
+  body.style.display      = open ? 'block' : 'none';
+  chevron.style.transform = open ? 'rotate(0deg)' : 'rotate(-90deg)';
+  var s = _secState(); s[pk] = open;
+  localStorage.setItem(_SEC_STORE, JSON.stringify(s));
+}
+
+// Restaurar estado al cargar (localStorage tiene prioridad; hash lo sobreescribe)
+(function () {
+  var s = _secState();
+  document.querySelectorAll('[id^="sec-body-"]').forEach(function (body) {
+    var pk = body.id.replace('sec-body-', '');
+    if (s[pk] === true) {
+      body.style.display = 'block';
+      var ch = document.getElementById('sec-chevron-' + pk);
+      if (ch) ch.style.transform = 'rotate(0deg)';
+    }
+  });
+
+  // Hash ancora (#cat-{pk}) abre esa categoría y hace scroll
+  var hash = window.location.hash;
+  if (hash && hash.startsWith('#cat-')) {
+    var pk = hash.replace('#cat-', '');
+    var body = document.getElementById('sec-body-' + pk);
+    var chevron = document.getElementById('sec-chevron-' + pk);
+    if (body) {
+      body.style.display = 'block';
+      if (chevron) chevron.style.transform = 'rotate(0deg)';
+      var s2 = _secState(); s2[pk] = true;
+      localStorage.setItem(_SEC_STORE, JSON.stringify(s2));
+      body.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+})();
+</script>
+{% endblock %}

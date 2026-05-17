@@ -1,0 +1,348 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Nosotros — RYAL{% endblock %}
+{% block meta_description %}Importación directa de sneakers y gorras para emprendedores y revendedores. Producción desde fábrica, disponibilidad constante y mejores precios de reventa.{% endblock %}
+
+{% block content %}
+
+<!-- ═══ HERO ══════════════════════════════════════════════════════════════════ -->
+<section class="position-relative overflow-hidden"
+         style="background:linear-gradient(180deg,#0a0a0a 0%,#111 100%);border-bottom:1px solid var(--ryal-border);padding:80px 0 60px;">
+  <div class="container">
+    <p class="font-monospace text-gold mb-2" style="font-size:.65rem;letter-spacing:.25em;">/QUIÉNES SOMOS</p>
+    <h1 class="font-heading fw-normal lh-1 mb-3" style="font-size:clamp(2.4rem,6vw,4.5rem);">
+      Importamos directo.<br>
+      <em class="text-gold fst-italic">Tú vendes más.</em>
+    </h1>
+    <p class="text-white-50 fw-light" style="max-width:520px;font-size:1rem;line-height:1.8;">
+      Somos una empresa enfocada en la importación y venta por mayoreo,
+      diseñada especialmente para emprendedores, revendedores y negocios que buscan crecer de forma estable.
+    </p>
+  </div>
+</section>
+
+
+<!-- ═══ DIFERENCIADOR ════════════════════════════════════════════════════════ -->
+<section class="py-5 py-md-6">
+  <div class="container">
+    <div class="row g-4 g-md-5 align-items-start">
+
+      <div class="col-lg-5">
+        <p class="font-monospace text-gold mb-2" style="font-size:.65rem;letter-spacing:.2em;">/01</p>
+        <h2 class="font-heading display-5 fw-normal mb-3 lh-1"
+            style="font-size:clamp(1.8rem,4vw,3rem);">
+          Producción directa<br>desde fábrica
+        </h2>
+        <p class="text-white-50 fw-light" style="line-height:1.8;">
+          A diferencia del modelo tradicional, donde los proveedores trabajan con stock limitado
+          y cambios constantes, nosotros operamos bajo un sistema de <strong class="text-white">producción directa desde fábrica</strong>.
+        </p>
+      </div>
+
+      <div class="col-lg-7">
+        <div class="row g-3">
+          {% for item in ventajas %}{% endfor %}
+          <div class="col-sm-6">
+            <div style="background:#111;border:1px solid var(--ryal-border);border-left:3px solid var(--ryal-gold);border-radius:4px;padding:18px 20px;">
+              <div class="text-gold mb-2" style="font-size:1.2rem;"><i class="bi bi-arrow-repeat"></i></div>
+              <div class="text-white fw-medium mb-1" style="font-size:.9rem;">Disponibilidad constante</div>
+              <div class="text-white-50 fw-light" style="font-size:.82rem;line-height:1.6;">Modelos disponibles todo el año.</div>
+            </div>
+          </div>
+          <div class="col-sm-6">
+            <div style="background:#111;border:1px solid var(--ryal-border);border-left:3px solid var(--ryal-gold);border-radius:4px;padding:18px 20px;">
+              <div class="text-gold mb-2" style="font-size:1.2rem;"><i class="bi bi-rulers"></i></div>
+              <div class="text-white fw-medium mb-1" style="font-size:.9rem;">Todas las tallas</div>
+              <div class="text-white-50 fw-light" style="font-size:.82rem;line-height:1.6;">Sin huecos de talla que te hagan perder ventas.</div>
+            </div>
+          </div>
+          <div class="col-sm-6">
+            <div style="background:#111;border:1px solid var(--ryal-border);border-left:3px solid var(--ryal-gold);border-radius:4px;padding:18px 20px;">
+              <div class="text-gold mb-2" style="font-size:1.2rem;"><i class="bi bi-grid"></i></div>
+              <div class="text-white fw-medium mb-1" style="font-size:.9rem;">Catálogo estable</div>
+              <div class="text-white-50 fw-light" style="font-size:.82rem;line-height:1.6;">Sin cambios semanales. Planea tus compras con certeza.</div>
+            </div>
+          </div>
+          <div class="col-sm-6">
+            <div style="background:#111;border:1px solid var(--ryal-border);border-left:3px solid var(--ryal-gold);border-radius:4px;padding:18px 20px;">
+              <div class="text-gold mb-2" style="font-size:1.2rem;"><i class="bi bi-graph-up-arrow"></i></div>
+              <div class="text-white fw-medium mb-1" style="font-size:.9rem;">Mayor margen de ganancia</div>
+              <div class="text-white-50 fw-light" style="font-size:.82rem;line-height:1.6;">Mejores precios para reventa al eliminar intermediarios.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══ CÓMO FUNCIONA ════════════════════════════════════════════════════════ -->
+<section class="py-5 py-md-6" style="background:#050505;border-top:1px solid var(--ryal-border);border-bottom:1px solid var(--ryal-border);">
+  <div class="container">
+    <div class="row g-5 align-items-center">
+
+      <div class="col-lg-4">
+        <p class="font-monospace text-gold mb-2" style="font-size:.65rem;letter-spacing:.2em;">/02</p>
+        <h2 class="font-heading display-5 fw-normal mb-3 lh-1"
+            style="font-size:clamp(1.8rem,4vw,3rem);">
+          Cómo<br>funciona
+        </h2>
+        <p class="text-white-50 fw-light" style="line-height:1.8;font-size:.95rem;">
+          Trabajamos bajo pedido con un tiempo de entrega de <strong class="text-white">10 a 20 días</strong>,
+          ya que cada orden se produce directamente desde fábrica.
+        </p>
+      </div>
+
+      <div class="col-lg-8">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <div style="display:flex;gap:14px;align-items:flex-start;">
+              <span style="font-size:1.6rem;font-weight:700;color:var(--ryal-gold);font-family:var(--font-display);line-height:1;flex-shrink:0;opacity:.4;">01</span>
+              <div>
+                <div class="text-white fw-medium mb-1" style="font-size:.9rem;">Realizas tu pedido</div>
+                <div class="text-white-50 fw-light" style="font-size:.82rem;line-height:1.6;">Seleccionas los productos del catálogo y confirmas por WhatsApp.</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div style="display:flex;gap:14px;align-items:flex-start;">
+              <span style="font-size:1.6rem;font-weight:700;color:var(--ryal-gold);font-family:var(--font-display);line-height:1;flex-shrink:0;opacity:.4;">02</span>
+              <div>
+                <div class="text-white fw-medium mb-1" style="font-size:.9rem;">Producción directa</div>
+                <div class="text-white-50 fw-light" style="font-size:.82rem;line-height:1.6;">Tu orden se produce en fábrica asegurando disponibilidad y calidad constante.</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div style="display:flex;gap:14px;align-items:flex-start;">
+              <span style="font-size:1.6rem;font-weight:700;color:var(--ryal-gold);font-family:var(--font-display);line-height:1;flex-shrink:0;opacity:.4;">03</span>
+              <div>
+                <div class="text-white fw-medium mb-1" style="font-size:.9rem;">Seguimiento de tu pedido</div>
+                <div class="text-white-50 fw-light" style="font-size:.82rem;line-height:1.6;">Comunicación directa y proceso definido en cada etapa.</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div style="display:flex;gap:14px;align-items:flex-start;">
+              <span style="font-size:1.6rem;font-weight:700;color:var(--ryal-gold);font-family:var(--font-display);line-height:1;flex-shrink:0;opacity:.4;">04</span>
+              <div>
+                <div class="text-white fw-medium mb-1" style="font-size:.9rem;">Entrega en tu puerta</div>
+                <div class="text-white-50 fw-light" style="font-size:.82rem;line-height:1.6;">Recibes tu inventario listo para vender, con margen garantizado.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══ NUESTRO ENFOQUE ═══════════════════════════════════════════════════════ -->
+<section class="py-5 py-md-6">
+  <div class="container">
+    <div class="row g-4 g-md-5">
+
+      <div class="col-lg-6">
+        <p class="font-monospace text-gold mb-2" style="font-size:.65rem;letter-spacing:.2em;">/03 NUESTRO ENFOQUE</p>
+        <h2 class="font-heading display-5 fw-normal mb-3 lh-1"
+            style="font-size:clamp(1.8rem,4vw,3rem);">
+          No solo vendemos producto
+        </h2>
+        <p class="text-white-50 fw-light mb-4" style="line-height:1.8;">
+          Ayudamos a nuestros clientes a tener un negocio más estable, predecible y rentable,
+          eliminando los problemas más comunes del mercado:
+        </p>
+        <ul style="list-style:none;padding:0;display:flex;flex-direction:column;gap:10px;">
+          <li style="display:flex;align-items:center;gap:10px;color:rgba(255,255,255,.5);font-size:.9rem;">
+            <span style="color:#e05560;font-size:.75rem;"><i class="bi bi-x-circle-fill"></i></span> Falta de tallas
+          </li>
+          <li style="display:flex;align-items:center;gap:10px;color:rgba(255,255,255,.5);font-size:.9rem;">
+            <span style="color:#e05560;font-size:.75rem;"><i class="bi bi-x-circle-fill"></i></span> Modelos agotados
+          </li>
+          <li style="display:flex;align-items:center;gap:10px;color:rgba(255,255,255,.5);font-size:.9rem;">
+            <span style="color:#e05560;font-size:.75rem;"><i class="bi bi-x-circle-fill"></i></span> Cambios constantes de catálogo
+          </li>
+          <li style="display:flex;align-items:center;gap:10px;color:rgba(255,255,255,.5);font-size:.9rem;">
+            <span style="color:#e05560;font-size:.75rem;"><i class="bi bi-x-circle-fill"></i></span> Pérdida de ventas por falta de inventario
+          </li>
+        </ul>
+      </div>
+
+      <div class="col-lg-6">
+        <p class="font-monospace text-gold mb-2" style="font-size:.65rem;letter-spacing:.2em;">/04 NUESTRO OBJETIVO</p>
+        <h2 class="font-heading display-5 fw-normal mb-3 lh-1"
+            style="font-size:clamp(1.8rem,4vw,3rem);">
+          Tu proveedor<br>a largo plazo
+        </h2>
+        <p class="text-white-50 fw-light mb-4" style="line-height:1.8;">
+          Convertirnos en un proveedor confiable donde puedas:
+        </p>
+        <ul style="list-style:none;padding:0;display:flex;flex-direction:column;gap:10px;">
+          <li style="display:flex;align-items:center;gap:10px;color:rgba(255,255,255,.7);font-size:.9rem;">
+            <span style="color:var(--ryal-gold);font-size:.75rem;"><i class="bi bi-check-circle-fill"></i></span> Planear tus compras con certeza
+          </li>
+          <li style="display:flex;align-items:center;gap:10px;color:rgba(255,255,255,.7);font-size:.9rem;">
+            <span style="color:var(--ryal-gold);font-size:.75rem;"><i class="bi bi-check-circle-fill"></i></span> Asegurar tu inventario sin sorpresas
+          </li>
+          <li style="display:flex;align-items:center;gap:10px;color:rgba(255,255,255,.7);font-size:.9rem;">
+            <span style="color:var(--ryal-gold);font-size:.75rem;"><i class="bi bi-check-circle-fill"></i></span> Incrementar tu margen de ganancia
+          </li>
+          <li style="display:flex;align-items:center;gap:10px;color:rgba(255,255,255,.7);font-size:.9rem;">
+            <span style="color:var(--ryal-gold);font-size:.75rem;"><i class="bi bi-check-circle-fill"></i></span> Escalar tu negocio de forma predecible
+          </li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══ CONFIANZA ════════════════════════════════════════════════════════════ -->
+<section class="py-5 py-md-6" style="background:#050505;border-top:1px solid var(--ryal-border);">
+  <div class="container">
+    <div class="row g-4 align-items-center">
+
+      <div class="col-lg-6">
+        <p class="font-monospace text-gold mb-2" style="font-size:.65rem;letter-spacing:.2em;">/05 CONFIANZA Y RESPALDO</p>
+        <h2 class="font-heading display-5 fw-normal mb-3 lh-1"
+            style="font-size:clamp(1.8rem,4vw,3rem);">
+          Respaldamos<br>tu inversión
+        </h2>
+        <p class="text-white-50 fw-light mb-3" style="line-height:1.8;">
+          Sabemos que existe mucha desconfianza en el mercado. Por eso trabajamos con un enfoque claro:
+          comunicación directa, proceso definido, seguimiento de pedidos y atención constante.
+        </p>
+        <p class="text-white fw-light" style="font-size:1.05rem;font-family:var(--font-heading);font-style:italic;line-height:1.6;color:rgba(255,255,255,.8);">
+          "Porque no solo importamos productos… respaldamos tu inversión y crecimiento."
+        </p>
+      </div>
+
+      <div class="col-lg-6">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div style="background:#111;border:1px solid var(--ryal-border);border-radius:4px;padding:20px;">
+            <i class="bi bi-chat-dots text-gold" style="font-size:1.4rem;"></i>
+            <div class="text-white fw-medium mt-2 mb-1" style="font-size:.9rem;">Comunicación directa</div>
+            <div class="text-white-50 fw-light" style="font-size:.8rem;line-height:1.5;">Hablas con nosotros, no con un bot.</div>
+          </div>
+          <div style="background:#111;border:1px solid var(--ryal-border);border-radius:4px;padding:20px;">
+            <i class="bi bi-diagram-3 text-gold" style="font-size:1.4rem;"></i>
+            <div class="text-white fw-medium mt-2 mb-1" style="font-size:.9rem;">Proceso definido</div>
+            <div class="text-white-50 fw-light" style="font-size:.8rem;line-height:1.5;">Sabes exactamente en qué etapa está tu pedido.</div>
+          </div>
+          <div style="background:#111;border:1px solid var(--ryal-border);border-radius:4px;padding:20px;">
+            <i class="bi bi-geo-alt text-gold" style="font-size:1.4rem;"></i>
+            <div class="text-white fw-medium mt-2 mb-1" style="font-size:.9rem;">Seguimiento constante</div>
+            <div class="text-white-50 fw-light" style="font-size:.8rem;line-height:1.5;">Actualizaciones en cada etapa de producción.</div>
+          </div>
+          <div style="background:#111;border:1px solid var(--ryal-border);border-radius:4px;padding:20px;">
+            <i class="bi bi-headset text-gold" style="font-size:1.4rem;"></i>
+            <div class="text-white fw-medium mt-2 mb-1" style="font-size:.9rem;">Atención constante</div>
+            <div class="text-white-50 fw-light" style="font-size:.8rem;line-height:1.5;">Siempre disponibles para resolver tus dudas.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══ MAPA / UBICACIÓN ═════════════════════════════════════════════════════ -->
+<section class="py-5 py-md-6" style="background:#050505;border-top:1px solid var(--ryal-border);">
+  <div class="container">
+    <div class="row g-4 g-lg-5 align-items-start">
+
+      <!-- Info lateral -->
+      <div class="col-lg-4">
+        <p class="font-monospace text-gold mb-2" style="font-size:.65rem;letter-spacing:.25em;">/UBICACIÓN</p>
+        <h2 class="font-heading fw-normal lh-1 mb-3" style="font-size:clamp(1.8rem,4vw,2.8rem);">
+          Encuéntranos
+        </h2>
+
+        <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:28px;">
+          <div style="display:flex;align-items:flex-start;gap:12px;">
+            <i class="bi bi-geo-alt-fill text-gold" style="font-size:1rem;margin-top:3px;flex-shrink:0;"></i>
+            <span class="text-white-50 fw-light" style="font-size:.88rem;line-height:1.6;">
+              RYALSNEACKERS<br>Moroléon, Guanajuato, México
+            </span>
+          </div>
+          <div style="display:flex;align-items:flex-start;gap:12px;">
+            <i class="bi bi-whatsapp text-gold" style="font-size:1rem;margin-top:3px;flex-shrink:0;"></i>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <a href="https://wa.me/524451129186" target="_blank" rel="noopener"
+                 class="text-white-50 fw-light text-decoration-none" style="font-size:.88rem;transition:color .2s;"
+                 onmouseover="this.style.color='var(--ryal-gold)'" onmouseout="this.style.color=''">
+                +52 4451 129186
+              </a>
+              <a href="https://wa.me/524451076015" target="_blank" rel="noopener"
+                 class="text-white-50 fw-light text-decoration-none" style="font-size:.88rem;transition:color .2s;"
+                 onmouseover="this.style.color='var(--ryal-gold)'" onmouseout="this.style.color=''">
+                +52 4451 076015
+              </a>
+            </div>
+          </div>
+          <div style="display:flex;align-items:flex-start;gap:12px;">
+            <i class="bi bi-envelope text-gold" style="font-size:1rem;margin-top:3px;flex-shrink:0;"></i>
+            <a href="mailto:ryalsneackershop@gmail.com"
+               class="text-white-50 fw-light text-decoration-none" style="font-size:.88rem;word-break:break-all;transition:color .2s;"
+               onmouseover="this.style.color='var(--ryal-gold)'" onmouseout="this.style.color=''">
+              ryalsneackershop@gmail.com
+            </a>
+          </div>
+        </div>
+
+        <a href="https://maps.app.goo.gl/rkEk1tTJJzLWwvA37" target="_blank" rel="noopener"
+           class="btn btn-outline-gold d-inline-flex align-items-center gap-2" style="font-size:.82rem;">
+          <i class="bi bi-map"></i> Abrir en Google Maps
+        </a>
+      </div>
+
+      <!-- Mapa -->
+      <div class="col-lg-8">
+        <div style="border:1px solid var(--ryal-border);border-radius:8px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.5);">
+          <iframe
+            src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3764.0!2d-101.1818647!3d20.1337855!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x842cfb0044518213%3A0x834ca804ec449531!2sRYALSNEACKERS!5e0!3m2!1ses-419!2smx!4v1746000000"
+            width="100%" height="430" style="border:0;display:block;"
+            allowfullscreen="" loading="lazy"
+            referrerpolicy="no-referrer-when-downgrade"
+            title="Ubicación RYALSNEACKERS — Moroléon, Gto.">
+          </iframe>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══ CTA FINAL ════════════════════════════════════════════════════════════ -->
+<section class="py-5 py-md-6" style="text-align:center;">
+  <div class="container" style="max-width:560px;">
+    <h2 class="font-heading display-5 fw-normal mb-3 lh-1"
+        style="font-size:clamp(1.8rem,4vw,3rem);">
+      ¿Listo para <em class="text-gold fst-italic">crecer?</em>
+    </h2>
+    <p class="text-white-50 fw-light mb-4" style="line-height:1.8;">
+      Escríbenos por WhatsApp y cuéntanos qué tipo de negocio tienes.
+      Te asesoramos sin compromiso.
+    </p>
+    <div class="d-flex gap-3 justify-content-center flex-wrap">
+      <a href="https://wa.me/{{ site_config.whatsapp }}?text=Hola%2C%20quiero%20información%20sobre%20sus%20productos%20para%20reventa"
+         target="_blank" rel="noopener"
+         class="btn btn-gold px-4 py-3 d-inline-flex align-items-center gap-2">
+        <i class="bi bi-whatsapp fs-5"></i> Hablar con nosotros
+      </a>
+      <a href="{% url 'catalog:hub' %}" class="btn btn-outline-gold px-4 py-3">
+        Ver catálogo
+      </a>
+    </div>
+  </div>
+</section>
+
+{% endblock %}

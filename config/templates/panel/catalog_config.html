@@ -1,0 +1,772 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Catálogo — Panel RYAL{% endblock %}
+{% block page_title %}Gestión del catálogo{% endblock %}
+
+{% block extra_css %}
+<style>
+.drag-handle { cursor: grab; }
+.drag-handle:active { cursor: grabbing; }
+.sub-sortable-ghost { opacity: .35 !important; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
+  <p style="color:#555;font-size:12px;margin:0;">
+    Portadas, orden de aparición y visibilidad.
+    Las categorías <span style="color:#ff6060;">desactivadas</span> no aparecen en el catálogo público.
+  </p>
+  <a href="{% url 'panel:category_create' %}" class="btn-g btn-sm">
+    <i class="bi bi-plus-circle"></i> Nueva categoría
+  </a>
+</div>
+
+{% if cats_data %}
+  {% for entry in cats_data %}
+  {% with cat=entry.cat subs=entry.subs %}
+
+  <div class="p-card" style="margin-bottom:18px;{% if not cat.is_active %}opacity:.55;{% endif %}">
+
+    <!-- ── Header ── -->
+    <div class="p-card-head" style="cursor:pointer;" onclick="toggleCollapse({{ cat.pk }})">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <i id="cat-chevron-{{ cat.pk }}" class="bi bi-chevron-down"
+           style="font-size:12px;color:#555;transition:transform .2s;flex-shrink:0;transform:rotate(-90deg);"></i>
+        <h2 style="{% if not cat.is_active %}text-decoration:line-through;color:#555;{% endif %}">
+          {{ cat.name }}
+        </h2>
+        {% if not cat.is_active %}
+          <span style="background:rgba(255,80,80,.1);color:#ff6060;border:1px solid rgba(255,80,80,.2);
+                       padding:2px 9px;border-radius:12px;font-size:11px;">Desactivada</span>
+        {% elif subs %}
+          <span style="background:rgba(212,175,55,.1);color:var(--pg);border:1px solid rgba(212,175,55,.25);
+                       padding:2px 9px;border-radius:12px;font-size:11px;">
+            {{ subs|length }} subcategoría{% if subs|length != 1 %}s{% endif %}
+          </span>
+        {% endif %}
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <a href="{% url 'panel:category_edit' cat.pk %}"
+           onclick="event.stopPropagation();"
+           class="btn-sm"
+           style="background:transparent;border:1px solid #333;color:#888;text-decoration:none;
+                  display:flex;align-items:center;gap:4px;padding:5px 10px;border-radius:4px;
+                  transition:all .12s;"
+           onmouseover="this.style.borderColor='var(--pg)';this.style.color='var(--pg)'"
+           onmouseout="this.style.borderColor='#333';this.style.color='#888'">
+          <i class="bi bi-pencil" style="font-size:12px;"></i>
+          <span class="nav-label">Editar</span>
+        </a>
+        <!-- Toggle categoría raíz -->
+        <button id="cat-tog-{{ cat.pk }}"
+                onclick="event.stopPropagation(); toggleActive({{ cat.pk }}, 'cat')"
+                class="{% if cat.is_active %}btn-r{% else %}btn-g{% endif %} btn-sm"
+                title="{% if cat.is_active %}Desactivar categoría{% else %}Activar categoría{% endif %}">
+          <i class="bi {% if cat.is_active %}bi-eye-slash{% else %}bi-eye{% endif %}"></i>
+          <span id="cat-tog-lbl-{{ cat.pk }}">{% if cat.is_active %}Desactivar{% else %}Activar{% endif %}</span>
+        </button>
+      </div>
+    </div>
+
+    <div id="cat-body-{{ cat.pk }}" class="p-card-body"
+         style="display:none;grid-template-columns:200px 1fr;gap:24px;align-items:start;">
+
+      <!-- ── Imagen de la categoría ── -->
+      <div>
+        <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#555;font-weight:600;margin-bottom:8px;">
+          Portada
+        </div>
+        <div id="cat-card-{{ cat.pk }}"
+             data-upload-url="{% url 'panel:category_image_upload' cat.pk %}"
+             data-clear-url="{% url 'panel:category_image_clear' cat.pk %}"
+             data-picker-url="{% url 'panel:category_images_list' cat.pk %}"
+             data-from-product-url="{% url 'panel:category_image_from_product' cat.pk %}"
+             style="background:#0d0d0d;border:1px solid #1a1a1a;border-radius:6px;overflow:hidden;">
+          <div style="position:relative;aspect-ratio:3/4;background:#111;overflow:hidden;">
+            <div id="cat-img-wrap-{{ cat.pk }}" style="width:100%;height:100%;">
+              {% if cat.image %}
+                <img src="{{ cat.image.url }}" alt="{{ cat.name }}"
+                     style="width:100%;height:100%;object-fit:cover;display:block;">
+              {% else %}
+                <div style="width:100%;height:100%;display:flex;flex-direction:column;
+                            align-items:center;justify-content:center;gap:6px;">
+                  <i class="bi bi-image" style="font-size:1.8rem;color:#2a2a2a;"></i>
+                  <span style="font-size:10px;color:#333;">Auto</span>
+                </div>
+              {% endif %}
+            </div>
+            <div id="cat-spinner-{{ cat.pk }}"
+                 style="display:none;position:absolute;inset:0;background:rgba(0,0,0,.75);
+                        align-items:center;justify-content:center;">
+              <div class="spinner-border spinner-border-sm text-warning" role="status"></div>
+            </div>
+          </div>
+          <div style="padding:6px;display:flex;flex-direction:column;gap:4px;">
+            <!-- Elegir del catálogo -->
+            <button class="btn-g btn-sm w-100" onclick="openPicker({{ cat.pk }}, 'cat')"
+                    style="justify-content:center;">
+              <i class="bi bi-images"></i> Del catálogo
+            </button>
+            <!-- Subir archivo -->
+            <label style="cursor:pointer;margin:0;">
+              <input type="file" accept="image/*" style="display:none;"
+                     onchange="uploadCatImg({{ cat.pk }}, this)">
+              <span class="btn-o btn-sm"
+                    style="display:flex;align-items:center;justify-content:center;gap:4px;width:100%;cursor:pointer;">
+                <i class="bi bi-upload"></i> Subir archivo
+              </span>
+            </label>
+            <!-- Quitar -->
+            <button class="btn-r btn-sm" id="cat-clear-{{ cat.pk }}"
+                    onclick="clearCatImg({{ cat.pk }})"
+                    {% if not cat.image %}style="display:none;"{% endif %}>
+              <i class="bi bi-trash"></i> Quitar imagen
+            </button>
+          </div>
+        </div>
+
+        <!-- ── Mensaje informativo ── -->
+        <div style="margin-top:12px;">
+          <label style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#555;font-weight:600;display:block;margin-bottom:6px;">
+            Mensaje informativo
+          </label>
+          <textarea id="banner-{{ cat.pk }}" rows="5"
+                    style="width:100%;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:6px;
+                           color:#ccc;font-size:12px;padding:8px;resize:vertical;font-family:inherit;
+                           transition:border-color .15s;"
+                    onfocus="this.style.borderColor='var(--pg)'"
+                    onblur="this.style.borderColor='#1a1a1a'"
+                    placeholder="Mensaje para los clientes al entrar a esta categoría…">{{ cat.banner_text }}</textarea>
+          <button class="btn-g btn-sm w-100" style="margin-top:5px;justify-content:center;"
+                  onclick="saveBanner({{ cat.pk }}, 'banner-{{ cat.pk }}')">
+            <i class="bi bi-floppy"></i> Guardar
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Subcategorías ── -->
+      <div>
+        {% if subs %}
+        <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#555;font-weight:600;margin-bottom:8px;">
+          Subcategorías — ↑↓ para reordenar
+        </div>
+        <div class="sub-list" id="sub-list-{{ cat.pk }}"
+             data-reorder-url="{% url 'panel:category_reorder_bulk' cat.pk %}">
+          {% for sub in subs %}
+          <div id="sub-row-{{ sub.pk }}" data-sub-row
+               style="display:flex;align-items:center;gap:8px;padding:7px 10px;
+                      background:#0d0d0d;border:1px solid {% if not sub.is_active %}rgba(255,80,80,.2){% else %}#1a1a1a{% endif %};
+                      border-radius:6px;margin-bottom:5px;transition:opacity .15s;
+                      {% if not sub.is_active %}opacity:.5;{% endif %}">
+
+            <!-- Drag handle -->
+            <div class="drag-handle" title="Arrastrar para reordenar"
+                 style="flex-shrink:0;padding:4px 6px;color:#444;display:flex;align-items:center;">
+              <i class="bi bi-grip-vertical" style="font-size:15px;"></i>
+            </div>
+
+            <!-- Miniatura -->
+            <div id="sub-card-{{ sub.pk }}"
+                 data-upload-url="{% url 'panel:category_image_upload' sub.pk %}"
+                 data-clear-url="{% url 'panel:category_image_clear' sub.pk %}"
+                 data-picker-url="{% url 'panel:category_images_list' sub.pk %}"
+                 data-from-product-url="{% url 'panel:category_image_from_product' sub.pk %}"
+                 style="position:relative;flex-shrink:0;">
+              <div id="sub-img-wrap-{{ sub.pk }}"
+                   style="width:48px;height:48px;border-radius:4px;border:1px solid #222;
+                          overflow:hidden;background:#111;display:flex;align-items:center;justify-content:center;">
+                {% if sub.image %}
+                  <img src="{{ sub.image.url }}" alt="{{ sub.name }}"
+                       style="width:100%;height:100%;object-fit:cover;display:block;">
+                {% else %}
+                  <i class="bi bi-image" style="font-size:.9rem;color:#2a2a2a;"></i>
+                {% endif %}
+              </div>
+              <div id="sub-spinner-{{ sub.pk }}"
+                   style="display:none;position:absolute;inset:0;background:rgba(0,0,0,.75);
+                          border-radius:4px;align-items:center;justify-content:center;">
+                <div class="spinner-border spinner-border-sm text-warning" role="status"
+                     style="width:14px;height:14px;border-width:2px;"></div>
+              </div>
+            </div>
+
+            <!-- Nombre -->
+            <div style="flex:1;min-width:0;">
+              <div id="sub-name-display-{{ sub.pk }}"
+                   style="font-size:13px;color:{% if not sub.is_active %}#555{% else %}#ddd{% endif %};
+                          font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+                          {% if not sub.is_active %}text-decoration:line-through;{% endif %}">
+                {{ sub.name }}
+              </div>
+              <div id="sub-name-edit-{{ sub.pk }}" style="display:none;">
+                <input type="text" id="sub-name-input-{{ sub.pk }}" value="{{ sub.name }}"
+                       style="width:100%;background:#0a0a0a;border:1px solid var(--pg);border-radius:4px;
+                              color:#fff;font-size:13px;padding:3px 7px;outline:none;"
+                       onkeydown="if(event.key==='Enter'){renameSub({{ sub.pk }});}
+                                  else if(event.key==='Escape'){cancelRename({{ sub.pk }});}">
+              </div>
+              <div style="font-size:11px;color:#444;margin-top:2px;">
+                {{ sub.products.count }} prod{% if not sub.is_active %} · <span style="color:#ff6060;">Oculta</span>{% endif %}
+              </div>
+            </div>
+
+            <!-- Acciones imagen + nombre -->
+            <div style="display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;">
+              <!-- Renombrar -->
+              <button id="sub-rename-btn-{{ sub.pk }}"
+                      class="btn-sm" onclick="startRename({{ sub.pk }})"
+                      title="Renombrar"
+                      style="background:transparent;border:1px solid #333;color:#888;
+                             width:28px;height:28px;padding:0;display:flex;align-items:center;
+                             justify-content:center;border-radius:4px;transition:all .12s;"
+                      onmouseover="this.style.borderColor='var(--pg)';this.style.color='var(--pg)'"
+                      onmouseout="this.style.borderColor='#333';this.style.color='#888'">
+                <i class="bi bi-pencil" style="font-size:11px;"></i>
+              </button>
+              <button id="sub-rename-save-{{ sub.pk }}"
+                      class="btn-g btn-sm" onclick="renameSub({{ sub.pk }})"
+                      title="Guardar nombre" style="display:none;">
+                <i class="bi bi-check"></i>
+              </button>
+              <button id="sub-rename-cancel-{{ sub.pk }}"
+                      class="btn-r btn-sm" onclick="cancelRename({{ sub.pk }})"
+                      title="Cancelar" style="display:none;">
+                <i class="bi bi-x"></i>
+              </button>
+              <button class="btn-g btn-sm" onclick="openPicker({{ sub.pk }}, 'sub')"
+                      title="Elegir portada del catálogo">
+                <i class="bi bi-images"></i>
+              </button>
+              <label style="cursor:pointer;margin:0;">
+                <input type="file" accept="image/*" style="display:none;"
+                       onchange="uploadSubImg({{ sub.pk }}, this)">
+                <span class="btn-o btn-sm"
+                      style="display:flex;align-items:center;gap:4px;cursor:pointer;" title="Subir archivo">
+                  <i class="bi bi-upload"></i>
+                </span>
+              </label>
+              <button class="btn-r btn-sm" id="sub-clear-{{ sub.pk }}"
+                      onclick="clearSubImg({{ sub.pk }})" title="Quitar imagen"
+                      {% if not sub.image %}style="display:none;"{% endif %}>
+                <i class="bi bi-trash"></i>
+              </button>
+              <!-- Toggle visibilidad -->
+              <button id="sub-tog-{{ sub.pk }}"
+                      onclick="toggleActive({{ sub.pk }}, 'sub')"
+                      class="btn-sm {% if sub.is_active %}btn-r{% else %}btn-g{% endif %}"
+                      title="{% if sub.is_active %}Ocultar{% else %}Mostrar{% endif %}">
+                <i class="bi {% if sub.is_active %}bi-eye-slash{% else %}bi-eye{% endif %}"></i>
+              </button>
+              <!-- Eliminar subcategoría -->
+              <button class="btn-r btn-sm" title="Eliminar subcategoría"
+                      onclick="deleteSubcat({{ sub.pk }}, '{{ sub.name|escapejs }}')">
+                <i class="bi bi-trash3"></i>
+              </button>
+              <!-- Mensaje -->
+              <button class="btn-sm" title="Editar mensaje informativo"
+                      onclick="toggleSubBanner({{ sub.pk }})"
+                      style="background:{% if sub.banner_text %}rgba(212,175,55,.15){% else %}transparent{% endif %};
+                             border:1px solid {% if sub.banner_text %}var(--pg){% else %}#333{% endif %};
+                             color:{% if sub.banner_text %}var(--pg){% else %}#888{% endif %};
+                             width:28px;height:28px;padding:0;display:flex;align-items:center;
+                             justify-content:center;border-radius:4px;transition:all .12s;"
+                      id="sub-banner-btn-{{ sub.pk }}">
+                <i class="bi bi-chat-left-text" style="font-size:11px;"></i>
+              </button>
+            </div>
+
+          </div>
+          <div id="sub-banner-{{ sub.pk }}" style="{% if not sub.banner_text %}display:none;{% endif %}
+               padding:8px 10px 10px 62px;background:#0a0a0a;margin-bottom:5px;margin-top:-4px;
+               border:1px solid rgba(212,175,55,.15);border-top:none;border-radius:0 0 6px 6px;">
+            <textarea id="banner-sub-{{ sub.pk }}" rows="3"
+                      style="width:100%;background:#111;border:1px solid #1a1a1a;border-radius:4px;
+                             color:#ccc;font-size:12px;padding:8px;resize:vertical;font-family:inherit;
+                             transition:border-color .15s;"
+                      onfocus="this.style.borderColor='var(--pg)'"
+                      onblur="this.style.borderColor='#1a1a1a'"
+                      placeholder="Deja vacío para no mostrar mensaje…">{{ sub.banner_text }}</textarea>
+            <button class="btn-g btn-sm" style="margin-top:5px;"
+                    onclick="saveBanner({{ sub.pk }}, 'banner-sub-{{ sub.pk }}')">
+              <i class="bi bi-floppy"></i> Guardar
+            </button>
+          </div>
+          {% endfor %}
+        </div>
+
+        {% else %}
+        <div style="color:#333;font-size:13px;padding:14px 0 10px;text-align:center;">
+          <i class="bi bi-folder2-open" style="font-size:1.5rem;display:block;margin-bottom:8px;opacity:.3;"></i>
+          Sin subcategorías — los productos se listan directamente.
+        </div>
+        {% endif %}
+
+        <!-- ── Nueva subcategoría ── -->
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid #1a1a1a;">
+          <button type="button"
+                  onclick="toggleNewSub({{ cat.pk }})"
+                  class="btn-g btn-sm w-100" style="justify-content:center;">
+            <i class="bi bi-plus-circle"></i> Agregar subcategoría
+          </button>
+          <div id="new-sub-{{ cat.pk }}" style="display:none;margin-top:8px;">
+            <form method="post" action="{% url 'panel:subcat_create' cat.pk %}"
+                  style="display:flex;gap:6px;align-items:center;">
+              {% csrf_token %}
+              <input type="text" name="name" placeholder="Nombre de la subcategoría" required
+                     style="flex:1;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:6px;
+                            color:#ccc;font-size:13px;padding:6px 10px;
+                            transition:border-color .15s;outline:none;"
+                     onfocus="this.style.borderColor='var(--pg)'"
+                     onblur="this.style.borderColor='#1a1a1a'">
+              <button type="submit" class="btn-g btn-sm">
+                <i class="bi bi-check"></i> Crear
+              </button>
+              <button type="button" class="btn-r btn-sm" onclick="toggleNewSub({{ cat.pk }})">
+                <i class="bi bi-x"></i>
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  {% endwith %}
+  {% endfor %}
+{% else %}
+<div class="p-card">
+  <div class="p-card-body" style="text-align:center;padding:40px;color:#444;">
+    <i class="bi bi-folder2-open" style="font-size:2rem;display:block;margin-bottom:10px;opacity:.3;"></i>
+    No hay categorías.
+  </div>
+</div>
+{% endif %}
+
+
+<!-- Modal: confirmar eliminación de subcategoría -->
+<div id="deleteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);
+     z-index:2000;align-items:center;justify-content:center;">
+  <div style="background:#111;border:1px solid #2a2a2a;border-radius:10px;
+              width:360px;max-width:calc(100% - 32px);padding:24px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+      <i class="bi bi-exclamation-triangle-fill" style="color:#ef4444;font-size:18px;flex-shrink:0;"></i>
+      <span style="font-weight:600;color:#ddd;font-size:14px;">Eliminar subcategoría</span>
+    </div>
+    <p style="color:#999;font-size:13px;margin:0 0 20px;">
+      ¿Eliminar <strong id="deleteModalName" style="color:#ddd;"></strong>?
+      Esta acción no se puede deshacer.
+    </p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button onclick="closeDeleteModal()"
+              style="background:transparent;border:1px solid #333;color:#888;border-radius:6px;
+                     padding:7px 16px;font-size:13px;cursor:pointer;transition:all .12s;"
+              onmouseover="this.style.borderColor='#555';this.style.color='#ccc'"
+              onmouseout="this.style.borderColor='#333';this.style.color='#888'">
+        Cancelar
+      </button>
+      <button id="deleteModalConfirm"
+              style="background:#ef4444;border:none;color:#fff;border-radius:6px;
+                     padding:7px 16px;font-size:13px;cursor:pointer;font-weight:600;transition:opacity .12s;"
+              onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+        Eliminar
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     MODAL: SELECTOR DE IMAGEN DEL CATÁLOGO
+══════════════════════════════════════════════════════ -->
+<div id="imgPickerModal"
+     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:1000;
+            align-items:center;justify-content:center;padding:16px;">
+  <div style="background:#111;border:1px solid #222;border-radius:8px;
+              width:700px;max-width:100%;max-height:88vh;display:flex;flex-direction:column;">
+    <!-- Header -->
+    <div style="padding:14px 18px;border-bottom:1px solid #1a1a1a;
+                display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+      <div>
+        <span style="font-size:13px;font-weight:600;color:#ddd;">Elegir portada del catálogo</span>
+        <span id="pickerCatName" style="font-size:12px;color:#555;margin-left:8px;"></span>
+      </div>
+      <button onclick="closePicker()"
+              style="background:none;border:none;color:#555;cursor:pointer;font-size:20px;line-height:1;
+                     padding:0 4px;transition:color .12s;"
+              onmouseover="this.style.color='#ddd'" onmouseout="this.style.color='#555'">×</button>
+    </div>
+    <!-- Body -->
+    <div id="pickerBody" style="padding:16px;overflow-y:auto;flex:1;min-height:200px;">
+      <div id="pickerLoading" style="text-align:center;padding:30px;color:#444;">
+        <div class="spinner-border spinner-border-sm text-warning" role="status"></div>
+        <div style="margin-top:8px;font-size:12px;">Cargando imágenes…</div>
+      </div>
+      <div id="pickerGrid"
+           style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px;display:none;">
+      </div>
+      <div id="pickerEmpty" style="text-align:center;padding:30px;color:#444;font-size:13px;display:none;">
+        Sin imágenes disponibles en esta categoría.
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<script>
+const CSRF = '{{ csrf_token }}';
+
+/* ──────────────────────────────────────── Colapsar / expandir ── */
+const _CAT_STORE = 'ryal_catalog_collapse';
+function _catState() {
+  try { return JSON.parse(localStorage.getItem(_CAT_STORE) || '{}'); } catch { return {}; }
+}
+function toggleCollapse(pk) {
+  const body    = document.getElementById('cat-body-' + pk);
+  const chevron = document.getElementById('cat-chevron-' + pk);
+  const open = body.style.display === 'none';
+  body.style.display      = open ? 'grid' : 'none';
+  chevron.style.transform = open ? 'rotate(0deg)' : 'rotate(-90deg)';
+  const s = _catState(); s[pk] = open;
+  localStorage.setItem(_CAT_STORE, JSON.stringify(s));
+}
+// Restaurar estado al cargar
+(function () {
+  const s = _catState();
+  document.querySelectorAll('[id^="cat-body-"]').forEach(function (body) {
+    const pk = body.id.replace('cat-body-', '');
+    if (s[pk] === true) {
+      body.style.display = 'grid';
+      const ch = document.getElementById('cat-chevron-' + pk);
+      if (ch) ch.style.transform = 'rotate(0deg)';
+    }
+  });
+})();
+
+/* ─────────────────────────────────────── Toggle activo/inactivo ── */
+function toggleActive(pk, type) {
+  const fd = new FormData();
+  fd.append('csrfmiddlewaretoken', CSRF);
+  fetch('/panel/categorias/' + pk + '/toggle/', {method:'POST', body:fd})
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) return;
+      const row  = type === 'sub'
+        ? document.getElementById('sub-row-' + pk)
+        : document.getElementById('cat-card-' + pk)?.closest('.p-card');
+      const btn  = document.getElementById((type === 'sub' ? 'sub' : 'cat') + '-tog-' + pk);
+
+      if (d.is_active) {
+        btn.className = btn.className.replace('btn-g','btn-r');
+        btn.querySelector('i').className = 'bi bi-eye-slash';
+        if (type === 'sub' && row) {
+          row.style.opacity = '1';
+          row.style.border  = '1px solid #1a1a1a';
+        }
+        if (type === 'cat' && row) row.style.opacity = '1';
+      } else {
+        btn.className = btn.className.replace('btn-r','btn-g');
+        btn.querySelector('i').className = 'bi bi-eye';
+        if (type === 'sub' && row) {
+          row.style.opacity = '0.5';
+          row.style.border  = '1px solid rgba(255,80,80,.2)';
+        }
+        if (type === 'cat' && row) row.style.opacity = '0.55';
+      }
+      if (type === 'sub') {
+        const lbl = row?.querySelector('[data-tog-label]');
+        if (lbl) lbl.textContent = d.is_active ? 'Activa' : 'Oculta';
+      }
+    });
+}
+
+/* ─────────────────────────────────────────── Modal image picker ── */
+let _pickerPk   = null;
+let _pickerType = null;  // 'cat' | 'sub'
+
+function openPicker(pk, type) {
+  _pickerPk   = pk;
+  _pickerType = type;
+
+  const card = document.getElementById((type === 'sub' ? 'sub' : 'cat') + '-card-' + pk);
+  document.getElementById('pickerCatName').textContent = '';
+
+  const modal = document.getElementById('imgPickerModal');
+  modal.style.display = 'flex';
+  document.getElementById('pickerLoading').style.display = 'block';
+  document.getElementById('pickerGrid').style.display    = 'none';
+  document.getElementById('pickerEmpty').style.display   = 'none';
+
+  fetch(card.dataset.pickerUrl)
+    .then(r => r.json())
+    .then(d => {
+      document.getElementById('pickerLoading').style.display = 'none';
+      const grid = document.getElementById('pickerGrid');
+      if (!d.images || d.images.length === 0) {
+        document.getElementById('pickerEmpty').style.display = 'block';
+        return;
+      }
+      grid.innerHTML = '';
+      d.images.forEach(img => {
+        const el = document.createElement('div');
+        el.style.cssText = 'cursor:pointer;aspect-ratio:1;overflow:hidden;border-radius:4px;border:2px solid transparent;transition:border-color .15s;';
+        el.title = img.product;
+        el.innerHTML = `<img src="${img.url}" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;">`;
+        el.onmouseover = () => el.style.borderColor = 'var(--pg)';
+        el.onmouseout  = () => el.style.borderColor = 'transparent';
+        el.onclick = () => selectPickerImg(img.pk);
+        grid.appendChild(el);
+      });
+      grid.style.display = 'grid';
+    })
+    .catch(() => {
+      document.getElementById('pickerLoading').style.display = 'none';
+      document.getElementById('pickerEmpty').style.display = 'block';
+    });
+}
+
+function closePicker() {
+  document.getElementById('imgPickerModal').style.display = 'none';
+}
+document.getElementById('imgPickerModal').addEventListener('click', function(e) {
+  if (e.target === this) closePicker();
+});
+
+function selectPickerImg(imgPk) {
+  const pk   = _pickerPk;
+  const type = _pickerType;
+  const card = document.getElementById((type === 'sub' ? 'sub' : 'cat') + '-card-' + pk);
+
+  const fd = new FormData();
+  fd.append('csrfmiddlewaretoken', CSRF);
+  fd.append('image_pk', imgPk);
+
+  closePicker();
+
+  const spinner = document.getElementById((type === 'sub' ? 'sub' : 'cat') + '-spinner-' + pk);
+  if (spinner) spinner.style.display = 'flex';
+
+  fetch(card.dataset.fromProductUrl, {method:'POST', body:fd})
+    .then(r => r.json())
+    .then(d => {
+      if (spinner) spinner.style.display = 'none';
+      if (d.ok) {
+        const wrap = document.getElementById((type === 'sub' ? 'sub' : 'cat') + '-img-wrap-' + pk);
+        if (type === 'cat') {
+          wrap.innerHTML = `<img src="${d.url}" style="width:100%;height:100%;object-fit:cover;display:block;">`;
+        } else {
+          wrap.innerHTML = `<img src="${d.url}" style="width:100%;height:100%;object-fit:cover;display:block;">`;
+        }
+        const clearBtn = document.getElementById((type === 'sub' ? 'sub' : 'cat') + '-clear-' + pk);
+        if (clearBtn) clearBtn.style.display = '';
+      } else {
+        showToast(d.error || 'Error al establecer la imagen.');
+      }
+    })
+    .catch(() => { if (spinner) spinner.style.display = 'none'; showToast('Error de red.'); });
+}
+
+/* ─────────────────────────────── Subir / quitar imagen categoría ── */
+function uploadCatImg(pk, input) {
+  if (!input.files.length) return;
+  const card    = document.getElementById('cat-card-' + pk);
+  const spinner = document.getElementById('cat-spinner-' + pk);
+  const wrap    = document.getElementById('cat-img-wrap-' + pk);
+  spinner.style.display = 'flex';
+  const fd = new FormData();
+  fd.append('image', input.files[0]);
+  fd.append('csrfmiddlewaretoken', CSRF);
+  fetch(card.dataset.uploadUrl, {method:'POST', body:fd})
+    .then(r => r.json()).then(d => {
+      spinner.style.display = 'none';
+      if (d.ok) {
+        wrap.innerHTML = `<img src="${d.url}" style="width:100%;height:100%;object-fit:cover;display:block;">`;
+        document.getElementById('cat-clear-' + pk).style.display = '';
+      } else showToast(d.error || 'Error.');
+      input.value = '';
+    })
+    .catch(() => { spinner.style.display='none'; showToast('Error de red.'); input.value=''; });
+}
+function clearCatImg(pk) {
+  const card = document.getElementById('cat-card-' + pk);
+  const wrap = document.getElementById('cat-img-wrap-' + pk);
+  const fd = new FormData(); fd.append('csrfmiddlewaretoken', CSRF);
+  fetch(card.dataset.clearUrl, {method:'POST', body:fd})
+    .then(r => r.json()).then(d => {
+      if (d.ok) {
+        wrap.innerHTML = '<div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;"><i class="bi bi-image" style="font-size:1.8rem;color:#2a2a2a;"></i><span style="font-size:10px;color:#333;">Auto</span></div>';
+        document.getElementById('cat-clear-' + pk).style.display = 'none';
+      }
+    });
+}
+
+/* ──────────────────────────────── Subir / quitar imagen subcat ── */
+function uploadSubImg(pk, input) {
+  if (!input.files.length) return;
+  const card    = document.getElementById('sub-card-' + pk);
+  const spinner = document.getElementById('sub-spinner-' + pk);
+  const wrap    = document.getElementById('sub-img-wrap-' + pk);
+  spinner.style.display = 'flex';
+  const fd = new FormData();
+  fd.append('image', input.files[0]);
+  fd.append('csrfmiddlewaretoken', CSRF);
+  fetch(card.dataset.uploadUrl, {method:'POST', body:fd})
+    .then(r => r.json()).then(d => {
+      spinner.style.display = 'none';
+      if (d.ok) {
+        wrap.innerHTML = `<img src="${d.url}" style="width:100%;height:100%;object-fit:cover;display:block;">`;
+        document.getElementById('sub-clear-' + pk).style.display = '';
+      } else showToast(d.error || 'Error.');
+      input.value = '';
+    })
+    .catch(() => { spinner.style.display='none'; showToast('Error de red.'); input.value=''; });
+}
+function clearSubImg(pk) {
+  const card = document.getElementById('sub-card-' + pk);
+  const wrap = document.getElementById('sub-img-wrap-' + pk);
+  const fd = new FormData(); fd.append('csrfmiddlewaretoken', CSRF);
+  fetch(card.dataset.clearUrl, {method:'POST', body:fd})
+    .then(r => r.json()).then(d => {
+      if (d.ok) {
+        wrap.innerHTML = '<i class="bi bi-image" style="font-size:.9rem;color:#2a2a2a;"></i>';
+        document.getElementById('sub-clear-' + pk).style.display = 'none';
+      }
+    });
+}
+
+/* ──────────────────────────────────── Nueva subcategoría ── */
+function toggleNewSub(pk) {
+  const el = document.getElementById('new-sub-' + pk);
+  const visible = el.style.display !== 'none';
+  el.style.display = visible ? 'none' : 'block';
+  if (!visible) el.querySelector('input[name="name"]').focus();
+}
+
+/* ─────────────────────────────────────── Mensajes banner ── */
+function saveBanner(pk, textareaId) {
+  const text = document.getElementById(textareaId).value.trim();
+  const fd = new FormData();
+  fd.append('csrfmiddlewaretoken', CSRF);
+  fd.append('banner_text', text);
+  fetch('/panel/categorias/' + pk + '/banner/', {method:'POST', body:fd})
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        showToast('Mensaje guardado.', 'success');
+        const btn = document.getElementById('sub-banner-btn-' + pk);
+        if (btn) {
+          if (text) {
+            btn.style.background = 'rgba(212,175,55,.15)';
+            btn.style.borderColor = 'var(--pg)';
+            btn.style.color = 'var(--pg)';
+          } else {
+            btn.style.background = 'transparent';
+            btn.style.borderColor = '#333';
+            btn.style.color = '#888';
+          }
+        }
+      } else showToast(d.error || 'Error al guardar.');
+    })
+    .catch(() => showToast('Error de red.'));
+}
+function toggleSubBanner(pk) {
+  const el = document.getElementById('sub-banner-' + pk);
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+/* ─────────────────────────────────────────── Eliminar subcat ── */
+function deleteSubcat(pk, name) {
+  document.getElementById('deleteModalName').textContent = name;
+  const modal = document.getElementById('deleteModal');
+  modal.style.display = 'flex';
+  document.getElementById('deleteModalConfirm').onclick = function() {
+    closeDeleteModal();
+    const fd = new FormData();
+    fd.append('csrfmiddlewaretoken', CSRF);
+    fetch('/panel/categorias/' + pk + '/eliminar/', {method: 'POST', body: fd})
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) {
+          showToast('Subcategoría eliminada.', 'success');
+          setTimeout(function() { location.reload(); }, 900);
+        } else {
+          showToast(d.error || 'Error al eliminar.');
+        }
+      })
+      .catch(function(e) { showToast('Error al procesar la respuesta.'); console.error(e); });
+  };
+}
+function closeDeleteModal() {
+  document.getElementById('deleteModal').style.display = 'none';
+}
+document.getElementById('deleteModal').addEventListener('click', function(e) {
+  if (e.target === this) closeDeleteModal();
+});
+
+/* ────────────────────────────────────────── Renombrar subcat ── */
+function startRename(pk) {
+  document.getElementById('sub-name-display-' + pk).style.display = 'none';
+  document.getElementById('sub-name-edit-' + pk).style.display    = 'block';
+  document.getElementById('sub-rename-btn-' + pk).style.display   = 'none';
+  document.getElementById('sub-rename-save-' + pk).style.display  = '';
+  document.getElementById('sub-rename-cancel-' + pk).style.display = '';
+  const input = document.getElementById('sub-name-input-' + pk);
+  input.focus();
+  input.select();
+}
+function cancelRename(pk) {
+  const original = document.getElementById('sub-name-display-' + pk).textContent.trim();
+  document.getElementById('sub-name-input-' + pk).value = original;
+  document.getElementById('sub-name-display-' + pk).style.display = '';
+  document.getElementById('sub-name-edit-' + pk).style.display    = 'none';
+  document.getElementById('sub-rename-btn-' + pk).style.display   = '';
+  document.getElementById('sub-rename-save-' + pk).style.display  = 'none';
+  document.getElementById('sub-rename-cancel-' + pk).style.display = 'none';
+}
+function renameSub(pk) {
+  const input = document.getElementById('sub-name-input-' + pk);
+  const name  = input.value.trim();
+  if (!name) { input.focus(); return; }
+  const fd = new FormData();
+  fd.append('csrfmiddlewaretoken', CSRF);
+  fd.append('name', name);
+  fetch('/panel/categorias/' + pk + '/renombrar/', {method:'POST', body:fd})
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        document.getElementById('sub-name-display-' + pk).textContent = d.name;
+        cancelRename(pk);
+        showToast('Nombre actualizado.', 'success');
+      } else {
+        showToast(d.error || 'Error al renombrar.');
+      }
+    })
+    .catch(() => showToast('Error de red.'));
+}
+
+</script>
+
+{% endblock content %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script>
+document.querySelectorAll('.sub-list').forEach(function(list) {
+  new Sortable(list, {
+    handle: '.drag-handle',
+    animation: 150,
+    ghostClass: 'sub-sortable-ghost',
+    onEnd: function() {
+      var pks = Array.from(list.querySelectorAll('[data-sub-row]')).map(function(row) {
+        return parseInt(row.id.replace('sub-row-', ''));
+      });
+      fetch(list.dataset.reorderUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+        body: JSON.stringify({order: pks})
+      });
+    }
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Crear cuenta — RYAL{% endblock %}
+
+{% block extra_css %}
+<style>
+.pw-wrap { position: relative; }
+.pw-wrap input { padding-right: 44px; }
+.pw-toggle {
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 42px;
+  background: none;
+  border: none;
+  color: var(--ink-3);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  transition: color .15s;
+}
+.pw-toggle:hover { color: var(--gold); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+
+    <div class="auth-logo">
+      <img src="{% static 'img/logo-ryal-white.png' %}" alt="RYAL" height="28">
+    </div>
+
+    <div class="auth-tabs">
+      <a href="{% url 'account_login' %}" class="auth-tab">Iniciar sesión</a>
+      <a href="{% url 'account_signup' %}" class="auth-tab active">Crear cuenta</a>
+    </div>
+
+    {% if form.errors %}
+    <div class="auth-error">
+      {% for field in form %}
+        {% for error in field.errors %}{{ error }} {% endfor %}
+      {% endfor %}
+      {% for error in form.non_field_errors %}{{ error }} {% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="post" action="{% url 'account_signup' %}">
+      {% csrf_token %}
+      {% if redirect_field_value %}
+        <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">
+      {% endif %}
+
+      <div class="form-group">
+        <label for="id_first_name">Nombre completo</label>
+        <input type="text" id="id_first_name" name="first_name" required autofocus
+               placeholder="Tu nombre"
+               value="{{ form.first_name.value|default:'' }}">
+      </div>
+
+      <div class="form-group">
+        <label for="id_username">Usuario</label>
+        <input type="text" id="id_username" name="username" required
+               placeholder="sin espacios, ej: juan123"
+               value="{{ form.username.value|default:'' }}">
+      </div>
+
+      <div class="form-group">
+        <label for="id_email">Correo electrónico</label>
+        <input type="email" id="id_email" name="email" required
+               placeholder="tu@correo.com"
+               value="{{ form.email.value|default:'' }}">
+      </div>
+
+      <div class="form-group">
+        <label for="id_password1">Contraseña</label>
+        <div class="pw-wrap">
+          <input type="password" id="id_password1" name="password1" required
+                 placeholder="Mínimo 8 caracteres">
+          <button type="button" class="pw-toggle" data-target="id_password1"
+                  aria-label="Mostrar/ocultar contraseña">
+            <i class="bi bi-eye"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="id_password2">Confirmar contraseña</label>
+        <div class="pw-wrap">
+          <input type="password" id="id_password2" name="password2" required
+                 placeholder="Repite tu contraseña">
+          <button type="button" class="pw-toggle" data-target="id_password2"
+                  aria-label="Mostrar/ocultar contraseña">
+            <i class="bi bi-eye"></i>
+          </button>
+        </div>
+      </div>
+
+      <button type="submit" class="btn-primary btn-full">Crear cuenta</button>
+    </form>
+
+    <p class="auth-switch">
+      ¿Ya tienes cuenta?
+      <a href="{% url 'account_login' %}">Iniciar sesión</a>
+    </p>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.querySelectorAll('.pw-toggle').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const inp = document.getElementById(btn.dataset.target);
+    const icon = btn.querySelector('i');
+    if (inp.type === 'password') {
+      inp.type = 'text';
+      icon.className = 'bi bi-eye-slash';
+    } else {
+      inp.type = 'password';
+      icon.className = 'bi bi-eye';
+    }
+  });
+});
+</script>
+{% endblock %}

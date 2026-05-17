@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "agent-swarm": {
+      "source": "ruvnet/ruflo",
+      "sourceType": "github",
+      "computedHash": "2c51ef0137c1d6917dae679cc045571d23939580a06ef47cf01c4b37abae18a1"
+    }
+  }
+}

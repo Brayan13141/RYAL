@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Mis pedidos — RYAL{% endblock %}
+
+{% block content %}
+<div class="container py-5" style="max-width:860px;">
+
+  <p class="font-monospace text-gold mb-2" style="font-size:.65rem;letter-spacing:.25em;">/MI CUENTA</p>
+  <h1 class="font-heading fw-normal mb-1 lh-1" style="font-size:clamp(2rem,5vw,3rem);">
+    Mis<br><em class="text-gold fst-italic">pedidos</em>
+  </h1>
+  <p class="text-white-50 fw-light mb-5" style="font-size:.95rem;">
+    Historial de compras asociadas a tu cuenta.
+  </p>
+
+  {% if not orders %}
+  <div class="text-center py-5">
+    <i class="bi bi-bag-x" style="font-size:3rem;color:#333;"></i>
+    <p class="text-white-50 mt-3 mb-4">Aún no tienes pedidos registrados.</p>
+    <a href="{% url 'catalog:hub' %}" class="btn btn-gold px-4">Explorar catálogo</a>
+  </div>
+
+  {% else %}
+
+  <div class="d-flex flex-column gap-3">
+    {% for order in orders %}
+    <div style="background:#0d0d0d;border:1px solid #1a1a1a;border-radius:10px;padding:20px;">
+
+      <!-- Cabecera: código + estado + fecha -->
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+        <div>
+          <span style="font-family:monospace;color:var(--gold);font-size:1.05rem;font-weight:700;">
+            {{ order.order_code }}
+          </span>
+          <span class="text-white-50 ms-2" style="font-size:.8rem;">
+            {{ order.created_at|date:"d/m/Y H:i" }}
+          </span>
+        </div>
+        <span class="badge-status bs-{{ order.status }} px-3 py-1"
+              style="border-radius:20px;font-size:.75rem;font-weight:600;letter-spacing:.04em;
+                     {% if order.status == 'pending' %}background:#2a2200;color:#f0a500;
+                     {% elif order.status == 'confirmed' %}background:#002a1a;color:#25D366;
+                     {% elif order.status == 'in_preparation' %}background:#001a2a;color:#4fa3e0;
+                     {% elif order.status == 'shipped' %}background:#1a002a;color:#a78bfa;
+                     {% elif order.status == 'delivered' %}background:#002200;color:#50c878;
+                     {% elif order.status == 'cancelled' %}background:#2a0000;color:#e05555;
+                     {% endif %}">
+          {{ order.get_status_display }}
+        </span>
+      </div>
+
+      <!-- Items (máx 3 visibles) -->
+      <div class="mb-3" style="border-top:1px solid #1a1a1a;padding-top:14px;">
+        {% for item in order.items.all|slice:":3" %}
+        <div class="d-flex justify-content-between align-items-baseline mb-1"
+             style="font-size:.88rem;">
+          <span class="text-white-50">
+            <span style="color:#ddd;font-weight:500;">{{ item.quantity }}×</span>
+            {{ item.name_snapshot }}
+            {% if item.variant_snapshot %}
+              <span class="text-white-50 ms-1">({{ item.variant_snapshot }})</span>
+            {% endif %}
+          </span>
+          <span style="color:#aaa;font-family:monospace;white-space:nowrap;margin-left:12px;">
+            ${{ item.subtotal|floatformat:0 }}
+          </span>
+        </div>
+        {% endfor %}
+        {% if order.total_items > 3 %}
+        <p class="text-white-50 mb-0" style="font-size:.8rem;">
+          +{{ order.total_items|add:"-3" }} producto{{ order.total_items|add:"-3"|pluralize }} más
+        </p>
+        {% endif %}
+      </div>
+
+      <!-- Pie: total + acciones -->
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2"
+           style="border-top:1px solid #1a1a1a;padding-top:14px;">
+        <div>
+          <span class="text-white-50" style="font-size:.8rem;">Total</span>
+          <span style="color:var(--gold);font-weight:700;font-size:1.1rem;margin-left:8px;">
+            ${{ order.total|floatformat:0 }} MXN
+          </span>
+        </div>
+        <a href="{% url 'orders:order_track' %}?codigo={{ order.order_code }}"
+           class="btn btn-outline-gold btn-sm px-3">
+          <i class="bi bi-search me-1"></i> Rastrear
+        </a>
+      </div>
+
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

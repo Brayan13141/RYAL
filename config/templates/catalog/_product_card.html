@@ -1,0 +1,43 @@
+{% load static %}
+<div class="card {% if product.status == 'sold_out' %}card-soldout{% endif %}">
+  <a href="{% url 'catalog:detail' product.pk %}" class="card-media">
+    {% if product.cover_image %}
+      <img src="{{ product.cover_image.image.url }}" alt="{{ product.name }}" loading="lazy">
+    {% else %}
+      <div class="ph-img" data-label="{{ product.sku }}"></div>
+    {% endif %}
+
+    <span class="sku-tag card">{{ product.sku }}</span>
+
+    {% for tag in product.tags.all %}
+      <span class="badge {% if tag.name == 'Nuevo' or tag.name == 'New' %}badge-new{% elif tag.name == 'Hot' %}badge-hot{% else %}badge-new{% endif %}"
+            style="{% if tag.color_hex %}background:{{ tag.color_hex }};color:#080808{% endif %}">
+        {{ tag.name }}
+      </span>
+    {% endfor %}
+
+    <!-- Info permanente en la base -->
+    <div class="card-info">
+      <span class="card-info-cat">{{ product.category.name }}</span>
+      <span class="card-info-name">{{ product.name }}</span>
+      <span class="card-info-price">${{ product.final_price|floatformat:0 }}<span class="mxn">MXN</span></span>
+    </div>
+
+    <!-- Botón que aparece al hover -->
+    <div class="card-reveal">
+      {% if product.status == 'available' %}
+        <button class="card-reveal-btn"
+                data-product-id="{{ product.pk }}"
+                data-product-name="{{ product.name }}"
+                data-product-price="{{ product.final_price }}"
+                data-has-variants="{% if product.variants.exists %}true{% else %}false{% endif %}"
+                data-min-qty="{{ product.effective_min_qty }}"
+                onclick="event.preventDefault(); event.stopPropagation(); cardQuickAdd(this)">
+          + Agregar al carrito
+        </button>
+      {% elif product.status == 'sold_out' %}
+        <span class="card-reveal-btn" style="opacity:.5;cursor:default;background:var(--bg-2);color:var(--ink-2);">Agotado</span>
+      {% endif %}
+    </div>
+  </a>
+</div>

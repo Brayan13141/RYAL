@@ -1,0 +1,29 @@
+<a href="{% url 'catalog:product_list' parent.slug sub.obj.slug %}"
+   class="ryal-cat-card d-block text-decoration-none position-relative overflow-hidden">
+  <div class="position-relative overflow-hidden" style="aspect-ratio:3/4;">
+    {% if sub.cover_url %}
+      <img src="{{ sub.cover_url }}" alt="{{ sub.obj.name }}" loading="lazy"
+           class="ryal-cat-img w-100 h-100" style="object-fit:cover;transition:transform .6s ease;">
+    {% else %}
+      <div class="w-100 h-100 d-flex align-items-center justify-content-center"
+           style="background:linear-gradient(135deg,#111,#1a1a1a);">
+        <i class="bi bi-box-seam text-gold opacity-50" style="font-size:2.5rem;"></i>
+      </div>
+    {% endif %}
+    <div style="position:absolute;bottom:0;left:0;right:0;height:60%;
+                background:linear-gradient(to top,rgba(8,8,8,0.92) 0%,transparent 100%);
+                pointer-events:none;"></div>
+    <div style="position:absolute;bottom:0;left:0;right:0;padding:12px 14px;
+                display:flex;justify-content:space-between;align-items:flex-end;">
+      <div>
+        <span class="d-block text-white fw-semibold" style="font-size:0.95rem;line-height:1.2;">
+          {{ sub.obj.name }}
+        </span>
+        <span style="font-size:0.62rem;color:var(--ryal-gold);font-family:monospace;letter-spacing:0.18em;">
+          {{ sub.product_count }} producto{% if sub.product_count != 1 %}s{% endif %}
+        </span>
+      </div>
+      <i class="bi bi-arrow-up-right text-gold" style="font-size:1.1rem;flex-shrink:0;margin-left:8px;"></i>
+    </div>
+  </div>
+</a>
