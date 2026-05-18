@@ -6,6 +6,10 @@
 {% block content %}
 <div class="container py-5" style="max-width:860px;">
 
+  <a href="{% url 'accounts:profile' %}" class="text-white-50 d-inline-flex align-items-center gap-1 mb-4"
+     style="font-size:.8rem;text-decoration:none;">
+    <i class="bi bi-arrow-left"></i> Mi perfil
+  </a>
   <p class="font-monospace text-gold mb-2" style="font-size:.65rem;letter-spacing:.25em;">/MI CUENTA</p>
   <h1 class="font-heading fw-normal mb-1 lh-1" style="font-size:clamp(2rem,5vw,3rem);">
     Mis<br><em class="text-gold fst-italic">pedidos</em>

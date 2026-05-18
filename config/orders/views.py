@@ -355,10 +355,19 @@ def order_confirmation(request, token):
 
 @login_required
 def my_orders(request):
+    from django.db.models import Q
+    q = Q(user=request.user)
+    try:
+        phone = request.user.profile.phone
+        if phone:
+            q |= Q(customer_phone=phone)
+    except Exception:
+        pass
     orders = (
         Order.objects
-        .filter(user=request.user)
+        .filter(q)
         .prefetch_related('items')
+        .distinct()
         .order_by('-created_at')
     )
     return render(request, 'orders/my_orders.html', {'orders': orders})

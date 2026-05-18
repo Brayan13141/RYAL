@@ -196,6 +196,52 @@
     </form>
   </div>
 
+  <!-- Pedidos recientes -->
+  {% if recent_orders %}
+  <div class="profile-card" style="margin-top:20px;">
+    <p class="profile-section-title">Pedidos recientes</p>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      {% for order in recent_orders %}
+      <div style="border:1px solid var(--line);border-radius:8px;padding:14px 16px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+          <span style="font-family:monospace;color:var(--gold);font-weight:700;">{{ order.order_code }}</span>
+          <span style="font-size:.75rem;
+            {% if order.status == 'pending' %}color:#f0a500;
+            {% elif order.status == 'confirmed' %}color:#25D366;
+            {% elif order.status == 'in_preparation' %}color:#4fa3e0;
+            {% elif order.status == 'shipped' %}color:#a78bfa;
+            {% elif order.status == 'delivered' %}color:#50c878;
+            {% elif order.status == 'cancelled' %}color:#e05555;
+            {% endif %}font-weight:600;">
+            {{ order.get_status_display }}
+          </span>
+        </div>
+        <div style="font-size:.82rem;color:var(--ink-3);margin-bottom:10px;">
+          {% for item in order.items.all|slice:":2" %}
+          <div>{{ item.quantity }}× {{ item.name_snapshot }}{% if item.variant_snapshot %} <span style="opacity:.6;">({{ item.variant_snapshot }})</span>{% endif %}</div>
+          {% endfor %}
+          {% if order.total_items > 2 %}
+          <div style="opacity:.5;">+{{ order.total_items|add:"-2" }} más</div>
+          {% endif %}
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <span style="color:var(--gold);font-weight:700;font-size:.95rem;">${{ order.total|floatformat:0 }} MXN</span>
+          <a href="{% url 'orders:order_track' %}?codigo={{ order.order_code }}"
+             style="font-size:.75rem;color:var(--ink-3);text-decoration:none;display:flex;align-items:center;gap:4px;">
+            <i class="bi bi-search"></i> Rastrear
+          </a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <div style="margin-top:14px;text-align:right;">
+      <a href="{% url 'orders:my_orders' %}" class="profile-link" style="font-size:.82rem;">
+        Ver todos mis pedidos <i class="bi bi-arrow-right"></i>
+      </a>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Cerrar sesión -->
   <div style="margin-top:20px; text-align:right;">
     <form method="post" action="{% url 'accounts:logout' %}" style="display:inline;">

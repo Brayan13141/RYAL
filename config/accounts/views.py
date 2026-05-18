@@ -3,10 +3,12 @@ from django.contrib import messages
 from django.contrib.auth import login, authenticate, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
+from django.db.models import Q
 from django.shortcuts import render, redirect
 from django.utils.decorators import method_decorator
 from django.views.decorators.http import require_POST
 from django_ratelimit.decorators import ratelimit
+from orders.models import Order
 
 
 # ─── Magic bytes validation ──────────────────────────────────────────────────
@@ -150,8 +152,20 @@ def profile_view(request):
                 profile.save()
                 success = True
 
+    q = Q(user=request.user)
+    if profile.phone:
+        q |= Q(customer_phone=profile.phone)
+    recent_orders = (
+        Order.objects
+        .filter(q)
+        .prefetch_related('items')
+        .distinct()
+        .order_by('-created_at')[:3]
+    )
+
     return render(request, 'accounts/profile.html', {
-        'profile': profile,
-        'errors':  errors,
-        'success': success,
+        'profile':       profile,
+        'errors':        errors,
+        'success':       success,
+        'recent_orders': recent_orders,
     })
