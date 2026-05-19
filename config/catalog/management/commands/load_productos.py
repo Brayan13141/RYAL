@@ -297,7 +297,7 @@ class Command(BaseCommand):
             name  = _clean_name(p.get('name') or f'Producto {prefix_counters[prefix]}')
             base  = float(p.get('price_mxn') or p.get('price_usd') or 0) or 200.0
 
-            self._create_product(
+            created = self._create_product(
                 sku=sku, name=name, category=cat_obj,
                 base_price=base,
                 description=p.get('description', ''),
@@ -306,7 +306,8 @@ class Command(BaseCommand):
                 tag=tag_nuevo,
                 no_images=no_images,
             )
-            prefix_counters[prefix] += 1
+            if created:
+                prefix_counters[prefix] += 1
 
     # ── Tenis (yupoo) ──────────────────────────────────────────────────────────
 
@@ -350,7 +351,7 @@ class Command(BaseCommand):
 
         for p in detail_products:
             sku = f"RYL-TEN-{idx:03d}"
-            self._create_product(
+            created = self._create_product(
                 sku=sku, name=_clean_name(p['name']), category=tenis,
                 base_price=float(p.get('price_mxn') or 350),
                 description='Tenis de importación directa desde Putian.',
@@ -359,7 +360,8 @@ class Command(BaseCommand):
                 tag=tag_nuevo, no_images=no_images,
             )
             loaded_ids.add(p.get('album_id'))
-            idx += 1
+            if created:
+                idx += 1
 
         for a in albums:
             if a['album_id'] in loaded_ids:
@@ -367,7 +369,7 @@ class Command(BaseCommand):
             if not a.get('price_mxn') or not a.get('thumbnail'):
                 continue
             sku = f"RYL-TEN-{idx:03d}"
-            self._create_product(
+            created = self._create_product(
                 sku=sku, name=_clean_name(a['name']), category=tenis,
                 base_price=float(a['price_mxn']),
                 description='Tenis de importación directa desde Putian.',
@@ -376,7 +378,8 @@ class Command(BaseCommand):
                 tag=tag_nuevo, no_images=no_images,
             )
             loaded_ids.add(a['album_id'])
-            idx += 1
+            if created:
+                idx += 1
 
     # ── Calzado (yupoo_pf — por marcas) ───────────────────────────────────────
 
@@ -487,7 +490,7 @@ class Command(BaseCommand):
             name  = _clean_name(p.get('name') or f'Producto {prefix_counters[prefix]}')
             base  = float(p.get('price_mxn') or 500.0)
 
-            self._create_product(
+            created = self._create_product(
                 sku=sku, name=name, category=cat_obj,
                 base_price=base,
                 description=p.get('description', 'Tenis de importación directa.'),
@@ -497,7 +500,8 @@ class Command(BaseCommand):
                 no_images=no_images,
                 img_referer=BASE_URL,
             )
-            prefix_counters[prefix] += 1
+            if created:
+                prefix_counters[prefix] += 1
 
     # ── Re-categorizar productos en "General" ──────────────────────────────────
 
@@ -632,10 +636,10 @@ class Command(BaseCommand):
     def _create_product(self, sku, name, category, base_price, description,
                         supplier_url, images, tag, no_images, img_referer=None):
         if supplier_url and Product.objects.filter(supplier_url=supplier_url).exists():
-            return
+            return False
         if Product.objects.filter(sku=sku).exists():
             self.stdout.write(f'    ↩ {sku} ya existe')
-            return
+            return False
 
         product = Product.objects.create(
             sku=sku, name=name, category=category, base_price=base_price,
@@ -661,3 +665,4 @@ class Command(BaseCommand):
         self.stdout.write(
             f'    ✓ {sku} — {name[:40]} → {category.name} (${base_price:.0f} → ${product.final_price:.0f} MXN)'
         )
+        return True
