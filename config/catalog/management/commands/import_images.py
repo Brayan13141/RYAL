@@ -15,6 +15,7 @@ from pathlib import Path
 import httpx
 from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand
+from django.db.models import Count
 
 from catalog.models import Product, ProductImage
 
@@ -34,7 +35,6 @@ _CATEGORY_SLUGS = {
     'camisetas':  'camisetas',
     'sudaderas':  'sudaderas',
     'airpods':    'airpods',
-    'tenis':      'tenis',
 }
 
 
@@ -65,8 +65,11 @@ def _download_one(url: str, timeout: int = 20):
 
 
 def _save_images_for_product(product, image_urls, max_imgs):
+    existing_count = product.images.count()
+    if existing_count >= max_imgs:
+        return 0
     saved = 0
-    for order, url in enumerate(image_urls[:max_imgs]):
+    for order, url in enumerate(image_urls[existing_count:max_imgs], start=existing_count):
         if not url:
             continue
         content, ext = _download_one(url)
@@ -74,7 +77,7 @@ def _save_images_for_product(product, image_urls, max_imgs):
             continue
         pi = ProductImage(
             product=product,
-            is_cover=(order == 0 and not product.images.exists()),
+            is_cover=(order == 0 and existing_count == 0),
             display_order=order,
         )
         pi.image.save(f'{product.sku}_{order}.{ext}', ContentFile(content), save=True)
@@ -96,8 +99,8 @@ class Command(BaseCommand):
             help='Hilos paralelos de descarga (default: 10)',
         )
         parser.add_argument(
-            '--max-per-product', type=int, default=4,
-            help='Máximo de imágenes por producto (default: 4)',
+            '--max-per-product', type=int, default=150,
+            help='Máximo de imágenes por producto (default: 150)',
         )
         parser.add_argument(
             '--force', action='store_true',
@@ -128,15 +131,15 @@ class Command(BaseCommand):
         self.stdout.write(f'  {len(url_to_images)} productos con imágenes en JSON')
 
         # ── Seleccionar productos a procesar ──────────────────────────────────
-        qs = Product.objects.select_related('category')
+        qs = Product.objects.select_related('category').annotate(img_count=Count('images'))
         if only:
             slug = _CATEGORY_SLUGS[only]
             qs = qs.filter(category__slug=slug)
         if not force:
-            qs = qs.filter(images__isnull=True).distinct()
+            qs = qs.filter(img_count__lt=max_imgs)
 
         products = list(qs.order_by('sku'))
-        self.stdout.write(f'  {len(products)} productos sin imágenes' + (f' en {only}' if only else ''))
+        self.stdout.write(f'  {len(products)} productos con menos de {max_imgs} imágenes' + (f' en {only}' if only else ''))
 
         if not products:
             self.stdout.write(self.style.SUCCESS('Nada que descargar.'))

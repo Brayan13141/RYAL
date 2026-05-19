@@ -15,6 +15,7 @@ import httpx
 
 from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand
+from django.db.models import Count
 
 from catalog.models import Product, ProductImage
 
@@ -68,8 +69,8 @@ class Command(BaseCommand):
             help='Muestra qué haría sin descargar nada',
         )
         parser.add_argument(
-            '--max-per-product', type=int, default=4,
-            help='Máximo de imágenes a descargar por producto (default: 4)',
+            '--max-per-product', type=int, default=150,
+            help='Máximo de imágenes a descargar por producto (default: 150)',
         )
 
     def handle(self, *args, **options):
@@ -90,31 +91,42 @@ class Command(BaseCommand):
         url_to_images = {p['url']: p.get('images', []) for p in data.get('products', [])}
         self.stdout.write(f'JSON cargado: {len(url_to_images)} productos')
 
-        sin_img = Product.objects.filter(sku__startswith='RYL-TN2-', images__isnull=True)
-        total   = sin_img.count()
-        self.stdout.write(f'Productos TN2 sin imágenes: {total}\n')
+        qs = (
+            Product.objects
+            .filter(sku__startswith='RYL-TN2-')
+            .annotate(img_count=Count('images'))
+            .filter(img_count__lt=max_img)
+        )
+        total = qs.count()
+        self.stdout.write(f'Productos TN2 con menos de {max_img} imágenes: {total}\n')
 
         if total == 0:
-            self.stdout.write(self.style.SUCCESS('Nada que hacer — todos los TN2 tienen imágenes'))
+            self.stdout.write(self.style.SUCCESS('Nada que hacer — todos los TN2 tienen suficientes imágenes'))
             return
 
         ok = fail = skip = 0
 
-        for product in sin_img:
+        for product in qs:
             images = url_to_images.get(product.supplier_url, [])
             if not images:
                 self.stdout.write(f'  {product.sku} — sin URL en JSON, saltando')
                 skip += 1
                 continue
 
-            self.stdout.write(f'  {product.sku} — {product.name[:45]}')
+            existing_count = product.img_count
+            remaining = images[existing_count:max_img]
+            if not remaining:
+                skip += 1
+                continue
+
+            self.stdout.write(f'  {product.sku} — {product.name[:45]} (tiene {existing_count}, descargando {len(remaining)} más)')
 
             if dry:
                 ok += 1
                 continue
 
             downloaded = 0
-            for order, img_url in enumerate(images[:max_img]):
+            for order, img_url in enumerate(remaining, start=existing_count):
                 if not img_url:
                     continue
                 img_bytes = _download(img_url)
@@ -124,7 +136,7 @@ class Command(BaseCommand):
                 ext = _get_ext(img_url)
                 pi  = ProductImage(
                     product=product,
-                    is_cover=(order == 0),
+                    is_cover=(order == 0 and existing_count == 0),
                     display_order=order,
                 )
                 pi.image.save(f'{product.sku}_{order}.{ext}', ContentFile(img_bytes), save=True)

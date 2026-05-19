@@ -572,7 +572,7 @@ class Command(BaseCommand):
         product.tags.add(tag)
 
         if not no_images and images:
-            for order, img_url in enumerate(images[:4]):
+            for order, img_url in enumerate(images[:150]):
                 if not img_url:
                     continue
                 img_bytes = _download_image(img_url, referer=img_referer)
