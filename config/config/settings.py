@@ -143,6 +143,7 @@ ACCOUNT_SIGNUP_FIELDS       = ['email*', 'username*', 'password1*', 'password2*'
 ACCOUNT_EMAIL_VERIFICATION  = 'none'
 ACCOUNT_LOGOUT_ON_GET       = False  # Require POST — prevents CSRF logout via GET
 ACCOUNT_SIGNUP_FORM_CLASS   = 'accounts.forms.CustomSignupForm'
+ACCOUNT_ADAPTER             = 'accounts.adapters.AccountAdapter'
 
 # WhatsApp business number (without + or spaces)
 WHATSAPP_NUMBER = '521XXXXXXXXXX'
