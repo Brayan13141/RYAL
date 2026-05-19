@@ -23,15 +23,13 @@ PARENT_PRICING = {
     'camisetas-sudaderas-calidad-g5':      {'shipping': 0,   'margin': 100, 'order': 3},
     'camisetas-sudaderas-calidad-11':      {'shipping': 0,   'margin': 100, 'order': 4},
     'electronica':                         {'shipping': 0,   'margin': 100, 'order': 5},
-    'zapato':                              {'shipping': 250, 'margin': 100, 'order': 6},
-    'calzado':                             {'shipping': 280, 'margin': 100, 'order': 7},
+    'calzado':                             {'shipping': 280, 'margin': 100, 'order': 6},
 }
 _DEFAULT_PRICING = {'shipping': 0, 'margin': 100, 'order': 99}
 
 # Prefijo de SKU por categoría padre
 PARENT_PREFIX = {
     'gorra':    'CAP',
-    'zapato':   'TEN',
     'calzado':  'TN2',
     'electronica': 'ELC',
 }
@@ -115,7 +113,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--no-images', action='store_true',
                             help='Omitir descarga de imágenes')
-        parser.add_argument('--only', choices=['modaverse', 'tenis', 'calzado', 'all'],
+        parser.add_argument('--only', choices=['modaverse', 'calzado', 'all'],
                             default='modaverse')
         parser.add_argument('--recategorize', action='store_true',
                             help='Re-categoriza productos actualmente en categoría General usando el JSON')
@@ -137,9 +135,6 @@ class Command(BaseCommand):
 
         if only in ('modaverse', 'all'):
             self._load_modaverse(tag_nuevo, no_images)
-
-        if only in ('tenis', 'all'):
-            self._load_tenis(tag_nuevo, no_images)
 
         if only in ('calzado', 'all'):
             self._load_calzado(tag_nuevo, no_images)
@@ -308,78 +303,6 @@ class Command(BaseCommand):
             )
             if created:
                 prefix_counters[prefix] += 1
-
-    # ── Tenis (yupoo) ──────────────────────────────────────────────────────────
-
-    def _load_tenis(self, tag_nuevo, no_images):
-        self.stdout.write('\n── Cargando tenis (yupoo) ──')
-
-        # Categoría padre zapato / subcategoría tenis
-        zapato, _ = Category.objects.get_or_create(
-            slug='zapato',
-            defaults={
-                'name': 'Zapato', 'shipping_cost': 250, 'profit_margin': 100,
-                'display_order': 6, 'is_active': True,
-            }
-        )
-        tenis, _ = Category.objects.get_or_create(
-            slug='tenis',
-            defaults={
-                'name': 'Tenis', 'parent': zapato,
-                'shipping_cost': 250, 'profit_margin': 100,
-                'display_order': 0, 'is_active': True,
-            }
-        )
-        if tenis.parent is None:
-            tenis.parent = zapato
-            tenis.save(update_fields=['parent'])
-
-        self.stdout.write('  Categorías Zapato/Tenis listas')
-
-        json_path = Path(__file__).resolve().parents[4] / 'scraped_yupoo.json'
-        if not json_path.exists():
-            self.stdout.write(self.style.WARNING(f'  ⚠ No se encontró {json_path}.'))
-            return
-
-        with open(json_path, encoding='utf-8') as f:
-            data = json.load(f)
-
-        detail_products = data.get('products', [])
-        albums          = data.get('albums_list', [])
-        loaded_ids      = set()
-        idx             = _next_sku_index('TEN')
-
-        for p in detail_products:
-            sku = f"RYL-TEN-{idx:03d}"
-            created = self._create_product(
-                sku=sku, name=_clean_name(p['name']), category=tenis,
-                base_price=float(p.get('price_mxn') or 350),
-                description='Tenis de importación directa desde Putian.',
-                supplier_url=p.get('url', ''),
-                images=p.get('images', []),
-                tag=tag_nuevo, no_images=no_images,
-            )
-            loaded_ids.add(p.get('album_id'))
-            if created:
-                idx += 1
-
-        for a in albums:
-            if a['album_id'] in loaded_ids:
-                continue
-            if not a.get('price_mxn') or not a.get('thumbnail'):
-                continue
-            sku = f"RYL-TEN-{idx:03d}"
-            created = self._create_product(
-                sku=sku, name=_clean_name(a['name']), category=tenis,
-                base_price=float(a['price_mxn']),
-                description='Tenis de importación directa desde Putian.',
-                supplier_url=a.get('url', ''),
-                images=[a['thumbnail']],
-                tag=tag_nuevo, no_images=no_images,
-            )
-            loaded_ids.add(a['album_id'])
-            if created:
-                idx += 1
 
     # ── Calzado (yupoo_pf — por marcas) ───────────────────────────────────────
 
