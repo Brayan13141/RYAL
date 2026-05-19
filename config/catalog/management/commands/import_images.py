@@ -15,7 +15,7 @@ from pathlib import Path
 import httpx
 from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand
-from django.db.models import Count
+from django.db.models import Count, Q
 
 from catalog.models import Product, ProductImage
 
@@ -30,11 +30,13 @@ HEADERS = {
     ),
 }
 
-_CATEGORY_SLUGS = {
-    'gorras':     'gorras',
-    'camisetas':  'camisetas',
-    'sudaderas':  'sudaderas',
-    'airpods':    'airpods',
+# Fragmento del slug de categoría raíz — se usa con __contains para capturar
+# tanto la categoría padre como sus subcategorías hijas.
+_CATEGORY_SLUG_HINT = {
+    'gorras':    'gorra',
+    'camisetas': 'camiseta',
+    'sudaderas': 'sudadera',
+    'airpods':   'electronica',
 }
 
 
@@ -91,16 +93,16 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             '--only',
-            choices=list(_CATEGORY_SLUGS.keys()),
-            help='Limitar a una categoría',
+            choices=list(_CATEGORY_SLUG_HINT.keys()),
+            help='Limitar a una categoría (incluye subcategorías)',
         )
         parser.add_argument(
             '--workers', type=int, default=10,
             help='Hilos paralelos de descarga (default: 10)',
         )
         parser.add_argument(
-            '--max-per-product', type=int, default=150,
-            help='Máximo de imágenes por producto (default: 150)',
+            '--max-per-product', type=int, default=250,
+            help='Máximo de imágenes por producto (default: 250)',
         )
         parser.add_argument(
             '--force', action='store_true',
@@ -131,10 +133,14 @@ class Command(BaseCommand):
         self.stdout.write(f'  {len(url_to_images)} productos con imágenes en JSON')
 
         # ── Seleccionar productos a procesar ──────────────────────────────────
-        qs = Product.objects.select_related('category').annotate(img_count=Count('images'))
+        qs = Product.objects.select_related('category__parent').annotate(img_count=Count('images'))
         if only:
-            slug = _CATEGORY_SLUGS[only]
-            qs = qs.filter(category__slug=slug)
+            hint = _CATEGORY_SLUG_HINT[only]
+            # Captura productos en la categoría y en sus subcategorías hijas
+            qs = qs.filter(
+                Q(category__slug__contains=hint) |
+                Q(category__parent__slug__contains=hint)
+            )
         if not force:
             qs = qs.filter(img_count__lt=max_imgs)
 

@@ -69,8 +69,8 @@ class Command(BaseCommand):
             help='Muestra qué haría sin descargar nada',
         )
         parser.add_argument(
-            '--max-per-product', type=int, default=150,
-            help='Máximo de imágenes a descargar por producto (default: 150)',
+            '--max-per-product', type=int, default=250,
+            help='Máximo de imágenes a descargar por producto (default: 250)',
         )
 
     def handle(self, *args, **options):
