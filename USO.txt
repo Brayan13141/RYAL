@@ -1,188 +1,208 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                        WEB_RYAL — ARCHIVOS DE SINCRONIZACIÓN                ║
+║                     WEB_RYAL — GUÍA DE SINCRONIZACIÓN                       ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
-── SCRAPERS (raíz del proyecto) ────────────────────────────────────────────────
+Servidor: root@5.161.249.245  /  App: /root/app/
+Local:    C:\Users\Lenovo\Documents\WEB_RYAL
+Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
+
+══════════════════════════════════════════════════════════════════════════════
+  FLUJO RÁPIDO — ACTUALIZACIÓN COMPLETA DEL CATÁLOGO
+══════════════════════════════════════════════════════════════════════════════
+
+  ── MODAVERSE (gorras, camisetas, sudaderas) ────────────────────────────────
+
+  En LOCAL:
+      PYTHONUTF8=1 venv/Scripts/python.exe scrape_modaverse_final.py
+      scp scraped_modaverse.json root@5.161.249.245:/root/app/scraped_modaverse.json
+
+  En SERVIDOR:
+      cd /root/app && source venv/bin/activate
+      PYTHONUTF8=1 python config/manage.py load_productos --no-images
+      PYTHONUTF8=1 python config/manage.py import_images --workers 6
+
+  ── CALZADO (Nike, Adidas, Air Jordan, etc.) ────────────────────────────────
+
+  En LOCAL (scrapear y corregir precios):
+      PYTHONUTF8=1 venv/Scripts/python.exe scrape_yupoo_pf.py --resume --with-detail
+      PYTHONUTF8=1 venv/Scripts/python.exe fix_calzado_prices.py
+      scp scraped_yupoo_pf.json root@5.161.249.245:/root/app/scraped_yupoo_pf.json
+
+  En SERVIDOR (cargar BD e imágenes):
+      PYTHONUTF8=1 python config/manage.py load_productos --only calzado --no-images
+      PYTHONUTF8=1 python config/manage.py update_calzado_prices
+      PYTHONUTF8=1 python config/manage.py download_yupoo_images
+
+══════════════════════════════════════════════════════════════════════════════
+  SCRAPERS (ejecutar en LOCAL)
+══════════════════════════════════════════════════════════════════════════════
 
   scrape_modaverse_final.py
   ─────────────────────────
   Scraper de gorras, camisetas y sudaderas desde modaverse.vip.
-  Abre browser (Playwright) para que el SPA Vue lance sus XHR, las captura,
-  y luego llama la API REST directamente para obtener todas las páginas.
-  También extrae el árbol completo de categorías/subcategorías.
+  Abre browser (Playwright) para capturar XHR del SPA, luego llama la API
+  REST directamente para paginar todas las categorías.
   Salida: scraped_modaverse.json
-  Requiere browser porque sin él la API no responde.
-
-  scrape_modaverse_images.py
-  ──────────────────────────
-  Enriquece scraped_modaverse.json con imágenes adicionales del detalle de producto.
-  El scraper principal solo captura 1 imagen por producto (thumbnail del listado).
-  Este script descubre el endpoint de detalle de la API via DynamicFetcher XHR
-  capture (o probando endpoints comunes con httpx), y luego hace batch-fetch.
-  Actualiza el JSON en disco — luego correr import_images para descargar a BD.
-
-  Uso:
-      python scrape_modaverse_images.py                       # todos los productos con <2 imgs
-      python scrape_modaverse_images.py --cat "Calidad 1:1"   # solo esa categoría padre
-      python scrape_modaverse_images.py --cat "Calidad G5"
-      python scrape_modaverse_images.py --cat "Camisetas"
-      python scrape_modaverse_images.py --min-images 5        # productos con <5 imgs
-      python scrape_modaverse_images.py --limit 200           # máx 200 productos
-      python scrape_modaverse_images.py --dry-run             # muestra cuántos procesaría
-
-  Flujo completo para actualizar imágenes:
-      python scrape_modaverse_images.py --cat "Calidad 1:1"   # enriquece JSON
-      python manage.py import_images --only camisetas         # descarga a BD
+  NOTA: La API solo devuelve 1 imagen por producto (limitación permanente).
 
   scrape_yupoo_pf.py
   ──────────────────
   Scraper completo de calzado desde putianshoefactory.x.yupoo.com.
-  Recorre TODAS las marcas (26 categorías) paginando cada una, extrae nombre,
-  precio y thumbnail de cada álbum. Crea la categoría padre "Calzado" con
-  subcategorías por marca (Nike, Adidas, Air Jordan, Yeezy, Balenciaga, etc.).
+  Recorre 26 marcas paginando cada categoría. Extrae nombre, precio y fotos.
   Salida: scraped_yupoo_pf.json
 
-  Uso:
-      python scrape_yupoo_pf.py                       # todas las marcas
+      python scrape_yupoo_pf.py --resume              # agrega sin repetir existentes
+      python scrape_yupoo_pf.py --with-detail         # entra a cada álbum (más fotos)
       python scrape_yupoo_pf.py --brands Nike Adidas  # solo esas marcas
       python scrape_yupoo_pf.py --limit 50            # máx 50 álbumes por marca
-      python scrape_yupoo_pf.py --with-detail         # entra a cada álbum (más fotos, lento)
-      python scrape_yupoo_pf.py --resume              # continúa sin repetir ya guardados
 
-  Nota: el modo por defecto usa el thumbnail del listado (rápido). --with-detail
-  visita cada álbum para obtener más fotos por producto (tarda mucho más).
+  NOTA: yupoo normalmente tiene 7-8 fotos por álbum. El límite interno es 250.
 
-  sync_catalog.bat
-  ────────────────
-  Doble clic en Windows. Activa el venv y corre manage.py sync_catalog.
-  Equivalente a: cd config && python manage.py sync_catalog
+  fix_calzado_prices.py
+  ─────────────────────
+  Re-scrapea SOLO las páginas de listado de cada marca (rápido, ~10 min).
+  Extrae el precio del título del álbum y actualiza scraped_yupoo_pf.json.
+  Correr DESPUÉS de scrape_yupoo_pf.py para asegurar precios correctos.
 
-── MANAGEMENT COMMANDS (config/catalog/management/commands/) ───────────────────
+      python fix_calzado_prices.py             # actualiza JSON
+      python fix_calzado_prices.py --dry-run   # muestra cambios sin guardar
 
-  sync_catalog.py                        [COMANDO PRINCIPAL — modaverse]
-  ───────────────
-  Orquesta el ciclo completo para modaverse: scraping → carga en BD →
-  reparación de imágenes.
+══════════════════════════════════════════════════════════════════════════════
+  MANAGEMENT COMMANDS (ejecutar en SERVIDOR)
+══════════════════════════════════════════════════════════════════════════════
 
-  Uso:
-      python manage.py sync_catalog                    # modaverse completo
-      python manage.py sync_catalog --skip-scraping    # usa JSON existente, no re-scrapea
-      python manage.py sync_catalog --no-images        # no descarga imágenes
-      python manage.py sync_catalog --skip-repair      # no corre repair al final
+  load_productos
+  ──────────────
+  Lee scraped_*.json y crea/actualiza productos en BD. Deduplica por
+  supplier_url (nunca duplica). Crea categorías si no existen.
 
-  Nota: calzado (yupoo_pf) se carga manualmente con load_productos --only calzado
-  + download_yupoo_images. No está integrado en sync_catalog.
+      python manage.py load_productos                       # modaverse
+      python manage.py load_productos --only calzado        # calzado yupoo_pf
+      python manage.py load_productos --no-images           # sin descargar imágenes (recomendado)
 
-  load_productos.py
-  ─────────────────
-  Lee los JSONs y crea productos en BD. Deduplica por supplier_url (nunca duplica).
-  Crea categorías automáticamente si no existen. Sin --no-images descarga hasta
-  150 imágenes por producto.
-  Categorías no reconocidas van a "General".
+  import_images
+  ─────────────
+  Descarga imágenes modaverse en paralelo para productos que tienen menos
+  de 250 imágenes. Usa chunking de 300 para no saturar RAM.
 
-  Fuentes que maneja:
-      modaverse  → scraped_modaverse.json  → categorías desde el árbol JSON
-      calzado    → scraped_yupoo_pf.json   → categoría Calzado → subcategorías por marca
+      python manage.py import_images                        # todas las categorías
+      python manage.py import_images --only gorras          # solo gorras
+      python manage.py import_images --workers 6            # hilos paralelos (default 3)
+      python manage.py import_images --max-per-product 250  # máx imágenes por producto
 
-  Uso:
-      python manage.py load_productos                   # solo modaverse
-      python manage.py load_productos --only calzado    # calzado por marcas (yupoo_pf)
-      python manage.py load_productos --only all        # modaverse + calzado
-      python manage.py load_productos --no-images       # sin descargar imágenes
+  download_yupoo_images
+  ──────────────────────
+  Descarga imágenes de calzado TN2 desde yupoo. Completa hasta 250 por producto.
 
-  repair_images.py
-  ────────────────
-  Detecta y corrige imágenes con paths incorrectos en BD. Mueve archivos al path
-  correcto (products/SKU_N.jpg) y actualiza la BD.
+      python manage.py download_yupoo_images
 
-  Uso:
-      python manage.py repair_images              # corrige y actualiza
-      python manage.py repair_images --dry-run    # solo muestra qué corregiría
-      python manage.py repair_images --redownload-missing   # re-descarga imágenes faltantes
+  update_calzado_prices
+  ──────────────────────
+  Lee scraped_yupoo_pf.json y actualiza base_price en BD por supplier_url.
+  IMPORTANTE: base_price = precio real del proveedor (del título del álbum),
+  NO el default por marca.
 
-  Regla post-repair: después de --redownload-missing, reactivar productos con imagen:
-      Product.objects.filter(is_active=False).annotate(n=Count('images')).filter(n__gt=0).update(is_active=True)
+      python manage.py update_calzado_prices
+      python manage.py update_calzado_prices --dry-run
 
-  import_images.py
-  ────────────────
-  Descarga imágenes en paralelo para productos modaverse que tienen MENOS de
-  max-per-product imágenes (incluye productos sin imágenes y los que ya tienen
-  algunas pero no el máximo). No crea productos. Usa 10 hilos por defecto.
-  El filtro --only usa slug-contains para capturar también subcategorías hijas
-  (ej: --only camisetas captura Camisetas Deportivas, Calidad G5, Calidad 1:1).
+  fix_corrupted_images
+  ─────────────────────
+  Re-descarga imágenes corruptas de modaverse CDN. Solo funciona si la URL
+  original sigue activa.
 
-  Uso:
-      python manage.py import_images                          # todos los modaverse, hasta 250 imgs
-      python manage.py import_images --only gorras            # gorras + subcategorías
-      python manage.py import_images --only camisetas         # todas las camisetas + sudaderas calidad
-      python manage.py import_images --workers 20             # más hilos
-      python manage.py import_images --max-per-product 10    # límite personalizado
-      python manage.py import_images --force                  # re-descarga aunque ya tenga imgs
+      python manage.py fix_corrupted_images
+      python manage.py fix_corrupted_images --min-size 5000  # umbral 5 KB
+      python manage.py fix_corrupted_images --workers 4
 
-  Categorías válidas para --only: gorras, camisetas, sudaderas, airpods
+  repair_images
+  ─────────────
+  Detecta y corrige imágenes con paths incorrectos en BD. Bug antiguo
+  (paths con barras). Rara vez necesario.
 
-  download_yupoo_images.py
-  ────────────────────────
-  Descarga imágenes en serie para productos TN2 (Calzado/yupoo_pf) que tienen
-  MENOS de max-per-product imágenes. Lee las URLs desde scraped_yupoo_pf.json.
-  Usa el Referer correcto de putianshoefactory.x.yupoo.com para que Yupoo sirva
-  las imágenes.
+      python manage.py repair_images
+      python manage.py repair_images --dry-run
 
-  Uso:
-      python manage.py download_yupoo_images                       # hasta 150 imgs por producto
-      python manage.py download_yupoo_images --dry-run             # simula sin descargar
-      python manage.py download_yupoo_images --max-per-product 8   # límite personalizado
+══════════════════════════════════════════════════════════════════════════════
+  UTILIDADES LOCALES
+══════════════════════════════════════════════════════════════════════════════
 
-── JSONS (raíz del proyecto) ───────────────────────────────────────────────────
+  pack_images.py
+  ──────────────
+  Empaqueta imágenes locales buenas para reemplazar corruptas en el servidor.
+  Lee corrupted_list.txt (nombres del servidor), hace match por SKU+índice
+  ignorando el sufijo aleatorio de Django.
+  Salida: good_images.tar.gz
 
-  scraped_modaverse.json   ← producido por scrape_modaverse_final.py
-                              enriquecido con más imágenes por scrape_modaverse_images.py
-  scraped_yupoo_pf.json    ← producido por scrape_yupoo_pf.py (calzado por marcas)
+  Flujo completo para limpiar imágenes corruptas en servidor:
 
-  Estructura común:
-      { "categories": [...árbol padre→subcategorías...], "products": [...] }
+    # 1. Servidor — generar lista con umbral 5 KB
+    find /root/app/config/media/products -name "*.jpg" -size -5000c \
+      -printf "%f\n" | sort > /root/app/corrupted_list.txt
 
-── FLUJO TÍPICO ────────────────────────────────────────────────────────────────
+    # 2. Local — bajar lista
+    scp root@5.161.249.245:/root/app/corrupted_list.txt corrupted_list.txt
 
-  Drop nuevo de gorras/camisetas/sudaderas (modaverse):
-      python manage.py sync_catalog --skip-scraping   # si ya tienes el JSON actualizado
-      python manage.py sync_catalog                   # o re-scrapear + cargar
+    # 3. Local — crear tar
+    python pack_images.py   →   genera good_images.tar.gz
 
-  Después de sync_catalog, rellenar imágenes faltantes / incompletas:
-      PYTHONUTF8=1 python manage.py import_images --workers 15
+    # 4. Local — subir tar
+    scp good_images.tar.gz root@5.161.249.245:/root/app/good_images.tar.gz
 
-  Primera carga de calzado por marcas:
-      python scrape_yupoo_pf.py --resume              # scrapea (10-30 min)
-      python manage.py load_productos --only calzado --no-images   # carga productos
-      python manage.py download_yupoo_images          # descarga imágenes
+    # 5. Servidor — extraer y reasignar portadas
+    cd /root/app/config/media/products
+    tar -xzf /root/app/good_images.tar.gz
+    rm /root/app/good_images.tar.gz
 
-  Drop nuevo de calzado (ya tienes productos en BD):
-      python scrape_yupoo_pf.py --resume              # agrega solo URLs nuevas
-      python manage.py load_productos --only calzado --no-images   # carga solo los nuevos
-      python manage.py download_yupoo_images          # descarga imágenes nuevas
+    # Eliminar registros corruptos de BD (si se prefiere borrar en lugar de reparar)
+    python3 -c "
+    lines = open('/root/app/corrupted_list.txt').read().strip().split('\n')
+    vals = ', '.join(f\"'products/{l.strip()}'\" for l in lines if l.strip())
+    print(f'DELETE FROM catalog_productimage WHERE image IN ({vals}) RETURNING id;')
+    " | PGPASSWORD='WRyal2026!DB' psql -h 127.0.0.1 -U webryal_user webryal
 
-  Rellenar productos con pocas imágenes (modaverse o calzado):
-      python manage.py import_images                  # modaverse — rellena hasta 250
-      python manage.py download_yupoo_images          # calzado TN2 — rellena hasta 250
+    # Reasignar portadas a productos que perdieron su cover
+    PGPASSWORD='WRyal2026!DB' psql -h 127.0.0.1 -U webryal_user webryal -c "
+    UPDATE catalog_productimage pi SET is_cover = true
+    FROM (
+      SELECT DISTINCT ON (product_id) id FROM catalog_productimage
+      WHERE product_id NOT IN (
+        SELECT product_id FROM catalog_productimage WHERE is_cover = true)
+      ORDER BY product_id, display_order
+    ) sub WHERE pi.id = sub.id;"
 
-  Obtener más imágenes de Camisetas/Sudaderas Calidad 1:1 (o cualquier categoría):
-      python scrape_modaverse_images.py --cat "Calidad 1:1"   # enriquece JSON
-      python scrape_modaverse_images.py --cat "Calidad G5"
-      python scrape_modaverse_images.py                       # todas las categorías
-      python manage.py import_images --only camisetas         # descarga las nuevas a BD
+══════════════════════════════════════════════════════════════════════════════
+  CONSULTAS ÚTILES EN SERVIDOR
+══════════════════════════════════════════════════════════════════════════════
 
-  Re-intentar imágenes fallidas (modaverse):
-      python manage.py repair_images --redownload-missing
-      python manage.py import_images --only gorras
+  # Contar imágenes en disco y BD
+  find /root/app/config/media/products -name "*.jpg" | wc -l
+  PGPASSWORD='WRyal2026!DB' psql -h 127.0.0.1 -U webryal_user webryal \
+    -c "SELECT COUNT(*) FROM catalog_productimage;"
 
-  Ciclo completo en producción (servidor):
-      PYTHONUTF8=1 python manage.py load_productos --no-images
-      PYTHONUTF8=1 python manage.py import_images --workers 15
-      find /root/app/config/media/products -type d -exec chmod o+x {} \;
-      find /root/app/config/media/products -type f -exec chmod o+r {} \;
+  # Productos sin imagen
+  PGPASSWORD='WRyal2026!DB' psql -h 127.0.0.1 -U webryal_user webryal -c "
+  SELECT COUNT(*) FROM catalog_product p
+  WHERE NOT EXISTS (SELECT 1 FROM catalog_productimage pi WHERE pi.product_id = p.id);"
 
-  Categorías en panel (/panel/catalogo/):
-      Calzado → toggle para activar/desactivar calzado por marcas
-      Calzado → subcategorías → toggle por marca individual
+  # Imágenes corruptas en disco (< 5 KB)
+  find /root/app/config/media/products -name "*.jpg" -size -5000c | wc -l
 
-══════════════════════════════════════════════════════════════════════════════════
+  # Estado de imágenes por categoría
+  PGPASSWORD='WRyal2026!DB' psql -h 127.0.0.1 -U webryal_user webryal -c "
+  SELECT c.name, COUNT(DISTINCT p.id) productos, COUNT(pi.id) imagenes
+  FROM catalog_product p
+  JOIN catalog_category c ON p.category_id = c.id
+  LEFT JOIN catalog_productimage pi ON pi.product_id = p.id
+  GROUP BY c.name ORDER BY c.name;"
+
+  # Reiniciar servidor tras cambios
+  systemctl restart gunicorn
+
+══════════════════════════════════════════════════════════════════════════════
+  JSONS
+══════════════════════════════════════════════════════════════════════════════
+
+  scraped_modaverse.json   ← scrape_modaverse_final.py  (gorras/camisetas/sudaderas)
+  scraped_yupoo_pf.json    ← scrape_yupoo_pf.py + fix_calzado_prices.py  (calzado)
+
+══════════════════════════════════════════════════════════════════════════════

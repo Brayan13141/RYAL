@@ -1,5 +1,11 @@
 from django.contrib import admin
-from .models import Category, Tag, Product, ProductImage, ProductVariant
+from .models import Category, Tag, Product, ProductImage, ProductVariant, VolumeTier
+
+
+class VolumeTierInline(admin.TabularInline):
+    model = VolumeTier
+    extra = 1
+    fields = ['min_qty', 'discount_pct']
 
 
 @admin.register(Category)
@@ -9,6 +15,7 @@ class CategoryAdmin(admin.ModelAdmin):
     list_filter = ['is_active', 'parent']
     search_fields = ['name']
     prepopulated_fields = {'slug': ('name',)}
+    inlines = [VolumeTierInline]
 
 
 @admin.register(Tag)

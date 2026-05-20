@@ -1,12 +1,14 @@
 """
 Descarga imágenes de productos desde scraped_modaverse.json.
-Usa descargas paralelas para mayor velocidad.
+Procesa en lotes (chunks) para evitar OOM en servidores con poca RAM.
 
 Uso:
     python manage.py import_images
     python manage.py import_images --only gorras
-    python manage.py import_images --only camisetas --workers 20
-    python manage.py import_images --max-per-product 2
+    python manage.py import_images --only camisetas --workers 3
+    python manage.py import_images --chunk-size 200
+    python manage.py import_images --max-per-product 10
+    python manage.py import_images --force
 """
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -87,8 +89,19 @@ def _save_images_for_product(product, image_urls, max_imgs):
     return saved
 
 
+def _iter_chunks(queryset, chunk_size):
+    """Itera un queryset en lotes sin cargar todo en memoria."""
+    last_pk = 0
+    while True:
+        chunk = list(queryset.filter(pk__gt=last_pk).order_by('pk')[:chunk_size])
+        if not chunk:
+            break
+        yield chunk
+        last_pk = chunk[-1].pk
+
+
 class Command(BaseCommand):
-    help = 'Descarga imágenes para productos sin imágenes desde scraped_modaverse.json'
+    help = 'Descarga imágenes para productos desde scraped_modaverse.json (por lotes)'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -97,12 +110,16 @@ class Command(BaseCommand):
             help='Limitar a una categoría (incluye subcategorías)',
         )
         parser.add_argument(
-            '--workers', type=int, default=10,
-            help='Hilos paralelos de descarga (default: 10)',
+            '--workers', type=int, default=3,
+            help='Hilos paralelos de descarga (default: 3)',
         )
         parser.add_argument(
             '--max-per-product', type=int, default=250,
             help='Máximo de imágenes por producto (default: 250)',
+        )
+        parser.add_argument(
+            '--chunk-size', type=int, default=300,
+            help='Productos por lote en memoria (default: 300)',
         )
         parser.add_argument(
             '--force', action='store_true',
@@ -110,10 +127,11 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        only      = options['only']
-        workers   = options['workers']
-        max_imgs  = options['max_per_product']
-        force     = options['force']
+        only       = options['only']
+        workers    = options['workers']
+        max_imgs   = options['max_per_product']
+        chunk_size = options['chunk_size']
+        force      = options['force']
 
         # ── Cargar mapa supplier_url → images desde JSON ──────────────────────
         json_path = Path(__file__).resolve().parents[4] / 'scraped_modaverse.json'
@@ -121,7 +139,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f'No se encontró {json_path}'))
             return
 
-        self.stdout.write(f'Cargando JSON...')
+        self.stdout.write('Cargando JSON...')
         with open(json_path, encoding='utf-8') as f:
             data = json.load(f)
 
@@ -131,12 +149,12 @@ class Command(BaseCommand):
             if p.get('url') and p.get('images')
         }
         self.stdout.write(f'  {len(url_to_images)} productos con imágenes en JSON')
+        del data  # liberar memoria del JSON completo
 
-        # ── Seleccionar productos a procesar ──────────────────────────────────
+        # ── Construir queryset base (sin cargar en memoria) ───────────────────
         qs = Product.objects.select_related('category__parent').annotate(img_count=Count('images'))
         if only:
             hint = _CATEGORY_SLUG_HINT[only]
-            # Captura productos en la categoría y en sus subcategorías hijas
             qs = qs.filter(
                 Q(category__slug__contains=hint) |
                 Q(category__parent__slug__contains=hint)
@@ -144,52 +162,59 @@ class Command(BaseCommand):
         if not force:
             qs = qs.filter(img_count__lt=max_imgs)
 
-        products = list(qs.order_by('sku'))
-        self.stdout.write(f'  {len(products)} productos con menos de {max_imgs} imágenes' + (f' en {only}' if only else ''))
+        total = qs.count()
+        self.stdout.write(
+            f'  {total} productos con menos de {max_imgs} imágenes'
+            + (f' en {only}' if only else '')
+        )
 
-        if not products:
+        if total == 0:
             self.stdout.write(self.style.SUCCESS('Nada que descargar.'))
             return
 
-        # ── Preparar trabajos ─────────────────────────────────────────────────
-        jobs = []
-        missing_in_json = 0
-        for p in products:
-            imgs = url_to_images.get(p.supplier_url)
-            if imgs:
-                jobs.append((p, imgs))
-            else:
-                missing_in_json += 1
+        self.stdout.write(
+            f'\nDescargando en lotes de {chunk_size} · {workers} hilos · {total} productos total\n'
+        )
 
-        if missing_in_json:
+        ok = failed = skipped = missing = processed = 0
+
+        for chunk in _iter_chunks(qs, chunk_size):
+            jobs = []
+            for p in chunk:
+                imgs = url_to_images.get(p.supplier_url)
+                if imgs:
+                    jobs.append((p, imgs))
+                else:
+                    missing += 1
+
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                future_to_prod = {
+                    pool.submit(_save_images_for_product, prod, imgs, max_imgs): prod
+                    for prod, imgs in jobs
+                }
+                for future in as_completed(future_to_prod):
+                    prod = future_to_prod[future]
+                    processed += 1
+                    try:
+                        saved = future.result()
+                        if saved:
+                            ok += 1
+                            if processed % 200 == 0 or processed <= 5:
+                                self.stdout.write(
+                                    f'  [{processed}/{total}] {prod.sku} — {saved} imgs'
+                                )
+                        else:
+                            skipped += 1
+                    except Exception as e:
+                        failed += 1
+                        self.stdout.write(self.style.WARNING(f'  [!] {prod.sku}: {e}'))
+
             self.stdout.write(
-                self.style.WARNING(f'  {missing_in_json} productos sin URL en JSON (se saltan)')
+                f'  Lote completado — acumulado: {ok} OK · {skipped} sin imgs · {failed} errores'
             )
 
-        self.stdout.write(f'\nDescargando imágenes para {len(jobs)} productos ({workers} hilos)...\n')
-
-        ok = failed = skipped = 0
-
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            future_to_prod = {
-                pool.submit(_save_images_for_product, prod, imgs, max_imgs): prod
-                for prod, imgs in jobs
-            }
-            for i, future in enumerate(as_completed(future_to_prod), 1):
-                prod = future_to_prod[future]
-                try:
-                    saved = future.result()
-                    if saved:
-                        ok += 1
-                        if i % 50 == 0 or i <= 5:
-                            self.stdout.write(f'  [{i}/{len(jobs)}] {prod.sku} — {saved} imgs')
-                    else:
-                        skipped += 1
-                except Exception as e:
-                    failed += 1
-                    self.stdout.write(
-                        self.style.WARNING(f'  [!] {prod.sku}: {e}')
-                    )
+        if missing:
+            self.stdout.write(self.style.WARNING(f'  {missing} productos sin URL en JSON'))
 
         self.stdout.write(
             self.style.SUCCESS(

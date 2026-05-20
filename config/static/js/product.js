@@ -22,17 +22,46 @@ function swapImage(url, btn) {
 
 // ─── Cantidad ────────────────────────────────────────────────────────────────
 
-const _minQty = (typeof MIN_QTY !== 'undefined' && MIN_QTY > 1) ? MIN_QTY : 1;
+const _minQty       = (typeof MIN_QTY !== 'undefined' && MIN_QTY > 1) ? MIN_QTY : 1;
+const _basePrice    = (typeof PRODUCT_BASE_PRICE !== 'undefined') ? PRODUCT_BASE_PRICE : 0;
+const _tiers        = (typeof PRODUCT_TIERS !== 'undefined') ? PRODUCT_TIERS : [];
 let qty = _minQty;
+
+function _activeTier(currentQty) {
+  const applicable = _tiers.filter(t => t.min_qty <= currentQty);
+  return applicable.length ? applicable[applicable.length - 1] : null;
+}
+
+function _applyTier(currentQty) {
+  const tier     = _activeTier(currentQty);
+  const discount = tier ? tier.discount_pct / 100 : 0;
+  const price    = Math.round(_basePrice * (1 - discount));
+
+  const ctaEl = document.getElementById('ctaPrice');
+  if (ctaEl) ctaEl.textContent = price.toLocaleString('es-MX');
+
+  document.querySelectorAll('.tier-row').forEach(row => {
+    const isActive = tier && parseInt(row.dataset.min) === tier.min_qty;
+    row.classList.toggle('tier-row--active', isActive);
+    const priceEl = row.querySelector('.tier-price span');
+    if (priceEl) {
+      const rowPct   = parseFloat(row.dataset.pct) / 100;
+      const rowPrice = Math.round(_basePrice * (1 - rowPct));
+      priceEl.textContent = rowPrice.toLocaleString('es-MX');
+    }
+  });
+}
 
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('qtyVal');
   if (el) el.textContent = qty;
+  _applyTier(qty);
 });
 
 function changeQty(delta) {
   qty = Math.max(_minQty, qty + delta);
   document.getElementById('qtyVal').textContent = qty;
+  _applyTier(qty);
 }
 
 
@@ -102,7 +131,7 @@ function resolveVariant() {
 
 // ─── Agregar al carrito ──────────────────────────────────────────────────────
 
-document.getElementById('addToCartBtn')?.addEventListener('click', function () {
+document.getElementById('addToCartBtn')?.addEventListener('click', async function () {
   const productId = this.dataset.productId;
   const variantId = selectedVariantId || null;
 
@@ -111,7 +140,15 @@ document.getElementById('addToCartBtn')?.addEventListener('click', function () {
     return;
   }
 
-  addToCart(productId, variantId, qty);
+  const btn = this;
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Agregando...';
+
+  await addToCart(productId, variantId, qty);
+
+  btn.disabled = false;
+  btn.innerHTML = original;
 });
 
 

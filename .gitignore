@@ -10,6 +10,8 @@ scraped_*.json
 *.log
 .DS_Store
 
+SERVIDOR.txt
+
 # AI tool configs
 config/.agents/
 config/.claude/

@@ -14,7 +14,7 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from catalog.models import Category, HeroSlide, Product, ProductImage, Section, SiteConfig
+from catalog.models import Category, HeroSlide, Product, ProductImage, Section, SiteConfig, VolumeTier
 from orders.models import Order, OrderItem
 
 _LOGIN = '/accounts/login/'
@@ -805,6 +805,7 @@ def category_edit(request, cat_pk):
         'delete_error': delete_error,
         'is_edit':      True,
         'data':         request.POST if request.method == 'POST' else {},
+        'tiers':        cat.volume_tiers.all(),
     })
 
 
@@ -842,6 +843,40 @@ def category_delete(request, cat_pk):
             status=400,
         )
     cat.delete()
+    return JsonResponse({'ok': True})
+
+
+# ─── Volume tiers ─────────────────────────────────────────────────────────────
+
+@_staff
+@require_POST
+def tier_add(request, cat_pk):
+    cat = get_object_or_404(Category, pk=cat_pk)
+    try:
+        min_qty      = int(request.POST.get('min_qty', 0))
+        discount_pct = Decimal(request.POST.get('discount_pct', '0'))
+        if min_qty < 1 or discount_pct <= 0 or discount_pct >= 100:
+            raise ValueError
+    except (ValueError, InvalidOperation):
+        return JsonResponse({'ok': False, 'error': 'Datos inválidos'}, status=400)
+
+    tier, created = VolumeTier.objects.get_or_create(
+        category=cat, min_qty=min_qty,
+        defaults={'discount_pct': discount_pct},
+    )
+    if not created:
+        tier.discount_pct = discount_pct
+        tier.save(update_fields=['discount_pct'])
+
+    return JsonResponse({'ok': True, 'id': tier.pk, 'min_qty': tier.min_qty,
+                         'discount_pct': str(tier.discount_pct)})
+
+
+@_staff
+@require_POST
+def tier_delete(request, tier_pk):
+    tier = get_object_or_404(VolumeTier, pk=tier_pk)
+    tier.delete()
     return JsonResponse({'ok': True})
 
 

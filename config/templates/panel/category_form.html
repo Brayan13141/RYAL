@@ -148,6 +148,115 @@
 </form>
 
 {% if is_edit %}
+<!-- Descuentos por volumen -->
+<div class="p-card" style="margin-top:24px;" id="tiersCard">
+  <div class="p-card-head">
+    <h2>Descuentos por volumen</h2>
+    <span style="font-size:11px;color:#555;">Se aplican automáticamente al agregar al carrito</span>
+  </div>
+  <div class="p-card-body fp">
+
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;" id="tiersTable">
+      <thead>
+        <tr>
+          <th style="text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #1a1a1a;">Cantidad mínima</th>
+          <th style="text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #1a1a1a;">Descuento %</th>
+          <th style="width:40px;border-bottom:1px solid #1a1a1a;"></th>
+        </tr>
+      </thead>
+      <tbody id="tiersBody">
+        {% for tier in tiers %}
+        <tr data-tier-id="{{ tier.pk }}">
+          <td style="padding:8px;color:#ccc;">{{ tier.min_qty }}+ piezas</td>
+          <td style="padding:8px;color:#ccc;">-{{ tier.discount_pct }}%</td>
+          <td style="padding:8px;text-align:right;">
+            <button type="button" onclick="deleteTier({{ tier.pk }}, this)"
+                    style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:16px;line-height:1;"
+                    title="Eliminar">×</button>
+          </td>
+        </tr>
+        {% empty %}
+        <tr id="noTiersRow"><td colspan="3" style="padding:12px 8px;color:#444;font-size:12px;">Sin tiers configurados</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+      <div>
+        <label style="font-size:11px;color:#555;display:block;margin-bottom:4px;">Mín. piezas</label>
+        <input type="number" id="newTierQty" min="1" placeholder="10"
+               style="width:90px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:6px;
+                      color:#ccc;font-size:13px;padding:8px 10px;">
+      </div>
+      <div>
+        <label style="font-size:11px;color:#555;display:block;margin-bottom:4px;">Descuento %</label>
+        <input type="number" id="newTierPct" min="1" max="99" step="0.5" placeholder="10"
+               style="width:90px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:6px;
+                      color:#ccc;font-size:13px;padding:8px 10px;">
+      </div>
+      <button type="button" onclick="addTier()"
+              style="background:var(--pg);border:none;color:#fff;border-radius:6px;
+                     padding:8px 16px;font-size:12px;cursor:pointer;font-family:var(--f-mono);
+                     letter-spacing:.06em;">
+        + Agregar tier
+      </button>
+    </div>
+    <div id="tierMsg" style="font-size:12px;margin-top:8px;min-height:18px;"></div>
+  </div>
+</div>
+
+<script>
+const TIER_ADD_URL    = "{% url 'panel:tier_add' cat.pk %}";
+const TIER_DELETE_URL = "/panel/tiers/";
+const CSRF            = "{{ csrf_token }}";
+
+async function addTier() {
+  const qty = document.getElementById('newTierQty').value;
+  const pct = document.getElementById('newTierPct').value;
+  const msg = document.getElementById('tierMsg');
+  if (!qty || !pct) { msg.style.color='#ef4444'; msg.textContent='Completa los dos campos.'; return; }
+
+  const fd = new FormData();
+  fd.append('min_qty', qty); fd.append('discount_pct', pct); fd.append('csrfmiddlewaretoken', CSRF);
+  const r = await fetch(TIER_ADD_URL, {method:'POST', body:fd});
+  const d = await r.json();
+  if (!d.ok) { msg.style.color='#ef4444'; msg.textContent=d.error||'Error'; return; }
+
+  document.getElementById('noTiersRow')?.remove();
+  const tbody = document.getElementById('tiersBody');
+  const tr = document.createElement('tr');
+  tr.dataset.tierId = d.id;
+  tr.innerHTML = `
+    <td style="padding:8px;color:#ccc;">${d.min_qty}+ piezas</td>
+    <td style="padding:8px;color:#ccc;">-${parseFloat(d.discount_pct)}%</td>
+    <td style="padding:8px;text-align:right;">
+      <button type="button" onclick="deleteTier(${d.id},this)"
+              style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:16px;line-height:1;">×</button>
+    </td>`;
+  tbody.appendChild(tr);
+  document.getElementById('newTierQty').value = '';
+  document.getElementById('newTierPct').value = '';
+  msg.style.color='#4ade80'; msg.textContent='Tier agregado.';
+  setTimeout(()=>msg.textContent='', 2500);
+}
+
+async function deleteTier(id, btn) {
+  if (!confirm('¿Eliminar este tier?')) return;
+  const r = await fetch(`${TIER_DELETE_URL}${id}/eliminar/`, {
+    method:'POST', headers:{'X-CSRFToken':CSRF,'Content-Type':'application/json'}
+  });
+  const d = await r.json();
+  if (d.ok) {
+    const row = btn.closest('tr');
+    row.remove();
+    if (!document.querySelector('#tiersBody tr')) {
+      document.getElementById('tiersBody').innerHTML =
+        '<tr id="noTiersRow"><td colspan="3" style="padding:12px 8px;color:#444;font-size:12px;">Sin tiers configurados</td></tr>';
+    }
+  }
+}
+</script>
+
 <!-- Zona de peligro -->
 <div class="p-card" style="margin-top:24px;border-color:rgba(255,80,80,.2);">
   <div class="p-card-head" style="border-bottom-color:rgba(255,80,80,.15);">

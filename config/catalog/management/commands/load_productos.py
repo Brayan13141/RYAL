@@ -27,6 +27,21 @@ PARENT_PRICING = {
 }
 _DEFAULT_PRICING = {'shipping': 0, 'margin': 100, 'order': 99}
 
+# Precio base por defecto (MXN) cuando la API no devuelve precio, por slug de cat padre
+_CATEGORY_DEFAULT_PRICE = {
+    'gorra':                               150.0,
+    'camisetas-deportivas-y-jerseys-de-futbol': 220.0,
+    'camisetas-sudaderas-calidad-g5':      250.0,
+    'camisetas-sudaderas-calidad-11':      350.0,
+    'electronica':                         180.0,
+    'calzado':                             500.0,
+}
+_DEFAULT_PRICE = 200.0
+
+# Nombres que indican entradas informativas, no productos reales
+_SKIP_NAMES = {'0', '', 'tabla de medidas', 'size chart', 'talla', 'medidas'}
+
+
 # Prefijo de SKU por categoría padre
 PARENT_PREFIX = {
     'gorra':    'CAP',
@@ -288,9 +303,17 @@ class Command(BaseCommand):
             if prefix not in prefix_counters:
                 prefix_counters[prefix] = _next_sku_index(prefix)
 
-            sku   = f"RYL-{prefix}-{prefix_counters[prefix]:03d}"
-            name  = _clean_name(p.get('name') or f'Producto {prefix_counters[prefix]}')
-            base  = float(p.get('price_mxn') or p.get('price_usd') or 0) or 200.0
+            name = _clean_name(p.get('name') or '')
+            # Filtrar entradas informativas que no son productos reales
+            if not name or name.strip().lower() in _SKIP_NAMES:
+                continue
+
+            # Precio: usar el de la API; si es 0/None, usar default por categoría padre
+            root_slug = slugify((cat_obj.parent or cat_obj).name)
+            api_price = float(p.get('price_mxn') or p.get('price_usd') or 0)
+            base = api_price if api_price > 0 else _CATEGORY_DEFAULT_PRICE.get(root_slug, _DEFAULT_PRICE)
+
+            sku = f"RYL-{prefix}-{prefix_counters[prefix]:03d}"
 
             created = self._create_product(
                 sku=sku, name=name, category=cat_obj,
@@ -409,9 +432,14 @@ class Command(BaseCommand):
             if prefix not in prefix_counters:
                 prefix_counters[prefix] = _next_sku_index(prefix)
 
-            sku   = f"RYL-{prefix}-{prefix_counters[prefix]:03d}"
-            name  = _clean_name(p.get('name') or f'Producto {prefix_counters[prefix]}')
-            base  = float(p.get('price_mxn') or 500.0)
+            name = _clean_name(p.get('name') or '')
+            if not name or name.strip().lower() in _SKIP_NAMES:
+                continue
+
+            api_price = float(p.get('price_mxn') or 0)
+            base = api_price if api_price > 0 else 500.0
+
+            sku = f"RYL-{prefix}-{prefix_counters[prefix]:03d}"
 
             created = self._create_product(
                 sku=sku, name=name, category=cat_obj,

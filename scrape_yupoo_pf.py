@@ -37,6 +37,36 @@ OUTPUT_PATH = Path(__file__).parent / 'scraped_yupoo_pf.json'
 PARENT_CATEGORY_NAME = 'Calzado'
 PARENT_CATEGORY_ID   = 'yupoo_pf_root'
 
+# Precio base por defecto por marca (MXN) — aplica cuando el título no trae precio
+BRAND_DEFAULT_PRICE: dict[str, float] = {
+    'Nike':             500.0,
+    'Air Jordan':       550.0,
+    'Adidas':           500.0,
+    'New Balance':      480.0,
+    'On Running':       550.0,
+    'Hoka':             500.0,
+    'Asics':            450.0,
+    'Brooks':           450.0,
+    'Vans':             380.0,
+    'Converse':         380.0,
+    'Yeezy':            650.0,
+    'Bape':             700.0,
+    'Louis Vuitton':    950.0,
+    'Balenciaga':       900.0,
+    'Alexander McQueen':850.0,
+    'Dior':             950.0,
+    'Valentino':        900.0,
+    'GGDB':             750.0,
+    'Timberland':       450.0,
+    'Armani':           780.0,
+    'Lacoste':          500.0,
+    'Boss':             560.0,
+    'The North Face':   480.0,
+    'UGG':              560.0,
+    'Reebok':           420.0,
+    'Amiri':            780.0,
+}
+
 # Marcas → {category_id: display_name}
 # IDs descubiertos del sidebar en albums?tab=gallery&page=1
 BRAND_CATEGORIES: dict[str, str] = {
@@ -89,8 +119,8 @@ def extract_price(text: str) -> float | None:
     m = re.search(r'[-–]?\s*\$?\s*(\d+(?:\.\d+)?)\s*(?:pesos?|mxn)\b', text, re.IGNORECASE)
     if m:
         return float(m.group(1))
-    # Número suelto al final: "- 500"
-    m = re.search(r'[-–]\s*(\d{3,4})\s*$', text.strip())
+    # Número suelto al final: "- 500" o "- $500"
+    m = re.search(r'[-–]\s*\$?\s*(\d{3,4})\s*$', text.strip())
     if m:
         val = float(m.group(1))
         if 100 <= val <= 5_000:
@@ -195,15 +225,16 @@ def scrape_category_page(session, category_id: str, page: int) -> tuple[list[dic
     return albums, has_next
 
 
-def scrape_album_detail(session, album: dict) -> list[str]:
+def scrape_album_detail(session, album: dict) -> tuple[list[str], float | None]:
     """
-    Abre la página de un álbum y extrae todas sus imágenes.
+    Abre la página de un álbum y extrae imágenes + precio.
+    Retorna (images, price_mxn | None).
     Fallback: thumbnail de listado si falla.
     """
     url = album['url']
     response = fetch_with_retry(session, url)
     if response is None:
-        return [album['thumbnail']] if album.get('thumbnail') else []
+        return ([album['thumbnail']] if album.get('thumbnail') else []), None
 
     images = []
 
@@ -230,7 +261,25 @@ def scrape_album_detail(session, album: dict) -> list[str]:
     if not images and album.get('thumbnail'):
         images = [album['thumbnail']]
 
-    return images[:8]
+    # Intentar extraer precio del cuerpo de la página
+    page_price = None
+    for sel in ['.album-intro', '.intro', '.description', 'p', 'span', 'div.text']:
+        for el in response.css(sel):
+            text = el.attrib.get('text', '') or ''
+            if not text:
+                # scrapling: el texto está en .text o en el nodo
+                try:
+                    text = str(el.text) or ''
+                except Exception:
+                    text = ''
+            p = extract_price(text)
+            if p:
+                page_price = p
+                break
+        if page_price:
+            break
+
+    return images[:250], page_price
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -333,6 +382,8 @@ def main() -> None:
             skipped = sum(1 for a in brand_albums if a['url'] in existing_urls)
             print(f'  {total} álbumes  ({skipped} ya guardados)')
 
+            brand_default = BRAND_DEFAULT_PRICE.get(brand_name, 500.0)
+
             # ── Procesar cada álbum ───────────────────────────────────────────
             for i, album in enumerate(brand_albums, 1):
                 url = album['url']
@@ -340,15 +391,22 @@ def main() -> None:
                 if url in existing_urls:
                     continue
 
-                name  = clean_name(album['name']) or brand_name
-                price = album.get('price_mxn') or 500.0
+                name = clean_name(album['name']) or brand_name
+
+                # Precio: título > detalle de página > default por marca
+                price = album.get('price_mxn')
 
                 if args.with_detail:
                     print(f'  [{i}/{total}] {name[:50]}...')
-                    images = scrape_album_detail(session, album)
+                    images, detail_price = scrape_album_detail(session, album)
+                    if not price and detail_price:
+                        price = detail_price
                     time.sleep(1.2)
                 else:
                     images = [album['thumbnail']] if album.get('thumbnail') else []
+
+                if not price:
+                    price = brand_default
 
                 product = {
                     'name':        name,

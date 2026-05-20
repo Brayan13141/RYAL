@@ -94,6 +94,26 @@
     </div>
     <p class="pd-shipping-note">Precio mayoreo · mín. {{ product.effective_min_qty }} pz{% if product.effective_min_qty != 1 %}s{% endif %} por pedido</p>
 
+    {% if tiers %}
+    <div class="pd-tiers">
+      <div class="pd-tiers-label">Descuento por volumen</div>
+      <table class="tier-table" id="tierTable">
+        <thead>
+          <tr><th>Cantidad</th><th>Descuento</th><th>Precio unitario</th></tr>
+        </thead>
+        <tbody>
+          {% for tier in tiers %}
+          <tr class="tier-row" data-min="{{ tier.min_qty }}" data-pct="{{ tier.discount_pct }}">
+            <td>{{ tier.min_qty }}+ pzs</td>
+            <td>-{{ tier.discount_pct|floatformat:0 }}%</td>
+            <td class="tier-price">$<span>{{ product.final_price|floatformat:0 }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
     <!-- Variantes -->
     {% if product.variants.exists %}
     <div class="pd-variants" id="variantsSection">
@@ -226,9 +246,11 @@
 
 {% block extra_js %}
 <script>
-  const PRODUCT_VARIANTS = {{ variants_json|safe }};
-  const PRODUCT_ID = {{ product.pk }};
-  const MIN_QTY    = {{ product.effective_min_qty }};
+  const PRODUCT_VARIANTS   = {{ variants_json|safe }};
+  const PRODUCT_ID         = {{ product.pk }};
+  const MIN_QTY            = {{ product.effective_min_qty }};
+  const PRODUCT_BASE_PRICE = {{ base_final_price }};
+  const PRODUCT_TIERS      = {{ tiers_json|safe }};
 </script>
 <script src="{% static 'js/product.js' %}"></script>
 <script>

@@ -248,6 +248,23 @@ class HeroSlide(models.Model):
         return f'Slide #{self.display_order} [{self.media_type}] (pk={self.pk})'
 
 
+class VolumeTier(models.Model):
+    """Descuento por volumen ligado a una categoría."""
+    category     = models.ForeignKey(Category, on_delete=models.CASCADE, related_name='volume_tiers')
+    min_qty      = models.PositiveIntegerField(help_text='Cantidad mínima para activar este descuento')
+    discount_pct = models.DecimalField(max_digits=5, decimal_places=2,
+                                       help_text='% de descuento sobre el precio final (ej: 10.00 = 10 %)')
+
+    class Meta:
+        ordering = ['min_qty']
+        unique_together = ['category', 'min_qty']
+        verbose_name = 'Tier de volumen'
+        verbose_name_plural = 'Tiers de volumen'
+
+    def __str__(self):
+        return f'{self.category.name} — {self.min_qty}+ pzs → -{self.discount_pct}%'
+
+
 class Section(models.Model):
     """Agrupa subcategorías dentro de una categoría padre para organizar el catálogo."""
     name = models.CharField(max_length=100)
