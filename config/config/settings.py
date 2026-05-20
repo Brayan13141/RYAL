@@ -160,6 +160,33 @@ SESSION_COOKIE_AGE      = 60 * 60 * 24 * 14  # 2 weeks
 # ——— Headers seguros (siempre activos) ———
 SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
 
+# ——— Logging — errores Django → stderr → journald ———
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'WARNING',
+    },
+    'loggers': {
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+        'django.security': {
+            'handlers': ['console'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+    },
+}
+
 # ——— Production security headers (activated when DEBUG=False) ———
 if not DEBUG:
     SECURE_SSL_REDIRECT             = True
