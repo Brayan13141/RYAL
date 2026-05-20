@@ -47,6 +47,17 @@
         {% endif %}
       </div>
       <div style="display:flex;gap:6px;align-items:center;">
+        <a href="{% url 'panel:category_edit' cat.pk %}#tiersCard"
+           onclick="event.stopPropagation();"
+           class="btn-sm"
+           title="Descuentos por volumen"
+           style="background:transparent;border:1px solid #333;color:#888;text-decoration:none;
+                  display:flex;align-items:center;gap:4px;padding:5px 10px;border-radius:4px;
+                  transition:all .12s;"
+           onmouseover="this.style.borderColor='#a16207';this.style.color='#ca8a04'"
+           onmouseout="this.style.borderColor='#333';this.style.color='#888'">
+          <i class="bi bi-percent" style="font-size:12px;"></i>
+        </a>
         <a href="{% url 'panel:category_edit' cat.pk %}"
            onclick="event.stopPropagation();"
            class="btn-sm"
