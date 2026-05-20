@@ -156,7 +156,7 @@ def cart_add(request):
     total_qty = cart.get(key, {}).get('quantity', 0) + qty
     tier = product.category.volume_tiers.filter(min_qty__lte=total_qty).order_by('-min_qty').first()
     if tier:
-        price = round(price * (1 - float(tier.discount_pct) / 100), 2)
+        price = float(tier.unit_price)
 
     if key in cart:
         cart[key]['quantity'] += qty

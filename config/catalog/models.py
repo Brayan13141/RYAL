@@ -249,11 +249,11 @@ class HeroSlide(models.Model):
 
 
 class VolumeTier(models.Model):
-    """Descuento por volumen ligado a una categoría."""
-    category     = models.ForeignKey(Category, on_delete=models.CASCADE, related_name='volume_tiers')
-    min_qty      = models.PositiveIntegerField(help_text='Cantidad mínima para activar este descuento')
-    discount_pct = models.DecimalField(max_digits=5, decimal_places=2,
-                                       help_text='% de descuento sobre el precio final (ej: 10.00 = 10 %)')
+    """Precio especial por volumen ligado a una categoría."""
+    category   = models.ForeignKey(Category, on_delete=models.CASCADE, related_name='volume_tiers')
+    min_qty    = models.PositiveIntegerField(help_text='Cantidad mínima para activar este precio')
+    unit_price = models.DecimalField(max_digits=8, decimal_places=2,
+                                     help_text='Precio por pieza en MXN (ya incluye envío y margen)')
 
     class Meta:
         ordering = ['min_qty']
@@ -262,7 +262,7 @@ class VolumeTier(models.Model):
         verbose_name_plural = 'Tiers de volumen'
 
     def __str__(self):
-        return f'{self.category.name} — {self.min_qty}+ pzs → -{self.discount_pct}%'
+        return f'{self.category.name} — {self.min_qty}+ pzs → ${self.unit_price}'
 
 
 class Section(models.Model):

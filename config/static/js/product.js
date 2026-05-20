@@ -33,9 +33,8 @@ function _activeTier(currentQty) {
 }
 
 function _applyTier(currentQty) {
-  const tier     = _activeTier(currentQty);
-  const discount = tier ? tier.discount_pct / 100 : 0;
-  const price    = Math.round(_basePrice * (1 - discount));
+  const tier  = _activeTier(currentQty);
+  const price = tier ? Math.round(tier.unit_price) : Math.round(_basePrice);
 
   const ctaEl = document.getElementById('ctaPrice');
   if (ctaEl) ctaEl.textContent = price.toLocaleString('es-MX');
@@ -45,8 +44,7 @@ function _applyTier(currentQty) {
     row.classList.toggle('tier-row--active', isActive);
     const priceEl = row.querySelector('.tier-price span');
     if (priceEl) {
-      const rowPct   = parseFloat(row.dataset.pct) / 100;
-      const rowPrice = Math.round(_basePrice * (1 - rowPct));
+      const rowPrice = Math.round(parseFloat(row.dataset.price));
       priceEl.textContent = rowPrice.toLocaleString('es-MX');
     }
   });

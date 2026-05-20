@@ -5,7 +5,7 @@ from .models import Category, Tag, Product, ProductImage, ProductVariant, Volume
 class VolumeTierInline(admin.TabularInline):
     model = VolumeTier
     extra = 1
-    fields = ['min_qty', 'discount_pct']
+    fields = ['min_qty', 'unit_price']
 
 
 @admin.register(Category)
