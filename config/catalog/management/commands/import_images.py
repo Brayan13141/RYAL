@@ -9,6 +9,7 @@ Uso:
     python manage.py import_images --chunk-size 200
     python manage.py import_images --max-per-product 10
     python manage.py import_images --force
+    python manage.py import_images --since 2026-05-21   # solo productos creados desde esa fecha
 """
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -125,6 +126,11 @@ class Command(BaseCommand):
             '--force', action='store_true',
             help='Re-descargar aunque ya tenga imágenes',
         )
+        parser.add_argument(
+            '--since',
+            metavar='YYYY-MM-DD',
+            help='Solo productos creados en o después de esta fecha',
+        )
 
     def handle(self, *args, **options):
         only       = options['only']
@@ -132,6 +138,7 @@ class Command(BaseCommand):
         max_imgs   = options['max_per_product']
         chunk_size = options['chunk_size']
         force      = options['force']
+        since      = options['since']
 
         # ── Cargar mapa supplier_url → images desde JSON ──────────────────────
         json_path = Path(__file__).resolve().parents[4] / 'scraped_modaverse.json'
@@ -161,11 +168,14 @@ class Command(BaseCommand):
             )
         if not force:
             qs = qs.filter(img_count__lt=max_imgs)
+        if since:
+            qs = qs.filter(created_at__date__gte=since)
 
         total = qs.count()
         self.stdout.write(
             f'  {total} productos con menos de {max_imgs} imágenes'
             + (f' en {only}' if only else '')
+            + (f' desde {since}' if since else '')
         )
 
         if total == 0:

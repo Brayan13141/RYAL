@@ -5,6 +5,7 @@ Uso:
     python manage.py download_yupoo_images
     python manage.py download_yupoo_images --dry-run
     python manage.py download_yupoo_images --max-per-product 2
+    python manage.py download_yupoo_images --since 2026-05-21   # solo productos creados desde esa fecha
 """
 import json
 import re
@@ -72,10 +73,16 @@ class Command(BaseCommand):
             '--max-per-product', type=int, default=250,
             help='Máximo de imágenes a descargar por producto (default: 250)',
         )
+        parser.add_argument(
+            '--since',
+            metavar='YYYY-MM-DD',
+            help='Solo productos creados en o después de esta fecha',
+        )
 
     def handle(self, *args, **options):
         dry     = options['dry_run']
         max_img = options['max_per_product']
+        since   = options['since']
 
         if dry:
             self.stdout.write(self.style.WARNING('DRY RUN — no se descargarán imágenes\n'))
@@ -97,8 +104,14 @@ class Command(BaseCommand):
             .annotate(img_count=Count('images'))
             .filter(img_count__lt=max_img)
         )
+        if since:
+            qs = qs.filter(created_at__date__gte=since)
         total = qs.count()
-        self.stdout.write(f'Productos TN2 con menos de {max_img} imágenes: {total}\n')
+        self.stdout.write(
+            f'Productos TN2 con menos de {max_img} imágenes'
+            + (f' desde {since}' if since else '')
+            + f': {total}\n'
+        )
 
         if total == 0:
             self.stdout.write(self.style.SUCCESS('Nada que hacer — todos los TN2 tienen suficientes imágenes'))
