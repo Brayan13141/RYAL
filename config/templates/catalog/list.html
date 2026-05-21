@@ -170,6 +170,42 @@
 
   <!-- ══ Vista plana (filtros activos o subcategoría específica) ══ -->
   {% elif products %}
+
+    <!-- Paginación superior -->
+    {% if paginator.num_pages > 1 %}
+    <nav class="mb-4" aria-label="Paginación superior">
+      <ul class="pagination justify-content-center flex-wrap">
+        <li class="page-item{% if not page_obj.has_previous %} disabled{% endif %}">
+          <a class="page-link pag-arrow"
+             href="{% if page_obj.has_previous %}{% querystring page=page_obj.previous_page_number %}{% else %}#{% endif %}"
+             aria-label="Anterior">‹</a>
+        </li>
+        {% for p in page_range %}
+          {% if p %}
+            {% if p == page_obj.number %}
+              <li class="page-item active" aria-current="page">
+                <span class="page-link">{{ p }}</span>
+              </li>
+            {% else %}
+              <li class="page-item">
+                <a class="page-link" href="{% querystring page=p %}">{{ p }}</a>
+              </li>
+            {% endif %}
+          {% else %}
+            <li class="page-item disabled pag-ellipsis">
+              <span class="page-link">…</span>
+            </li>
+          {% endif %}
+        {% endfor %}
+        <li class="page-item{% if not page_obj.has_next %} disabled{% endif %}">
+          <a class="page-link pag-arrow"
+             href="{% if page_obj.has_next %}{% querystring page=page_obj.next_page_number %}{% else %}#{% endif %}"
+             aria-label="Siguiente">›</a>
+        </li>
+      </ul>
+    </nav>
+    {% endif %}
+
     <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-xl-5 g-3" id="productGrid">
       {% for product in products %}
         <div class="col">
