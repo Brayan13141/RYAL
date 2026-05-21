@@ -11,6 +11,15 @@ from django_ratelimit.decorators import ratelimit
 from orders.models import Order
 
 
+def _client_ip(group, request):
+    """Lee la IP real del cliente desde X-Forwarded-For (Nginx proxy).
+    django-ratelimit 4.x llama callables con (group, request)."""
+    xff = request.META.get('HTTP_X_FORWARDED_FOR', '')
+    if xff:
+        return xff.split(',')[0].strip()
+    return request.META.get('REMOTE_ADDR', '127.0.0.1')
+
+
 # ─── Magic bytes validation ──────────────────────────────────────────────────
 
 _IMAGE_MAGIC = (
@@ -36,7 +45,7 @@ def _validate_avatar(f):
 
 # ─── Rate-limited allauth views ───────────────────────────────────────────────
 
-@method_decorator(ratelimit(key='ip', rate='10/m', method='POST', block=False), name='post')
+@method_decorator(ratelimit(key=_client_ip, rate='10/m', method='POST', block=False), name='post')
 class RateLimitedLoginView(AllauthLoginView):
     def post(self, request, *args, **kwargs):
         if getattr(request, 'limited', False):
@@ -45,7 +54,7 @@ class RateLimitedLoginView(AllauthLoginView):
         return super().post(request, *args, **kwargs)
 
 
-@method_decorator(ratelimit(key='ip', rate='5/m', method='POST', block=False), name='post')
+@method_decorator(ratelimit(key=_client_ip, rate='5/m', method='POST', block=False), name='post')
 class RateLimitedSignupView(AllauthSignupView):
     def post(self, request, *args, **kwargs):
         if getattr(request, 'limited', False):

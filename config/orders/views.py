@@ -14,6 +14,15 @@ from catalog.models import Product, ProductVariant
 from .models import Order, OrderItem, SavedCartItem
 
 
+def _client_ip(group, request):
+    """Lee la IP real del cliente desde X-Forwarded-For (Nginx proxy).
+    django-ratelimit 4.x llama callables con (group, request)."""
+    xff = request.META.get('HTTP_X_FORWARDED_FOR', '')
+    if xff:
+        return xff.split(',')[0].strip()
+    return request.META.get('REMOTE_ADDR', '127.0.0.1')
+
+
 # ─── Helpers de carrito en sesión ───────────────────────────────────────────
 
 def _get_cart(request):
@@ -121,7 +130,7 @@ def cart_get(request):
 
 # ─── AJAX: agregar al carrito ────────────────────────────────────────────────
 
-@ratelimit(key='ip', rate='60/m', method='POST', block=False)
+@ratelimit(key=_client_ip, rate='60/m', method='POST', block=False)
 @require_POST
 def cart_add(request):
     if getattr(request, 'limited', False):
@@ -285,7 +294,7 @@ def checkout(request):
     })
 
 
-@ratelimit(key='ip', rate='5/m', method='POST', block=False)
+@ratelimit(key=_client_ip, rate='5/m', method='POST', block=False)
 @require_POST
 def checkout_confirm(request):
     if getattr(request, 'limited', False):
@@ -379,7 +388,7 @@ def my_orders(request):
     return render(request, 'orders/my_orders.html', {'orders': orders})
 
 
-@ratelimit(key='ip', rate='20/m', method='GET', block=False)
+@ratelimit(key=_client_ip, rate='20/m', method='GET', block=False)
 def order_track(request):
     if getattr(request, 'limited', False):
         return render(request, 'orders/track.html', {
