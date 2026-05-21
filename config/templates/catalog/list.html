@@ -178,50 +178,43 @@
       {% endfor %}
     </div>
 
-    <!-- Paginación -->
+    <!-- Paginación numerada -->
     {% if paginator.num_pages > 1 %}
     <nav class="mt-5" aria-label="Paginación">
-      <ul class="pagination justify-content-center">
-        {% if page_obj.has_previous %}
-          <li class="page-item">
-            <a class="page-link" href="{% querystring page=page_obj.previous_page_number %}">← Anterior</a>
-          </li>
-        {% else %}
-          <li class="page-item disabled"><span class="page-link">← Anterior</span></li>
-        {% endif %}
-        <li class="page-item">
-          <span class="page-link d-flex align-items-center gap-2" style="background:transparent;border-color:var(--ryal-border);">
-            <span style="color:rgba(255,255,255,0.45);font-size:.82em;">Pág.</span>
-            <select id="page-jump"
-                    class="form-select form-select-sm"
-                    style="width:72px;background:#111;color:#fff;border-color:var(--ryal-border);">
-              {% for i in paginator.page_range %}
-                <option value="{{ i }}"{% if i == page_obj.number %} selected{% endif %}>{{ i }}</option>
-              {% endfor %}
-            </select>
-            <span style="color:rgba(255,255,255,0.35);font-size:.82em;white-space:nowrap;">/ {{ paginator.num_pages }}</span>
-          </span>
+      <ul class="pagination justify-content-center flex-wrap">
+
+        <li class="page-item{% if not page_obj.has_previous %} disabled{% endif %}">
+          <a class="page-link pag-arrow"
+             href="{% if page_obj.has_previous %}{% querystring page=page_obj.previous_page_number %}{% else %}#{% endif %}"
+             aria-label="Anterior">‹</a>
         </li>
-        {% if page_obj.has_next %}
-          <li class="page-item">
-            <a class="page-link" href="{% querystring page=page_obj.next_page_number %}">Siguiente →</a>
-          </li>
-        {% else %}
-          <li class="page-item disabled"><span class="page-link">Siguiente →</span></li>
-        {% endif %}
+
+        {% for p in page_range %}
+          {% if p %}
+            {% if p == page_obj.number %}
+              <li class="page-item active" aria-current="page">
+                <span class="page-link">{{ p }}</span>
+              </li>
+            {% else %}
+              <li class="page-item">
+                <a class="page-link" href="{% querystring page=p %}">{{ p }}</a>
+              </li>
+            {% endif %}
+          {% else %}
+            <li class="page-item disabled pag-ellipsis">
+              <span class="page-link">…</span>
+            </li>
+          {% endif %}
+        {% endfor %}
+
+        <li class="page-item{% if not page_obj.has_next %} disabled{% endif %}">
+          <a class="page-link pag-arrow"
+             href="{% if page_obj.has_next %}{% querystring page=page_obj.next_page_number %}{% else %}#{% endif %}"
+             aria-label="Siguiente">›</a>
+        </li>
+
       </ul>
     </nav>
-    <script>
-    (function () {
-      var sel = document.getElementById('page-jump');
-      if (!sel) return;
-      sel.addEventListener('change', function () {
-        var p = new URLSearchParams(window.location.search);
-        p.set('page', this.value);
-        window.location.href = window.location.pathname + '?' + p.toString();
-      });
-    }());
-    </script>
     {% endif %}
 
   {% else %}
@@ -493,7 +486,11 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
   border-radius: 2px !important;
+  min-width: 38px;
+  text-align: center;
 }
+.pag-arrow { font-size: 1.1rem; letter-spacing: 0; }
+.pag-ellipsis { pointer-events: none; }
 
 /* ── Offcanvas filtros ── */
 .offcanvas {

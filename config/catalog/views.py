@@ -181,13 +181,34 @@ def _apply_filters(request, qs):
     return qs, selected_tags, q
 
 
+def _build_page_range(page_obj, paginator):
+    """Return list of page numbers with None as ellipsis sentinel.
+    Always includes first 2, last 2, and a window of current ±2."""
+    current = page_obj.number
+    total   = paginator.num_pages
+    if total <= 9:
+        return list(range(1, total + 1))
+    pages = set()
+    pages.update([1, 2])
+    pages.update([total - 1, total])
+    pages.update(range(max(1, current - 2), min(total + 1, current + 3)))
+    result, prev = [], None
+    for p in sorted(pages):
+        if prev is not None and p - prev > 1:
+            result.append(None)
+        result.append(p)
+        prev = p
+    return result
+
+
 def _paginate(request, qs):
     _MAP = {'12': 12, '50': 50, '100': 100}
     param = request.GET.get('per_page', '50')
     if param not in _MAP:
         param = '50'
     paginator = Paginator(qs, _MAP[param])
-    return paginator.get_page(request.GET.get('page')), paginator, param
+    page_obj  = paginator.get_page(request.GET.get('page'))
+    return page_obj, paginator, param, _build_page_range(page_obj, paginator)
 
 
 _PRICE_RANGES = [
@@ -290,16 +311,17 @@ def product_list(request, cat_slug, subcat_slug=None):
                             'total':    total,
                         })
 
-    page_obj = paginator = per_page = None
+    page_obj = paginator = per_page = page_range = None
     flat_products = []
     if sections is None:
-        page_obj, paginator, per_page = _paginate(request, qs)
+        page_obj, paginator, per_page, page_range = _paginate(request, qs)
         flat_products = page_obj.object_list
 
     return render(request, 'catalog/list.html', {
         'products':        flat_products,
         'page_obj':        page_obj,
         'paginator':       paginator,
+        'page_range':      page_range,
         'parent':          parent,
         'subcat':          subcat,
         'active_section':  active_section,
@@ -321,18 +343,19 @@ def search_results(request):
     )
     qs = _annotate_final(qs)
     qs, selected_tags, q = _apply_filters(request, qs)
-    page_obj, paginator, per_page = _paginate(request, qs)
+    page_obj, paginator, per_page, page_range = _paginate(request, qs)
 
     return render(request, 'catalog/list.html', {
-        'products': page_obj.object_list,
-        'page_obj': page_obj,
-        'paginator': paginator,
-        'parent': None,
-        'subcat': None,
-        'all_tags': Tag.objects.all(),
+        'products':     page_obj.object_list,
+        'page_obj':     page_obj,
+        'paginator':    paginator,
+        'page_range':   page_range,
+        'parent':       None,
+        'subcat':       None,
+        'all_tags':     Tag.objects.all(),
         'selected_tags': selected_tags,
-        'q': q,
-        'per_page': per_page,
+        'q':            q,
+        'per_page':     per_page,
         'price_ranges': _PRICE_RANGES,
     })
 
