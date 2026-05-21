@@ -85,7 +85,7 @@ def parse_float(val):
 
 # ─── Constantes ───────────────────────────────────────────────────────────────
 
-OUTPUT_PATH = r"C:/Users/Lenovo/Documents/WEB_RYAL/scraped_modaverse.json"
+OUTPUT_PATH = str(Path(__file__).resolve().parent / 'scraped_modaverse.json')
 INDEX_URL   = "https://www.modaverse.vip/#/index/US20260121113948017529"
 API_BASE    = "https://api.modaverse.vip/kkd_boot"
 PAGE_SIZE   = 100
