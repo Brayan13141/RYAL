@@ -189,8 +189,18 @@
         {% else %}
           <li class="page-item disabled"><span class="page-link">← Anterior</span></li>
         {% endif %}
-        <li class="page-item active">
-          <span class="page-link">{{ page_obj.number }} / {{ paginator.num_pages }}</span>
+        <li class="page-item">
+          <span class="page-link d-flex align-items-center gap-2" style="background:transparent;border-color:var(--ryal-border);">
+            <span style="color:rgba(255,255,255,0.45);font-size:.82em;">Pág.</span>
+            <select id="page-jump"
+                    class="form-select form-select-sm"
+                    style="width:72px;background:#111;color:#fff;border-color:var(--ryal-border);">
+              {% for i in paginator.page_range %}
+                <option value="{{ i }}"{% if i == page_obj.number %} selected{% endif %}>{{ i }}</option>
+              {% endfor %}
+            </select>
+            <span style="color:rgba(255,255,255,0.35);font-size:.82em;white-space:nowrap;">/ {{ paginator.num_pages }}</span>
+          </span>
         </li>
         {% if page_obj.has_next %}
           <li class="page-item">
@@ -201,6 +211,17 @@
         {% endif %}
       </ul>
     </nav>
+    <script>
+    (function () {
+      var sel = document.getElementById('page-jump');
+      if (!sel) return;
+      sel.addEventListener('change', function () {
+        var p = new URLSearchParams(window.location.search);
+        p.set('page', this.value);
+        window.location.href = window.location.pathname + '?' + p.toString();
+      });
+    }());
+    </script>
     {% endif %}
 
   {% else %}
