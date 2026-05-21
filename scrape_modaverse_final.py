@@ -6,8 +6,16 @@ Estrategia de scraping:
   1. Scrape plano (sin categoryId) — captura lo que devuelve la paginación global
   2. Scrape por cada categoría/subcategoría del árbol — garantiza cobertura completa
   Los resultados se deducan por productId.
+
+Uso:
+  python scrape_modaverse_final.py                          # scrape completo
+  python scrape_modaverse_final.py --list                   # ver categorías disponibles
+  python scrape_modaverse_final.py --category gorras        # solo gorras (fusiona con JSON)
+  python scrape_modaverse_final.py --category gorras camisetas  # varias categorías
+  python scrape_modaverse_final.py --category gorras --no-merge # sobreescribe JSON
 """
 
+import argparse
 import json
 import re
 import io
@@ -15,11 +23,35 @@ import sys
 import time
 from collections import Counter
 from datetime import datetime
+from pathlib import Path
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 import httpx
-from scrapling.fetchers import DynamicFetcher
+
+try:
+    from scrapling.fetchers import DynamicFetcher
+    _HAS_SCRAPLING = True
+except ImportError:
+    _HAS_SCRAPLING = False
+
+# ─── Argumentos ───────────────────────────────────────────────────────────────
+_ap = argparse.ArgumentParser(description='Scraper modaverse.vip')
+_ap.add_argument(
+    '--category', nargs='+', metavar='KEYWORD',
+    help='Filtrar por nombre de categoría (parcial, sin distinción de mayúsculas). '
+         'Usa --list para ver los nombres disponibles.',
+)
+_ap.add_argument(
+    '--list', action='store_true',
+    help='Mostrar categorías disponibles y salir.',
+)
+_ap.add_argument(
+    '--no-merge', action='store_true',
+    help='Sobreescribir el JSON completo en lugar de fusionar con el existente '
+         '(solo relevante con --category).',
+)
+_args = _ap.parse_args()
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -88,38 +120,42 @@ def log(msg):
 
 
 # ─── PASO 1: Árbol de categorías ──────────────────────────────────────────────
-log("Fetching category tree from DynamicFetcher XHR...")
-page = DynamicFetcher.fetch(
-    INDEX_URL,
-    network_idle=True,
-    wait=6000,
-    timeout=90000,
-    capture_xhr=r".*getAllCategoryList.*",
-    headless=True,
-)
-log(f"Status={page.status}, XHR captured={len(page.captured_xhr)}")
-
 categories_raw = []
-for xhr in page.captured_xhr:
-    url  = getattr(xhr, 'url', '') or ''
-    body = getattr(xhr, 'body', b'') or b''
-    if 'getAllCategoryList' not in url or not body:
-        continue
-    try:
-        data = json.loads(body.decode('utf-8'))
-        categories_raw = data.get('data', [])
-        log(f"  Categorías cargadas via XHR: {len(categories_raw)}")
-    except Exception as e:
-        log(f"  Error parseando XHR: {e}")
+
+if _HAS_SCRAPLING:
+    log("Fetching category tree from DynamicFetcher XHR...")
+    page = DynamicFetcher.fetch(
+        INDEX_URL,
+        network_idle=True,
+        wait=6000,
+        timeout=90000,
+        capture_xhr=r".*getAllCategoryList.*",
+        headless=True,
+    )
+    log(f"Status={page.status}, XHR captured={len(page.captured_xhr)}")
+
+    for xhr in page.captured_xhr:
+        url  = getattr(xhr, 'url', '') or ''
+        body = getattr(xhr, 'body', b'') or b''
+        if 'getAllCategoryList' not in url or not body:
+            continue
+        try:
+            data = json.loads(body.decode('utf-8'))
+            categories_raw = data.get('data', [])
+            log(f"  Categorías cargadas via XHR: {len(categories_raw)}")
+        except Exception as e:
+            log(f"  Error parseando XHR: {e}")
+else:
+    log("scrapling no disponible — usando GET directo para árbol de categorías...")
 
 if not categories_raw:
-    log("  Fallback: GET directo a getAllCategoryList...")
+    log("  GET directo a getAllCategoryList...")
     try:
         r = httpx.get(f"{API_BASE}/category/getAllCategoryList", headers=HEADERS, timeout=30)
         categories_raw = r.json().get('data', [])
-        log(f"  Fallback: {len(categories_raw)} categorías")
+        log(f"  {len(categories_raw)} categorías obtenidas")
     except Exception as e:
-        log(f"  Fallback error: {e}")
+        log(f"  Error: {e}")
 
 
 # ─── PASO 2: Parsear árbol ────────────────────────────────────────────────────
@@ -147,6 +183,46 @@ for cat in categories_raw:
     })
 
 log(f"Total categorías mapeadas: {len(cat_id_to_name)}")
+
+# ─── --list: mostrar árbol y salir ────────────────────────────────────────────
+if _args.list:
+    print("\nCategorías disponibles en modaverse.vip:")
+    for c in results['categories']:
+        nsubs = len(c['subcategories'])
+        print(f"  {c['name_es']}  ({nsubs} subcategorías)")
+        for sub in c['subcategories']:
+            print(f"      - {sub['name_es']}")
+    print(f"\nTotal: {len(results['categories'])} categorías padre, "
+          f"{sum(len(c['subcategories']) for c in results['categories'])} subcategorías")
+    print("\nEjemplo de uso:")
+    print("  python scrape_modaverse_final.py --category gorras")
+    sys.exit(0)
+
+# ─── Filtro --category ────────────────────────────────────────────────────────
+filter_ids = None
+if _args.category:
+    keywords = [k.lower() for k in _args.category]
+    filter_ids = set()
+    for cat in results['categories']:
+        parent_matches = any(kw in cat['name_es'].lower() for kw in keywords)
+        if parent_matches:
+            filter_ids.add(cat['id'])
+            for sub in cat['subcategories']:
+                filter_ids.add(sub['id'])
+        else:
+            for sub in cat['subcategories']:
+                if any(kw in sub['name_es'].lower() for kw in keywords):
+                    filter_ids.add(sub['id'])
+                    filter_ids.add(cat['id'])
+
+    if not filter_ids:
+        log(f"⚠ Ninguna categoría coincide con: {_args.category}")
+        log("  Usa --list para ver los nombres disponibles.")
+        sys.exit(1)
+
+    matched = [cat_id_to_name[cid] for cid in filter_ids if cid in cat_id_to_name]
+    log(f"Filtrando {len(filter_ids)} IDs de categoría: {', '.join(matched[:8])}"
+        + ("…" if len(matched) > 8 else ""))
 
 
 # ─── PASO 3: Scraping de productos ───────────────────────────────────────────
@@ -201,21 +277,37 @@ def _fetch_page_range(client, extra_payload=None, label="global", verbose=True):
 all_products_raw = []
 seen_ids         = set()
 
+# ── Pre-cargar JSON existente para fusionar ───────────────────────────────────
+existing_products = []
+if filter_ids and not _args.no_merge and Path(OUTPUT_PATH).exists():
+    try:
+        with open(OUTPUT_PATH, encoding='utf-8') as _f:
+            _existing = json.load(_f)
+        existing_products = _existing.get('products', [])
+        for _p in existing_products:
+            seen_ids.add(_p.get('sku', ''))  # sku = productId en el esquema de salida
+        log(f"JSON existente cargado: {len(existing_products)} productos previos (serán preservados)")
+    except Exception as _e:
+        log(f"⚠ No se pudo cargar JSON existente: {_e} — se creará uno nuevo")
+
 log("\n── Fase 1: Scrape plano (sin filtro de categoría) ──")
-with httpx.Client(headers=HEADERS, timeout=30, follow_redirects=True) as client:
-    flat = _fetch_page_range(client, label="global")
-    for p in flat:
-        pid = p.get('productId')
-        if pid and pid not in seen_ids:
-            seen_ids.add(pid)
-            all_products_raw.append(p)
+if filter_ids:
+    log("  Omitida — usando --category (la Fase 2 cubre las categorías seleccionadas)")
+    flat = []
+else:
+    with httpx.Client(headers=HEADERS, timeout=30, follow_redirects=True) as client:
+        flat = _fetch_page_range(client, label="global")
+        for p in flat:
+            pid = p.get('productId')
+            if pid and pid not in seen_ids:
+                seen_ids.add(pid)
+                all_products_raw.append(p)
+    log(f"Fase 1 completa: {len(all_products_raw)} productos únicos")
 
-log(f"Fase 1 completa: {len(all_products_raw)} productos únicos")
+# ── Fase 2: Scrape por categoría ──────────────────────────────────────────────
+all_cat_ids = list(filter_ids) if filter_ids else list(cat_id_to_name.keys())
+log(f"\n── Fase 2: Scrape por {len(all_cat_ids)} categorías/subcategorías ──")
 
-# ── Fase 2: Scrape por cada categoría/subcategoría ────────────────────────────
-log(f"\n── Fase 2: Scrape por {len(cat_id_to_name)} categorías/subcategorías ──")
-
-all_cat_ids  = list(cat_id_to_name.keys())
 new_from_cat = 0
 
 with httpx.Client(headers=HEADERS, timeout=30, follow_redirects=True) as client:
@@ -225,7 +317,7 @@ with httpx.Client(headers=HEADERS, timeout=30, follow_redirects=True) as client:
             client,
             extra_payload={"categoryId": cid},
             label=f"{i}/{len(all_cat_ids)} {cname[:18]}",
-            verbose=False,   # silencioso por página, solo resumen al final
+            verbose=False,
         )
 
         added = 0
@@ -245,7 +337,7 @@ log(f"Total después de ambas fases: {len(all_products_raw)}")
 
 
 # ─── PASO 4: Fallback XHR si ambas fases devuelven 0 ─────────────────────────
-if not all_products_raw:
+if not all_products_raw and _HAS_SCRAPLING:
     log("\nAmbas fases vacías — fallback DynamicFetcher XHR...")
     prod_page = DynamicFetcher.fetch(
         "https://www.modaverse.vip/#/product/CA20260107160742000002",
@@ -268,6 +360,8 @@ if not all_products_raw:
             log(f"  XHR fallback: {len(recs)} prods")
         except Exception as e:
             log(f"  XHR parse error: {e}")
+elif not all_products_raw:
+    log("\n⚠ Ambas fases vacías. Instala scrapling para habilitar el fallback XHR.")
 
 
 # ─── PASO 5: Mapear al esquema de salida ─────────────────────────────────────
@@ -333,8 +427,15 @@ if unknown_cat_ids:
 
 
 # ─── PASO 6: Guardar JSON ─────────────────────────────────────────────────────
-results["products"]       = all_mapped
-results["total_products"] = len(all_mapped)
+if filter_ids and not _args.no_merge:
+    # Fusionar: productos existentes + nuevos scrapeados
+    final_products = existing_products + all_mapped
+    log(f"\nFusión: {len(existing_products)} existentes + {len(all_mapped)} nuevos = {len(final_products)} total")
+else:
+    final_products = all_mapped
+
+results["products"]       = final_products
+results["total_products"] = len(final_products)
 
 with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
     json.dump(results, f, ensure_ascii=False, indent=2)
@@ -353,7 +454,10 @@ for c in results['categories']:
 
 print(f"\n  Fase 1 (plano): {len(flat)} productos")
 print(f"  Fase 2 (por cat): {new_from_cat} productos nuevos")
-print(f"  Total único:    {len(all_mapped)}")
+print(f"  Nuevos en esta ejecución: {len(all_mapped)}")
+if filter_ids and not _args.no_merge:
+    print(f"  Fusionados con existentes: {len(existing_products)}")
+print(f"  Total en JSON:  {len(final_products)}")
 
 dist = Counter()
 for p in all_mapped:
