@@ -34,6 +34,26 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
       PYTHONUTF8=1 python config/manage.py download_yupoo_images
 
 ══════════════════════════════════════════════════════════════════════════════
+  FLUJO INCREMENTAL — SOLO PRODUCTOS NUEVOS
+══════════════════════════════════════════════════════════════════════════════
+
+  Cuando el proveedor saca nuevos productos y no quieres reprocesar todo el
+  catálogo. Usa --since con la fecha en que corriste load_productos.
+
+  En LOCAL:
+      PYTHONUTF8=1 venv/Scripts/python.exe scrape_modaverse_final.py
+      scp scraped_modaverse.json root@5.161.249.245:/root/app/
+
+  En SERVIDOR:
+      PYTHONUTF8=1 python config/manage.py load_productos --no-images
+      PYTHONUTF8=1 python config/manage.py import_images --since 2026-05-21 --workers 6
+      PYTHONUTF8=1 python config/manage.py download_yupoo_images --since 2026-05-21
+
+  NOTA: load_productos ya deduplica por supplier_url, nunca crea duplicados.
+  El --since solo acelera import_images / download_yupoo_images al ignorar
+  los miles de productos que ya tienen imágenes.
+
+══════════════════════════════════════════════════════════════════════════════
   SCRAPERS (ejecutar en LOCAL)
 ══════════════════════════════════════════════════════════════════════════════
 
@@ -85,16 +105,19 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
   Descarga imágenes modaverse en paralelo para productos que tienen menos
   de 250 imágenes. Usa chunking de 300 para no saturar RAM.
 
-      python manage.py import_images                        # todas las categorías
-      python manage.py import_images --only gorras          # solo gorras
-      python manage.py import_images --workers 6            # hilos paralelos (default 3)
-      python manage.py import_images --max-per-product 250  # máx imágenes por producto
+      python manage.py import_images                         # todas las categorías
+      python manage.py import_images --only gorras           # solo gorras
+      python manage.py import_images --workers 6             # hilos paralelos (default 3)
+      python manage.py import_images --max-per-product 250   # máx imágenes por producto
+      python manage.py import_images --since 2026-05-21      # solo productos nuevos desde esa fecha
+      python manage.py import_images --force                 # re-descargar aunque ya tenga imágenes
 
   download_yupoo_images
   ──────────────────────
   Descarga imágenes de calzado TN2 desde yupoo. Completa hasta 250 por producto.
 
       python manage.py download_yupoo_images
+      python manage.py download_yupoo_images --since 2026-05-21   # solo productos nuevos
 
   update_calzado_prices
   ──────────────────────
