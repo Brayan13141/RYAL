@@ -12,7 +12,7 @@ class ContentSecurityPolicyMiddleware:
         "default-src 'self'; "
         "script-src 'self' 'unsafe-inline' cdn.jsdelivr.net; "
         "style-src 'self' 'unsafe-inline' cdn.jsdelivr.net fonts.googleapis.com; "
-        "font-src 'self' data: fonts.gstatic.com; "
+        "font-src 'self' data: fonts.gstatic.com cdn.jsdelivr.net; "
         "img-src 'self' data: blob:; "
         "connect-src 'self'; "
         "frame-ancestors 'none'; "
