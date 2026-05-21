@@ -1,4 +1,5 @@
 import json
+import re
 import uuid
 from datetime import timedelta
 
@@ -15,11 +16,16 @@ from .models import Order, OrderItem, SavedCartItem
 
 
 def _client_ip(group, request):
-    """Lee la IP real del cliente desde X-Forwarded-For (Nginx proxy).
-    django-ratelimit 4.x llama callables con (group, request)."""
+    """IP real del cliente. django-ratelimit 4.x pasa (group, request).
+    X-Real-IP (seteado por Nginx desde $remote_addr) no es spoofeable.
+    X-Forwarded-For puede ser falsificado — NO usar el primer elemento."""
+    real_ip = request.META.get('HTTP_X_REAL_IP', '').strip()
+    if real_ip:
+        return real_ip
     xff = request.META.get('HTTP_X_FORWARDED_FOR', '')
     if xff:
-        return xff.split(',')[0].strip()
+        # Tomar el último IP (agregado por el proxy de confianza, no por el cliente)
+        return xff.split(',')[-1].strip()
     return request.META.get('REMOTE_ADDR', '127.0.0.1')
 
 
@@ -308,6 +314,11 @@ def checkout_confirm(request):
     telefono = request.POST.get('telefono', '').strip()
 
     if not nombre or not telefono:
+        return redirect('orders:checkout')
+
+    # Server-side phone validation — 10 digits only (matches client-side pattern)
+    if not re.fullmatch(r'\d{10}', telefono):
+        messages.error(request, 'El número de teléfono debe tener exactamente 10 dígitos.')
         return redirect('orders:checkout')
 
     violations = _get_category_violations(cart)

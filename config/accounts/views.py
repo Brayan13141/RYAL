@@ -1,8 +1,7 @@
 from allauth.account.views import LoginView as AllauthLoginView, SignupView as AllauthSignupView
 from django.contrib import messages
-from django.contrib.auth import login, authenticate, logout
+from django.contrib.auth import logout
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.models import User
 from django.db.models import Q
 from django.shortcuts import render, redirect
 from django.utils.decorators import method_decorator
@@ -12,11 +11,15 @@ from orders.models import Order
 
 
 def _client_ip(group, request):
-    """Lee la IP real del cliente desde X-Forwarded-For (Nginx proxy).
-    django-ratelimit 4.x llama callables con (group, request)."""
+    """IP real del cliente. django-ratelimit 4.x pasa (group, request).
+    X-Real-IP (seteado por Nginx desde $remote_addr) no es spoofeable.
+    X-Forwarded-For puede ser falsificado — NO usar el primer elemento."""
+    real_ip = request.META.get('HTTP_X_REAL_IP', '').strip()
+    if real_ip:
+        return real_ip
     xff = request.META.get('HTTP_X_FORWARDED_FOR', '')
     if xff:
-        return xff.split(',')[0].strip()
+        return xff.split(',')[-1].strip()
     return request.META.get('REMOTE_ADDR', '127.0.0.1')
 
 
@@ -62,61 +65,6 @@ class RateLimitedSignupView(AllauthSignupView):
             return self.get(request, *args, **kwargs)
         return super().post(request, *args, **kwargs)
 
-
-def login_view(request):
-    if request.user.is_authenticated:
-        return redirect('catalog:home')
-
-    if request.method == 'POST':
-        username = request.POST.get('username', '').strip()
-        password = request.POST.get('password', '')
-        user     = authenticate(request, username=username, password=password)
-        if user:
-            login(request, user)
-            return redirect(request.POST.get('next') or 'catalog:home')
-        return render(request, 'accounts/login.html', {'form': {'errors': True}})
-
-    return render(request, 'accounts/login.html', {
-        'next': request.GET.get('next', ''),
-    })
-
-
-def register_view(request):
-    if request.user.is_authenticated:
-        return redirect('catalog:home')
-
-    if request.method == 'POST':
-        first_name = request.POST.get('first_name', '').strip()
-        email      = request.POST.get('email', '').strip().lower()
-        password1  = request.POST.get('password1', '')
-        password2  = request.POST.get('password2', '')
-
-        errors = []
-        if not first_name:
-            errors.append('El nombre es requerido.')
-        if not email:
-            errors.append('El correo es requerido.')
-        elif User.objects.filter(username=email).exists():
-            errors.append('Ya existe una cuenta con ese correo.')
-        if len(password1) < 8:
-            errors.append('La contraseña debe tener al menos 8 caracteres.')
-        if password1 != password2:
-            errors.append('Las contraseñas no coinciden.')
-
-        if errors:
-            return render(request, 'accounts/register.html', {'form': {'errors': errors}})
-
-        user = User.objects.create_user(
-            username   = email,
-            email      = email,
-            password   = password1,
-            first_name = first_name,
-        )
-        login(request, user)
-        messages.success(request, f'Bienvenido, {first_name}.')
-        return redirect('catalog:home')
-
-    return render(request, 'accounts/register.html', {})
 
 
 @require_POST

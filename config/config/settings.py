@@ -59,6 +59,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'allauth.account.middleware.AccountMiddleware',
+    'core.middleware.ContentSecurityPolicyMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -159,6 +160,26 @@ SESSION_COOKIE_AGE      = 60 * 60 * 24 * 14  # 2 weeks
 
 # ——— Headers seguros (siempre activos) ———
 SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+
+# Always active — Nginx sets X-Forwarded-Proto; required for HTTPS detection behind proxy
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Trusted origins for CSRF — set in .env for production (e.g. https://ryalsneackers.com)
+_csrf_origins = os.environ.get('CSRF_TRUSTED_ORIGINS', '')
+if _csrf_origins:
+    CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_origins.split(',') if o.strip()]
+
+# ——— Cache — Redis in production, LocMemCache in dev ———
+_redis_url = os.environ.get('REDIS_URL', '')
+if _redis_url:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': _redis_url,
+            'OPTIONS': {'CLIENT_CLASS': 'django_redis.client.DefaultClient'},
+        }
+    }
+    SILENCED_SYSTEM_CHECKS = []  # Redis is multi-worker safe — checks no longer needed
 
 # ——— Logging — errores Django → stderr → journald ———
 LOGGING = {

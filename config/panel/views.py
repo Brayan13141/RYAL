@@ -6,7 +6,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.paginator import Paginator
-from django.db.models import DecimalField, ExpressionWrapper, F, Q, Sum
+from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum
 from django.db.models.functions import TruncDate
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -204,8 +204,12 @@ def dashboard(request):
         chart_revenue.append(round(float(data.get('revenue') or 0)))
         chart_profit.append(int(data.get('units') or 0) * 100)
 
+    # 1 query instead of N queries (one per status)
+    _status_counts = dict(
+        Order.objects.values('status').annotate(n=Count('pk')).values_list('status', 'n')
+    )
     counts = {
-        s: {'label': lbl, 'n': Order.objects.filter(status=s).count()}
+        s: {'label': lbl, 'n': _status_counts.get(s, 0)}
         for s, lbl in Order.STATUS_CHOICES
     }
     recent            = Order.objects.prefetch_related('items').order_by('-created_at')[:8]
