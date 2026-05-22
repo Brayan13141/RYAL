@@ -82,9 +82,19 @@
           </div>
 
           <div>
-            <label>Mínimo de piezas</label>
+            <label>Mínimo total (piezas)
+              <span style="color:#555;font-size:11px;text-transform:none;letter-spacing:0;">total de la categoría por pedido</span>
+            </label>
             <input type="number" name="min_order_qty" min="1"
                    value="{% if data.min_order_qty %}{{ data.min_order_qty }}{% elif is_edit %}{{ cat.min_order_qty }}{% else %}1{% endif %}">
+          </div>
+
+          <div>
+            <label>Mínimo por modelo
+              <span style="color:#555;font-size:11px;text-transform:none;letter-spacing:0;">piezas por producto individual (0 = sin restricción)</span>
+            </label>
+            <input type="number" name="min_qty_per_item" min="0"
+                   value="{% if data.min_qty_per_item %}{{ data.min_qty_per_item }}{% elif is_edit %}{{ cat.min_qty_per_item }}{% else %}0{% endif %}">
           </div>
 
           <div>

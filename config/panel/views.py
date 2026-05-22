@@ -748,8 +748,9 @@ def _save_category(post, files=None, cat=None, force_parent=_UNSET):
             obj.parent_id = force_parent
         obj.shipping_cost = Decimal(post.get('shipping_cost', '0') or '0')
         obj.profit_margin = Decimal(post.get('profit_margin', '100') or '100')
-        obj.min_order_qty = int(post.get('min_order_qty', '1') or '1')
-        obj.display_order = int(post.get('display_order', '0') or '0')
+        obj.min_order_qty    = int(post.get('min_order_qty', '1') or '1')
+        obj.min_qty_per_item = int(post.get('min_qty_per_item', '0') or '0')
+        obj.display_order    = int(post.get('display_order', '0') or '0')
         obj.is_active = 'is_active' in post
         obj.banner_text = post.get('banner_text', '').strip()
         if files and files.get('image'):
