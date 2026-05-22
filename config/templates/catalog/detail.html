@@ -13,192 +13,201 @@
 
 {% block content %}
 <div class="container">
-<div class="pd">
+  <div class="pd">
 
-  <!-- ═══ MEDIA ═══════════════════════════════════════════════════════════ -->
-  <div class="pd-media">
+    <!-- ═══ MEDIA ═══════════════════════════════════════════════════════════ -->
+    <div class="pd-media">
 
-    <div class="pd-main-img" id="mainImgWrap">
-      {% if product.cover_image %}
+      <div class="pd-main-img" id="mainImgWrap">
+        {% if product.cover_image %}
         <img src="{{ product.cover_image.image.url }}" alt="{{ product.name }}" id="mainImg">
-      {% else %}
+        {% else %}
         <div class="pd-placeholder" id="mainImg"></div>
-      {% endif %}
+        {% endif %}
 
-      <span class="pd-sku-tag">{{ product.sku }}</span>
+        <span class="pd-sku-tag">{{ product.sku }}</span>
 
-      {% if product.tags.all %}
-      <div class="pd-tags">
-        {% for tag in product.tags.all %}
-          <span class="badge {% if tag.name == 'Nuevo' or tag.name == 'New' %}badge-new{% elif tag.name == 'Hot' %}badge-hot{% else %}badge-new{% endif %}"
-                style="{% if tag.color_hex %}background:{{ tag.color_hex }};color:#080808{% endif %}">
+        {% if product.tags.all %}
+        <div class="pd-tags">
+          {% for tag in product.tags.all %}
+          <span
+            class="badge {% if tag.name == 'Nuevo' or tag.name == 'New' %}badge-new{% elif tag.name == 'Hot' %}badge-hot{% else %}badge-new{% endif %}"
+            style="{% if tag.color_hex %}background:{{ tag.color_hex }};color:#080808{% endif %}">
             {{ tag.name }}
           </span>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if product.images.count > 1 %}
+        <button class="pd-arrow pd-arrow--prev" onclick="prevImage()" aria-label="Anterior">
+          <i class="bi bi-chevron-left"></i>
+        </button>
+        <button class="pd-arrow pd-arrow--next" onclick="nextImage()" aria-label="Siguiente">
+          <i class="bi bi-chevron-right"></i>
+        </button>
+        {% endif %}
+      </div>
+
+      {% if product.images.count > 1 %}
+      <div class="pd-thumbs" id="thumbsGrid">
+        {% for img in product.images.all %}
+        <button class="pd-thumb {% if img.is_cover %}active{% endif %}" onclick="swapImage('{{ img.image.url }}', this)"
+          aria-label="Imagen {{ forloop.counter }}">
+          <img src="{{ img.image.url }}" alt="{{ product.name }} {{ forloop.counter }}" loading="lazy">
+        </button>
         {% endfor %}
       </div>
       {% endif %}
 
-      {% if product.images.count > 1 %}
-      <button class="pd-arrow pd-arrow--prev" onclick="prevImage()" aria-label="Anterior">
-        <i class="bi bi-chevron-left"></i>
-      </button>
-      <button class="pd-arrow pd-arrow--next" onclick="nextImage()" aria-label="Siguiente">
-        <i class="bi bi-chevron-right"></i>
-      </button>
-      {% endif %}
     </div>
 
-    {% if product.images.count > 1 %}
-    <div class="pd-thumbs" id="thumbsGrid">
-      {% for img in product.images.all %}
-        <button class="pd-thumb {% if img.is_cover %}active{% endif %}"
-                onclick="swapImage('{{ img.image.url }}', this)"
-                aria-label="Imagen {{ forloop.counter }}">
-          <img src="{{ img.image.url }}" alt="{{ product.name }} {{ forloop.counter }}" loading="lazy">
-        </button>
-      {% endfor %}
-    </div>
-    {% endif %}
 
-  </div>
+    <!-- ═══ INFO ════════════════════════════════════════════════════════════ -->
+    <div class="pd-info">
 
-
-  <!-- ═══ INFO ════════════════════════════════════════════════════════════ -->
-  <div class="pd-info">
-
-    <!-- Breadcrumb -->
-    <nav aria-label="breadcrumb" class="mb-3">
-      <ol class="breadcrumb ryal-breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="{% url 'catalog:home' %}">Inicio</a></li>
-        <li class="breadcrumb-item"><a href="{% url 'catalog:hub' %}">Catálogo</a></li>
-        {% if product.category.parent %}
+      <!-- Breadcrumb -->
+      <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb ryal-breadcrumb mb-0">
+          <li class="breadcrumb-item"><a href="{% url 'catalog:home' %}">Inicio</a></li>
+          <li class="breadcrumb-item"><a href="{% url 'catalog:hub' %}">Catálogo</a></li>
+          {% if product.category.parent %}
           <li class="breadcrumb-item">
             <a href="{% url 'catalog:category' product.category.parent.slug %}">{{ product.category.parent.name }}</a>
           </li>
           <li class="breadcrumb-item active" aria-current="page">{{ product.category.name }}</li>
-        {% else %}
+          {% else %}
           <li class="breadcrumb-item active" aria-current="page">{{ product.category.name }}</li>
-        {% endif %}
-      </ol>
-    </nav>
+          {% endif %}
+        </ol>
+      </nav>
 
-    <p class="pd-eyebrow">{{ product.category.name }} · {{ product.sku }}</p>
-    <h1 class="pd-name">{{ product.name }}</h1>
+      <p class="pd-eyebrow">{{ product.category.name }} · {{ product.sku }}</p>
+      <h1 class="pd-name">{{ product.name }}</h1>
 
-    <div class="pd-divider"></div>
+      <div class="pd-divider"></div>
 
-    <!-- Precio -->
-    <div class="pd-price-row">
-      <span class="price-final">${{ product.final_price|floatformat:0 }}</span>
-      <span class="price-includes">MXN · envío incluido</span>
-    </div>
-    <p class="pd-shipping-note">Precio mayoreo · mín. {{ product.effective_min_qty }} pz{% if product.effective_min_qty != 1 %}s{% endif %} por pedido</p>
-
-    {% if tiers %}
-    <div class="pd-tiers">
-      <div class="pd-tiers-label">Precio por volumen</div>
-      <table class="tier-table" id="tierTable">
-        <thead>
-          <tr><th>Cantidad</th><th>Precio/pza</th></tr>
-        </thead>
-        <tbody>
-          {% for tier in tiers %}
-          <tr class="tier-row" data-min="{{ tier.min_qty }}" data-price="{{ tier.unit_price }}">
-            <td>{{ tier.min_qty }}+ pzs</td>
-            <td class="tier-price">$<span>{{ tier.unit_price|floatformat:0 }}</span> MXN</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% endif %}
-
-    <!-- Variantes -->
-    {% if product.variants.exists %}
-    <div class="pd-variants" id="variantsSection">
-      <div id="variantControls"></div>
-    </div>
-    {% endif %}
-
-    <!-- Cantidad -->
-    <div class="pd-qty">
-      <span class="pd-qty-label">Cantidad</span>
-      <div class="qty-control">
-        <button class="qty-btn" onclick="changeQty(-1)" aria-label="Reducir">−</button>
-        <span class="qty-val" id="qtyVal">{{ product.effective_min_qty }}</span>
-        <button class="qty-btn" onclick="changeQty(1)" aria-label="Aumentar">+</button>
+      <!-- Precio -->
+      <div class="pd-price-row">
+        <span class="price-final">${{ product.final_price|floatformat:0 }}</span>
+        <span class="price-includes">MXN · envío incluido</span>
       </div>
-      {% if product.effective_min_qty > 1 %}
-        <span class="pd-min-badge">Mín. {{ product.effective_min_qty }} pzs</span>
-      {% endif %}
-    </div>
 
-    <!-- CTA -->
-    {% if product.status == 'available' %}
-      <button class="btn-add-cart" id="addToCartBtn"
-              data-product-id="{{ product.pk }}"
-              data-product-name="{{ product.name }}"
-              data-product-price="{{ product.final_price }}">
+      {% if tiers %}
+      <div class="pd-tiers">
+        <div class="pd-tiers-label">Precio por volumen</div>
+        <table class="tier-table" id="tierTable">
+          <thead>
+            <tr>
+              <th>Cantidad</th>
+              <th>Precio/pza</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for tier in tiers %}
+            <tr class="tier-row" data-min="{{ tier.min_qty }}" data-price="{{ tier.unit_price }}">
+              <td>{{ tier.min_qty }}+ pzs</td>
+              <td class="tier-price">$<span>{{ tier.unit_price|floatformat:0 }}</span> MXN</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+
+      <!-- Variantes -->
+      {% if product.variants.exists %}
+      <div class="pd-variants" id="variantsSection">
+        <div id="variantControls"></div>
+      </div>
+      {% endif %}
+
+      <!-- Cantidad -->
+      <div class="pd-qty">
+        <span class="pd-qty-label">Cantidad</span>
+        <div class="qty-control">
+          <button class="qty-btn" onclick="changeQty(-1)" aria-label="Reducir">−</button>
+          <span class="qty-val" id="qtyVal">{{ product.effective_min_qty }}</span>
+          <button class="qty-btn" onclick="changeQty(1)" aria-label="Aumentar">+</button>
+        </div>
+        {% if product.effective_min_qty > 1 %}
+        <span class="pd-min-badge">Mín. {{ product.effective_min_qty }} pzs</span>
+        {% endif %}
+      </div>
+
+      <!-- CTA -->
+      {% if product.status == 'available' %}
+      <button class="btn-add-cart" id="addToCartBtn" data-product-id="{{ product.pk }}"
+        data-product-name="{{ product.name }}" data-product-price="{{ product.final_price }}">
         <i class="bi bi-cart3"></i>
         Agregar al carrito · $<span id="ctaPrice">{{ product.final_price|floatformat:0 }}</span> MXN
       </button>
-    {% elif product.status == 'sold_out' %}
+      {% elif product.status == 'sold_out' %}
       <button class="btn-add-cart" disabled>Agotado</button>
-    {% else %}
+      {% else %}
       <button class="btn-add-cart" disabled>Próximamente</button>
-    {% endif %}
+      {% endif %}
 
-    <!-- Feature pills -->
-    <div class="pd-features">
-      <span class="feature-pill">
-        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 7l3 3 5-5"/></svg>
-        Importación directa
-      </span>
-      <span class="feature-pill">
-        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 7l3 3 5-5"/></svg>
-        Calidad garantizada
-      </span>
-      <span class="feature-pill">
-        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 7l3 3 5-5"/></svg>
-        Envío gratis
-      </span>
-    </div>
+      <!-- Feature pills -->
+      <div class="pd-features">
+        <span class="feature-pill">
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"
+            stroke-linecap="round">
+            <path d="M3 7l3 3 5-5" />
+          </svg>
+          Importación directa
+        </span>
+        <span class="feature-pill">
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"
+            stroke-linecap="round">
+            <path d="M3 7l3 3 5-5" />
+          </svg>
+          Calidad garantizada
+        </span>
+        <span class="feature-pill">
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"
+            stroke-linecap="round">
+            <path d="M3 7l3 3 5-5" />
+          </svg>
+          Envío gratis
+        </span>
+      </div>
 
-    <!-- Descripción (acordeón) -->
-    {% if product.description %}
-    <div class="pd-desc">
-      <div class="pd-desc-toggle" onclick="toggleDesc(this)">
-        <span>Descripción</span>
-        <i class="bi bi-chevron-down"></i>
-      </div>
-      <div class="pd-desc-body">{{ product.description }}</div>
-    </div>
-    {% endif %}
-
-    <!-- Specs -->
-    <div class="pd-specs">
-      <div class="spec-row">
-        <span>SKU</span>
-        <span>{{ product.sku }}</span>
-      </div>
-      <div class="spec-row">
-        <span>Categoría</span>
-        <span>{{ product.category.name }}</span>
-      </div>
-      <div class="spec-row">
-        <span>Estado</span>
-        <span>{{ product.get_status_display }}</span>
-      </div>
-      {% if product.effective_min_qty > 1 %}
-      <div class="spec-row">
-        <span>Mínimo</span>
-        <span>{{ product.effective_min_qty }} piezas</span>
+      <!-- Descripción (acordeón) -->
+      {% if product.description %}
+      <div class="pd-desc">
+        <div class="pd-desc-toggle" onclick="toggleDesc(this)">
+          <span>Descripción</span>
+          <i class="bi bi-chevron-down"></i>
+        </div>
+        <div class="pd-desc-body">{{ product.description }}</div>
       </div>
       {% endif %}
-    </div>
 
+      <!-- Specs -->
+      <div class="pd-specs">
+        <div class="spec-row">
+          <span>SKU</span>
+          <span>{{ product.sku }}</span>
+        </div>
+        <div class="spec-row">
+          <span>Categoría</span>
+          <span>{{ product.category.name }}</span>
+        </div>
+        <div class="spec-row">
+          <span>Estado</span>
+          <span>{{ product.get_status_display }}</span>
+        </div>
+        {% if product.effective_min_qty > 1 %}
+        <div class="spec-row">
+          <span>Mínimo</span>
+          <span>{{ product.effective_min_qty }} piezas</span>
+        </div>
+        {% endif %}
+      </div>
+
+    </div>
   </div>
-</div>
 </div>
 
 
@@ -212,7 +221,7 @@
     </div>
     <div class="grid-4">
       {% for rel in related_products %}
-        {% include "catalog/_product_card.html" with product=rel %}
+      {% include "catalog/_product_card.html" with product=rel %}
       {% endfor %}
     </div>
   </div>
@@ -224,59 +233,69 @@
 
 {% block extra_css %}
 <style>
-.ryal-breadcrumb {
-  font-family: var(--font-display, monospace);
-  font-size: 0.65rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-.ryal-breadcrumb .breadcrumb-item a {
-  color: var(--ryal-gold, var(--gold));
-  text-decoration: none;
-  opacity: 0.7;
-  transition: opacity 0.2s;
-}
-.ryal-breadcrumb .breadcrumb-item a:hover { opacity: 1; }
-.ryal-breadcrumb .breadcrumb-item.active { color: rgba(255,255,255,0.5); }
-.ryal-breadcrumb .breadcrumb-item + .breadcrumb-item::before { color: rgba(255,255,255,0.25); }
+  .ryal-breadcrumb {
+    font-family: var(--font-display, monospace);
+    font-size: 0.65rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .ryal-breadcrumb .breadcrumb-item a {
+    color: var(--ryal-gold, var(--gold));
+    text-decoration: none;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+  }
+
+  .ryal-breadcrumb .breadcrumb-item a:hover {
+    opacity: 1;
+  }
+
+  .ryal-breadcrumb .breadcrumb-item.active {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .ryal-breadcrumb .breadcrumb-item+.breadcrumb-item::before {
+    color: rgba(255, 255, 255, 0.25);
+  }
 </style>
 {% endblock %}
 
 
 {% block extra_js %}
 <script>
-  const PRODUCT_VARIANTS   = {{ variants_json|safe }};
-  const PRODUCT_ID         = {{ product.pk }};
-  const MIN_QTY            = {{ product.effective_min_qty }};
+  const PRODUCT_VARIANTS = {{ variants_json| safe }};
+  const PRODUCT_ID = {{ product.pk }};
+  const MIN_QTY = {{ product.effective_min_qty }};
   const PRODUCT_BASE_PRICE = {{ base_final_price }};
-  const PRODUCT_TIERS      = {{ tiers_json|safe }};
+  const PRODUCT_TIERS = {{ tiers_json| safe }};
 </script>
 <script src="{% static 'js/product.js' %}"></script>
 <script>
-function toggleDesc(toggle) {
-  toggle.classList.toggle('open');
-  toggle.nextElementSibling.classList.toggle('open');
-}
+  function toggleDesc(toggle) {
+    toggle.classList.toggle('open');
+    toggle.nextElementSibling.classList.toggle('open');
+  }
 
-// ── Navegación de imágenes con flechas ──────────────────────────────────────
-const _pdImages = [{% for img in product.images.all %}'{{ img.image.url }}'{% if not forloop.last %},{% endif %}{% endfor %}];
-let _pdIdx = 0;
-{% for img in product.images.all %}{% if img.is_cover %}_pdIdx = {{ forloop.counter0 }};{% endif %}{% endfor %}
+  // ── Navegación de imágenes con flechas ──────────────────────────────────────
+  const _pdImages = [{% for img in product.images.all %}'{{ img.image.url }}'{% if not forloop.last %}, {% endif %} {% endfor %}];
+  let _pdIdx = 0;
+  {% for img in product.images.all %} {% if img.is_cover %} _pdIdx = {{ forloop.counter0 }}; {% endif %} {% endfor %}
 
-function _goToIdx(i) {
-  if (_pdImages.length < 2) return;
-  _pdIdx = ((i % _pdImages.length) + _pdImages.length) % _pdImages.length;
-  const thumbs = document.querySelectorAll('.pd-thumb');
-  if (thumbs[_pdIdx]) swapImage(_pdImages[_pdIdx], thumbs[_pdIdx]);
-}
-function prevImage() { _goToIdx(_pdIdx - 1); }
-function nextImage() { _goToIdx(_pdIdx + 1); }
+  function _goToIdx(i) {
+    if (_pdImages.length < 2) return;
+    _pdIdx = ((i % _pdImages.length) + _pdImages.length) % _pdImages.length;
+    const thumbs = document.querySelectorAll('.pd-thumb');
+    if (thumbs[_pdIdx]) swapImage(_pdImages[_pdIdx], thumbs[_pdIdx]);
+  }
+  function prevImage() { _goToIdx(_pdIdx - 1); }
+  function nextImage() { _goToIdx(_pdIdx + 1); }
 
-// Sincronizar índice cuando el usuario hace clic en un thumbnail
-document.addEventListener('DOMContentLoaded', function() {
-  document.querySelectorAll('.pd-thumb').forEach(function(btn, i) {
-    btn.addEventListener('click', function() { _pdIdx = i; });
+  // Sincronizar índice cuando el usuario hace clic en un thumbnail
+  document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.pd-thumb').forEach(function (btn, i) {
+      btn.addEventListener('click', function () { _pdIdx = i; });
+    });
   });
-});
 </script>
 {% endblock %}
