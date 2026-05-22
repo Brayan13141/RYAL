@@ -125,8 +125,9 @@ def cart_get(request):
         try:
             product = Product.objects.select_related('category__parent').prefetch_related('images').get(pk=item['product_id'])
             cover          = product.cover_image
-            price          = float(item['price'])
             original_price = float(product.final_price)
+            # Fallback for session items created before the 'price' field was added
+            price          = float(item.get('price', original_price))
             discount       = round(original_price - price, 2) if original_price - price > 0.01 else 0
             root           = product.category.parent if product.category.parent_id else product.category
             qty_step       = int(root.min_qty_per_item) if root.min_qty_per_item > 0 else 1
@@ -151,10 +152,11 @@ def cart_get(request):
     category_warnings = _get_category_violations(cart)
 
     return JsonResponse({
-        'ok': True,
-        'items': items,
-        'subtotal': subtotal,
-        'total': total,
+        'ok':                True,
+        'items':             items,
+        'subtotal':          subtotal,
+        'shipping':          0,
+        'total':             total,
         'category_warnings': category_warnings,
     })
 

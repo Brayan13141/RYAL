@@ -544,6 +544,7 @@ def product_create(request):
             name='', description='', supplier_url='',
             base_price='', shipping_override='', min_order_qty=1,
             is_active=True, status='available', category_id=None,
+            price_override=None,
         ),
         'data':           request.POST if request.method == 'POST' else {},
     })
