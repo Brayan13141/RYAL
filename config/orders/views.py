@@ -276,6 +276,17 @@ def cart_update(request):
                 SavedCartItem.objects.filter(user=request.user, cart_key=key).delete()
         else:
             cart[key]['quantity'] = qty
+            # Recalcular precio con tier basado en nueva cantidad
+            try:
+                product = Product.objects.select_related('category__parent').get(pk=cart[key]['product_id'])
+                root = product.category.parent if product.category.parent_id else product.category
+                tier = root.volume_tiers.filter(min_qty__lte=qty).order_by('-min_qty').first()
+                cart[key]['price'] = (
+                    max(0.0, float(product.final_price) - float(tier.discount_amount))
+                    if tier else float(product.final_price)
+                )
+            except Product.DoesNotExist:
+                pass
             if request.user.is_authenticated:
                 SavedCartItem.objects.filter(user=request.user, cart_key=key).update(quantity=qty)
         _save_cart(request, cart)

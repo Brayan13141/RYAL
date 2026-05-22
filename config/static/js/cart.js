@@ -99,8 +99,8 @@ function renderCartItems(items, subtotal, shipping, total, categoryWarnings = []
         <span class="oc-item-name">${item.name}</span>
         ${item.variant ? `<span class="oc-item-variant">${item.variant}</span>` : ''}
         ${item.discount > 0 ? `
-        <div style="display:flex;align-items:center;gap:6px;margin-top:3px;">
-          <span style="font-size:10px;color:#555;text-decoration:line-through;">$${formatMXN(item.original_price)} c/u</span>
+        <div style="display:flex;align-items:center;gap:5px;margin-top:3px;">
+          <span style="font-size:10px;color:#555;font-family:var(--f-mono);"><span style="text-decoration:line-through;">$${formatMXN(item.original_price)}</span> c/u</span>
           <span style="font-size:10px;color:var(--gold);font-family:var(--f-mono);">−$${formatMXN(item.discount)} dto.</span>
         </div>` : ''}
         <div class="oc-item-qty">

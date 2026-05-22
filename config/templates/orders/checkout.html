@@ -183,7 +183,7 @@
                 <div class="small" style="color:var(--ink-3);font-family:var(--f-mono);">× {{ item.quantity }}</div>
                 {% if item.discount_per_unit > 0 %}
                 <div style="display:inline-flex;align-items:center;gap:4px;margin-top:3px;background:rgba(212,175,55,.08);border:1px solid rgba(212,175,55,.2);padding:1px 6px;border-radius:3px;">
-                  <span style="font-size:9px;color:#555;text-decoration:line-through;font-family:var(--f-mono);">${{ item.original_price|floatformat:0 }}/pza</span>
+                  <span style="font-size:9px;color:#555;font-family:var(--f-mono);"><span style="text-decoration:line-through;">${{ item.original_price|floatformat:0 }}</span> c/u</span>
                   <span style="font-size:9px;color:var(--gold);font-family:var(--f-mono);">−${{ item.discount_per_unit|floatformat:0 }} dto.</span>
                 </div>
                 {% endif %}
