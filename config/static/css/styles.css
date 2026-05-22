@@ -317,6 +317,53 @@ button, input, select, textarea { font-family: inherit; color: inherit; }
   pointer-events: none;
 }
 
+/* ——— banner-notice — aviso de pedido mínimo ——— */
+.banner-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 20px 14px 16px;
+  background: linear-gradient(90deg, rgba(201,168,76,0.13) 0%, rgba(201,168,76,0.05) 50%, transparent 100%);
+  border: 1px solid rgba(201,168,76,0.28);
+  border-left: 3px solid var(--gold);
+  border-radius: 0 10px 10px 0;
+  position: relative;
+  overflow: hidden;
+}
+.banner-notice::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0; width: 90px;
+  background: radial-gradient(ellipse at 0% 50%, rgba(201,168,76,0.10) 0%, transparent 100%);
+  pointer-events: none;
+}
+.banner-notice-icon-wrap {
+  flex-shrink: 0;
+  width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(201,168,76,0.12);
+  border: 1px solid rgba(201,168,76,0.30);
+  border-radius: 8px;
+  color: var(--gold);
+  font-size: 1.05rem;
+  margin-top: 1px;
+}
+.banner-notice-body { flex: 1; min-width: 0; }
+.banner-notice-label {
+  display: block;
+  font-family: var(--f-mono);
+  font-size: 9px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 4px;
+}
+.banner-notice-text {
+  font-size: 0.86rem;
+  line-height: 1.75;
+  color: rgba(240,235,227,0.88);
+  white-space: pre-line;
+}
+
 /* ——— placeholder imagery ——— */
 .ph-img {
   display: block;

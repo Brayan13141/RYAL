@@ -65,15 +65,9 @@
   </div>
 
   {% if subcat and subcat.banner_text %}
-  <div class="mb-4 p-3 p-md-4"
-       style="background:rgba(212,175,55,0.06);border:1px solid rgba(212,175,55,0.18);
-              border-radius:10px;white-space:pre-line;color:rgba(255,255,255,0.82);
-              font-size:0.9rem;line-height:1.75;">{{ subcat.banner_text }}</div>
+    {% include 'catalog/_banner_notice.html' with notice_text=subcat.banner_text %}
   {% elif not subcat and parent and parent.banner_text %}
-  <div class="mb-4 p-3 p-md-4"
-       style="background:rgba(212,175,55,0.06);border:1px solid rgba(212,175,55,0.18);
-              border-radius:10px;white-space:pre-line;color:rgba(255,255,255,0.82);
-              font-size:0.9rem;line-height:1.75;">{{ parent.banner_text }}</div>
+    {% include 'catalog/_banner_notice.html' with notice_text=parent.banner_text %}
   {% endif %}
 
   <!-- ── Barra de herramientas ── -->

@@ -1,0 +1,11 @@
+{% if notice_text %}
+<div class="banner-notice mb-4">
+  <div class="banner-notice-icon-wrap">
+    <i class="bi bi-exclamation-diamond-fill"></i>
+  </div>
+  <div class="banner-notice-body">
+    <span class="banner-notice-label">Importante</span>
+    <p class="banner-notice-text mb-0">{{ notice_text }}</p>
+  </div>
+</div>
+{% endif %}
