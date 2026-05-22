@@ -9,6 +9,7 @@ config/staticfiles/
 scraped_*.json
 *.log
 .DS_Store
+config/USO.txt
 SERVIDOR.txt
 
 # AI tool configs

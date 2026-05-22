@@ -24,7 +24,7 @@ def home(request):
     featured = list(
         Product.objects
         .filter(is_active=True, is_featured=True, images__isnull=False)
-        .select_related('category')
+        .select_related('category__parent')
         .prefetch_related('images', 'tags')
         .distinct()
     )
@@ -34,7 +34,7 @@ def home(request):
             Product.objects
             .filter(is_active=True, images__isnull=False)
             .exclude(pk__in=excluded)
-            .select_related('category')
+            .select_related('category__parent')
             .prefetch_related('images', 'tags')
             .order_by('-created_at')
             .distinct()[:8 - len(featured)]
@@ -250,7 +250,7 @@ def product_list(request, cat_slug, subcat_slug=None):
             Q(category=parent) | Q(category__parent=parent), is_active=True
         ).distinct()
 
-    qs = qs.select_related('category').prefetch_related('images', 'tags', 'variants')
+    qs = qs.select_related('category__parent').prefetch_related('images', 'tags', 'variants')
     qs = _annotate_final(qs)
     qs, selected_tags, q = _apply_filters(request, qs)
 
@@ -270,7 +270,7 @@ def product_list(request, cat_slug, subcat_slug=None):
                 sec_qs = (
                     Product.objects
                     .filter(is_active=True, category__pk__in=sub_pks)
-                    .select_related('category')
+                    .select_related('category__parent')
                     .prefetch_related('images', 'tags', 'variants')
                     .order_by('-created_at')
                 )
@@ -294,7 +294,7 @@ def product_list(request, cat_slug, subcat_slug=None):
                     sub_qs = (
                         Product.objects
                         .filter(is_active=True, category=sub)
-                        .select_related('category')
+                        .select_related('category__parent')
                         .prefetch_related('images', 'tags', 'variants')
                         .order_by('-created_at')
                     )
@@ -338,7 +338,7 @@ def search_results(request):
     qs = (
         Product.objects
         .filter(is_active=True)
-        .select_related('category')
+        .select_related('category__parent')
         .prefetch_related('images', 'tags', 'variants')
     )
     qs = _annotate_final(qs)
@@ -363,7 +363,7 @@ def search_results(request):
 def product_detail(request, pk):
     product = get_object_or_404(
         Product.objects
-        .select_related('category')
+        .select_related('category__parent')
         .prefetch_related('images', 'tags', 'variants'),
         pk=pk, is_active=True
     )

@@ -43,40 +43,57 @@ def _cart_key(product_id, variant_id):
 
 
 def _get_category_violations(cart):
-    """Return list of root categories whose cart qty is below min_order_qty."""
+    """
+    Returns violations in two modes:
+    - Category total: root.min_order_qty > 1 → total pieces from that root category < minimum
+    - Per-item:       root.min_qty_per_item > 0 → individual product qty < minimum (e.g. calzado)
+    """
     if not cart:
         return []
 
     product_ids = [item['product_id'] for item in cart.values()]
-    # Single query — category tree is max 2 levels deep (root → subcat)
     products_by_id = {
         p.pk: p
         for p in Product.objects.select_related('category__parent').filter(pk__in=product_ids)
     }
 
+    violations = []
     cat_totals = {}
+
     for item in cart.values():
         product = products_by_id.get(item['product_id'])
         if not product:
             continue
         cat = product.category
         root = cat.parent if cat.parent_id else cat
-        if root.min_order_qty <= 1:
-            continue
-        if root.pk not in cat_totals:
-            cat_totals[root.pk] = {'name': root.name, 'qty': 0, 'min': root.min_order_qty}
-        cat_totals[root.pk]['qty'] += item['quantity']
 
-    return [
+        # Per-item check (e.g. calzado: 12 por modelo)
+        if root.min_qty_per_item > 0 and item['quantity'] < root.min_qty_per_item:
+            violations.append({
+                'name':    product.name,
+                'current': item['quantity'],
+                'min':     root.min_qty_per_item,
+                'missing': root.min_qty_per_item - item['quantity'],
+            })
+
+        # Category-total check (e.g. gorras: 20 en total)
+        if root.min_order_qty > 1:
+            if root.pk not in cat_totals:
+                cat_totals[root.pk] = {'name': root.name, 'qty': 0, 'min': root.min_order_qty}
+            cat_totals[root.pk]['qty'] += item['quantity']
+
+    violations += [
         {
-            'name': v['name'],
+            'name':    v['name'],
             'current': v['qty'],
-            'min': v['min'],
+            'min':     v['min'],
             'missing': v['min'] - v['qty'],
         }
         for v in cat_totals.values()
         if v['qty'] < v['min']
     ]
+
+    return violations
 
 
 def _generate_order_code():
@@ -149,7 +166,10 @@ def cart_add(request):
     except (KeyError, ValueError, json.JSONDecodeError):
         return JsonResponse({'ok': False, 'error': 'Datos inválidos'}, status=400)
 
-    product = get_object_or_404(Product, pk=product_id, is_active=True, status='available')
+    product = get_object_or_404(
+        Product.objects.select_related('category__parent'),
+        pk=product_id, is_active=True, status='available',
+    )
     variant = None
     price   = float(product.final_price)
 
@@ -157,15 +177,17 @@ def cart_add(request):
         variant = get_object_or_404(ProductVariant, pk=variant_id, product=product, is_active=True)
         price   = float(variant.final_price)
 
+    cart = _get_cart(request)
+    key  = _cart_key(product_id, variant_id)
+
+    # Primer add: la cantidad inicial debe cumplir el mínimo por modelo.
+    # Adds posteriores (ya hay qty en carrito) se validan via cart warnings.
     min_qty = product.effective_min_qty
-    if qty < min_qty:
+    if key not in cart and qty < min_qty:
         return JsonResponse(
             {'ok': False, 'error': f'Mínimo {min_qty} piezas para {product.name}'},
             status=400,
         )
-
-    cart = _get_cart(request)
-    key  = _cart_key(product_id, variant_id)
 
     # Aplicar tier de volumen basado en cantidad total (existente + nueva)
     total_qty = cart.get(key, {}).get('quantity', 0) + qty

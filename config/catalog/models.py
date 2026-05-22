@@ -15,7 +15,8 @@ class Category(models.Model):
     # Pricing rules — modify in admin to add new categories without code changes
     shipping_cost   = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     profit_margin   = models.DecimalField(max_digits=8, decimal_places=2, default=100)
-    min_order_qty   = models.PositiveIntegerField(default=1, help_text='Mínimo de piezas por pedido para esta categoría')
+    min_order_qty   = models.PositiveIntegerField(default=1, help_text='Mínimo de piezas totales de esta categoría por pedido')
+    min_qty_per_item = models.PositiveIntegerField(default=0, help_text='Mínimo de piezas por modelo en el carrito (0 = sin restricción por modelo, ej: calzado=12)')
     is_active       = models.BooleanField(default=True)
     display_order = models.PositiveIntegerField(default=0)
     banner_text   = models.TextField(blank=True)
@@ -104,7 +105,9 @@ class Product(models.Model):
 
     @property
     def effective_min_qty(self):
-        return max(self.min_order_qty, self.category.min_order_qty)
+        cat = self.category
+        root = cat.parent if cat.parent_id else cat
+        return max(self.min_order_qty, root.min_qty_per_item)
 
     @property
     def requires_shipping(self):
