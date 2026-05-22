@@ -725,9 +725,19 @@ def category_rename(request, cat_pk):
     if not name:
         return JsonResponse({'ok': False, 'error': 'El nombre no puede estar vacío'}, status=400)
     from django.utils.text import slugify
+    base_slug = slugify(name)
+    slug = base_slug
+    # Resolver conflictos de slug con sufijo numérico
+    n = 1
+    while Category.objects.exclude(pk=cat_pk).filter(slug=slug).exists():
+        slug = f'{base_slug}-{n}'
+        n += 1
     cat.name = name
-    cat.slug = slugify(name)
-    cat.save(update_fields=['name', 'slug'])
+    cat.slug = slug
+    try:
+        cat.save(update_fields=['name', 'slug'])
+    except Exception as e:
+        return JsonResponse({'ok': False, 'error': f'Error al guardar: {e}'}, status=500)
     return JsonResponse({'ok': True, 'name': cat.name, 'slug': cat.slug})
 
 

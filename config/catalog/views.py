@@ -399,7 +399,7 @@ def product_detail(request, pk):
         'product':          product,
         'related_products': related_products,
         'variants_json':    json.dumps(variants_data),
-        'tiers':            tiers,
+        'tiers':            tiers_data,
         'tiers_json':       json.dumps(tiers_data),
         'base_final_price': base_price,
         'qty_step':         qty_step,
