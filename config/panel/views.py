@@ -754,6 +754,9 @@ def _save_category(post, files=None, cat=None, force_parent=_UNSET):
         obj.is_active = 'is_active' in post
         obj.banner_text = post.get('banner_text', '').strip()
         if files and files.get('image'):
+            err = _validate_image_upload(files['image'])
+            if err:
+                return None, [err]
             obj.image = files['image']
         obj.save()
         return obj, []
