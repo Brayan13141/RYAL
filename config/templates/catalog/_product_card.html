@@ -22,22 +22,22 @@
       <span class="card-info-name">{{ product.name }}</span>
       <span class="card-info-price">${{ product.final_price|floatformat:0 }}<span class="mxn">MXN</span></span>
     </div>
-
-    <!-- Botón que aparece al hover -->
-    <div class="card-reveal">
-      {% if product.status == 'available' %}
-        <button class="card-reveal-btn"
-                data-product-id="{{ product.pk }}"
-                data-product-name="{{ product.name }}"
-                data-product-price="{{ product.final_price }}"
-                data-has-variants="{% if product.variants.exists %}true{% else %}false{% endif %}"
-                data-min-qty="{{ product.effective_min_qty }}"
-                onclick="event.preventDefault(); event.stopPropagation(); cardQuickAdd(this)">
-          + Agregar al carrito
-        </button>
-      {% elif product.status == 'sold_out' %}
-        <span class="card-reveal-btn" style="opacity:.5;cursor:default;background:var(--bg-2);color:var(--ink-2);">Agotado</span>
-      {% endif %}
-    </div>
   </a>
+
+  <!-- Botón que aparece al hover — fuera del <a> para evitar button-in-anchor -->
+  <div class="card-reveal">
+    {% if product.status == 'available' %}
+      <button class="card-reveal-btn"
+              data-product-id="{{ product.pk }}"
+              data-product-name="{{ product.name }}"
+              data-product-price="{{ product.final_price }}"
+              data-has-variants="{% if product.variants.exists %}true{% else %}false{% endif %}"
+              data-min-qty="{{ product.effective_min_qty }}"
+              onclick="cardQuickAdd(this)">
+        + Agregar al carrito
+      </button>
+    {% elif product.status == 'sold_out' %}
+      <span class="card-reveal-btn" style="opacity:.5;cursor:default;background:var(--bg-2);color:var(--ink-2);">Agotado</span>
+    {% endif %}
+  </div>
 </div>

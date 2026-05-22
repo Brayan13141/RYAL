@@ -287,6 +287,7 @@ button, input, select, textarea { font-family: inherit; color: inherit; }
   display: flex; flex-direction: column; justify-content: flex-end;
   padding: 14px;
   opacity: 0;
+  pointer-events: none; /* clicks en área vacía pasan al <a> → navegación intacta */
   transition: opacity .3s ease;
 }
 .card:hover .card-reveal { opacity: 1; }
@@ -297,6 +298,7 @@ button, input, select, textarea { font-family: inherit; color: inherit; }
   font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; font-weight: 700;
   cursor: pointer; width: 100%; border-radius: 8px;
   transform: translateY(8px); opacity: 0;
+  pointer-events: auto; /* el botón sí captura el click */
   transition: transform .35s ease, opacity .3s ease, background .2s;
 }
 .card:hover .card-reveal-btn { transform: translateY(0); opacity: 1; }
