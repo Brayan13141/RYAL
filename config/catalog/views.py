@@ -387,13 +387,13 @@ def product_detail(request, pk):
         for v in product.variants.filter(is_active=True)
     ]
     base_price = float(product.final_price)
-    tiers = list(product.category.volume_tiers.values('min_qty', 'discount_amount').order_by('min_qty'))
+    root       = product.category.parent if product.category.parent_id else product.category
+    tiers      = list(root.volume_tiers.values('min_qty', 'discount_amount').order_by('min_qty'))
     tiers_data = [
         {'min_qty': t['min_qty'], 'discount': float(t['discount_amount']),
          'price': max(0.0, base_price - float(t['discount_amount']))}
         for t in tiers
     ]
-    root     = product.category.parent if product.category.parent_id else product.category
     qty_step = int(root.min_qty_per_item) if root.min_qty_per_item > 0 else 1
     return render(request, 'catalog/detail.html', {
         'product':          product,

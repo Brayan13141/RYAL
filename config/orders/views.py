@@ -199,12 +199,14 @@ def cart_add(request):
 
     # Aplicar tier de volumen basado en cantidad total (existente + nueva)
     total_qty = cart.get(key, {}).get('quantity', 0) + qty
-    tier = product.category.volume_tiers.filter(min_qty__lte=total_qty).order_by('-min_qty').first()
+    root = product.category.parent if product.category.parent_id else product.category
+    tier = root.volume_tiers.filter(min_qty__lte=total_qty).order_by('-min_qty').first()
     if tier:
         price = max(0.0, float(product.final_price) - float(tier.discount_amount))
 
     if key in cart:
         cart[key]['quantity'] += qty
+        cart[key]['price']     = price
     else:
         cart[key] = {
             'product_id':   product_id,
