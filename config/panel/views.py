@@ -861,23 +861,23 @@ def category_delete(request, cat_pk):
 def tier_add(request, cat_pk):
     cat = get_object_or_404(Category, pk=cat_pk)
     try:
-        min_qty    = int(request.POST.get('min_qty', 0))
-        unit_price = Decimal(request.POST.get('unit_price', '0'))
-        if min_qty < 1 or unit_price <= 0:
+        min_qty         = int(request.POST.get('min_qty', 0))
+        discount_amount = Decimal(request.POST.get('unit_price', '0'))
+        if min_qty < 1 or discount_amount <= 0:
             raise ValueError
     except (ValueError, InvalidOperation):
         return JsonResponse({'ok': False, 'error': 'Datos inválidos'}, status=400)
 
     tier, created = VolumeTier.objects.get_or_create(
         category=cat, min_qty=min_qty,
-        defaults={'unit_price': unit_price},
+        defaults={'discount_amount': discount_amount},
     )
     if not created:
-        tier.unit_price = unit_price
-        tier.save(update_fields=['unit_price'])
+        tier.discount_amount = discount_amount
+        tier.save(update_fields=['discount_amount'])
 
     return JsonResponse({'ok': True, 'id': tier.pk, 'min_qty': tier.min_qty,
-                         'unit_price': str(tier.unit_price)})
+                         'unit_price': str(tier.discount_amount)})
 
 
 @_staff

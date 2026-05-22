@@ -95,19 +95,21 @@
 
       {% if tiers %}
       <div class="pd-tiers">
-        <div class="pd-tiers-label">Precio por volumen</div>
+        <div class="pd-tiers-label">Descuento por volumen</div>
         <table class="tier-table" id="tierTable">
           <thead>
             <tr>
               <th>Cantidad</th>
+              <th>Descuento</th>
               <th>Precio/pza</th>
             </tr>
           </thead>
           <tbody>
             {% for tier in tiers %}
-            <tr class="tier-row" data-min="{{ tier.min_qty }}" data-price="{{ tier.unit_price }}">
+            <tr class="tier-row" data-min="{{ tier.min_qty }}" data-price="{{ tier.price }}">
               <td>{{ tier.min_qty }}+ pzs</td>
-              <td class="tier-price">$<span>{{ tier.unit_price|floatformat:0 }}</span> MXN</td>
+              <td style="color:var(--gold);font-size:0.82rem;">-${{ tier.discount|floatformat:0 }}</td>
+              <td class="tier-price">$<span>{{ tier.price|floatformat:0 }}</span> MXN</td>
             </tr>
             {% endfor %}
           </tbody>

@@ -170,7 +170,7 @@
       <thead>
         <tr>
           <th style="text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #1a1a1a;">Cantidad mínima</th>
-          <th style="text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #1a1a1a;">Precio/pieza (MXN)</th>
+          <th style="text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #1a1a1a;">Descuento (MXN)</th>
           <th style="width:40px;border-bottom:1px solid #1a1a1a;"></th>
         </tr>
       </thead>
@@ -178,7 +178,7 @@
         {% for tier in tiers %}
         <tr data-tier-id="{{ tier.pk }}">
           <td style="padding:8px;color:#ccc;">{{ tier.min_qty }}+ piezas</td>
-          <td style="padding:8px;color:#ccc;">${{ tier.unit_price }}</td>
+          <td style="padding:8px;color:var(--pg);">-${{ tier.discount_amount }}</td>
           <td style="padding:8px;text-align:right;">
             <button type="button" onclick="deleteTier({{ tier.pk }}, this)"
                     style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:16px;line-height:1;"
@@ -194,13 +194,13 @@
     <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
       <div>
         <label style="font-size:11px;color:#555;display:block;margin-bottom:4px;">Mín. piezas</label>
-        <input type="number" id="newTierQty" min="1" placeholder="10"
+        <input type="number" id="newTierQty" min="1" placeholder="24"
                style="width:90px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:6px;
                       color:#ccc;font-size:13px;padding:8px 10px;">
       </div>
       <div>
-        <label style="font-size:11px;color:#555;display:block;margin-bottom:4px;">Precio/pieza (MXN)</label>
-        <input type="number" id="newTierPrice" min="1" step="0.5" placeholder="350"
+        <label style="font-size:11px;color:#555;display:block;margin-bottom:4px;">Descuento (MXN)</label>
+        <input type="number" id="newTierPrice" min="1" step="0.5" placeholder="50"
                style="width:110px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:6px;
                       color:#ccc;font-size:13px;padding:8px 10px;">
       </div>
@@ -238,7 +238,7 @@ async function addTier() {
   tr.dataset.tierId = d.id;
   tr.innerHTML = `
     <td style="padding:8px;color:#ccc;">${d.min_qty}+ piezas</td>
-    <td style="padding:8px;color:#ccc;">$${parseFloat(d.unit_price)}</td>
+    <td style="padding:8px;color:var(--pg);">-$${parseFloat(d.unit_price)}</td>
     <td style="padding:8px;text-align:right;">
       <button type="button" onclick="deleteTier(${d.id},this)"
               style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:16px;line-height:1;">×</button>

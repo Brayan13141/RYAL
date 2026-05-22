@@ -34,7 +34,7 @@ function _activeTier(currentQty) {
 
 function _applyTier(currentQty) {
   const tier  = _activeTier(currentQty);
-  const price = tier ? Math.round(tier.unit_price) : Math.round(_basePrice);
+  const price = tier ? Math.max(0, Math.round(_basePrice - tier.discount)) : Math.round(_basePrice);
 
   const ctaEl = document.getElementById('ctaPrice');
   if (ctaEl) ctaEl.textContent = price.toLocaleString('es-MX');

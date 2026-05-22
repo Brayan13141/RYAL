@@ -386,15 +386,20 @@ def product_detail(request, pk):
         }
         for v in product.variants.filter(is_active=True)
     ]
-    tiers = list(product.category.volume_tiers.values('min_qty', 'unit_price'))
-    tiers_data = [{'min_qty': t['min_qty'], 'unit_price': float(t['unit_price'])} for t in tiers]
+    base_price = float(product.final_price)
+    tiers = list(product.category.volume_tiers.values('min_qty', 'discount_amount').order_by('min_qty'))
+    tiers_data = [
+        {'min_qty': t['min_qty'], 'discount': float(t['discount_amount']),
+         'price': max(0.0, base_price - float(t['discount_amount']))}
+        for t in tiers
+    ]
     return render(request, 'catalog/detail.html', {
         'product':          product,
         'related_products': related_products,
         'variants_json':    json.dumps(variants_data),
         'tiers':            tiers,
         'tiers_json':       json.dumps(tiers_data),
-        'base_final_price': float(product.final_price),
+        'base_final_price': base_price,
     })
 
 
