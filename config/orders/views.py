@@ -123,11 +123,13 @@ def cart_get(request):
     items = []
     for key, item in cart.items():
         try:
-            product = Product.objects.select_related('category').prefetch_related('images').get(pk=item['product_id'])
+            product = Product.objects.select_related('category__parent').prefetch_related('images').get(pk=item['product_id'])
             cover          = product.cover_image
             price          = float(item['price'])
             original_price = float(product.final_price)
             discount       = round(original_price - price, 2) if original_price - price > 0.01 else 0
+            root           = product.category.parent if product.category.parent_id else product.category
+            qty_step       = int(root.min_qty_per_item) if root.min_qty_per_item > 0 else 1
             items.append({
                 'key':            key,
                 'name':           product.name,
@@ -135,6 +137,7 @@ def cart_get(request):
                 'image':          cover.image.url if cover else None,
                 'variant':        item.get('variant_name', ''),
                 'qty':            item['quantity'],
+                'qty_step':       qty_step,
                 'price':          price,
                 'original_price': original_price,
                 'discount':       discount,
@@ -285,11 +288,15 @@ def _build_cart_items(cart):
     items = []
     for key, item in cart.items():
         try:
-            product = Product.objects.prefetch_related('images').get(pk=item['product_id'])
+            product = Product.objects.select_related('category').prefetch_related('images').get(pk=item['product_id'])
             cover   = product.cover_image
 
             class _Item:
                 pass
+
+            price_snapshot    = float(item['price'])
+            original_price    = float(product.final_price)
+            discount_per_unit = max(0.0, round(original_price - price_snapshot, 2))
 
             i                  = _Item()
             i.key              = key
@@ -297,8 +304,12 @@ def _build_cart_items(cart):
             i.name_snapshot    = product.name
             i.variant_snapshot = item.get('variant_name', '')
             i.quantity         = item['quantity']
-            i.price_snapshot   = item['price']
-            i.subtotal         = float(item['price']) * item['quantity']
+            i.price_snapshot   = price_snapshot
+            i.original_price   = original_price
+            i.discount_per_unit = discount_per_unit
+            i.discount_total    = round(discount_per_unit * item['quantity'], 2)
+            i.subtotal          = price_snapshot * item['quantity']
+            i.original_subtotal = round(original_price * item['quantity'], 2)
             items.append(i)
         except Product.DoesNotExist:
             continue
@@ -308,7 +319,8 @@ def _build_cart_items(cart):
 def checkout(request):
     cart  = _get_cart(request)
     items = _build_cart_items(cart)
-    subtotal = sum(i.subtotal for i in items)
+    subtotal       = sum(i.subtotal for i in items)
+    total_savings  = sum(i.discount_total for i in items)
     category_warnings = request.session.pop('checkout_warnings', [])
 
     profile = None
@@ -322,6 +334,7 @@ def checkout(request):
         'cart_items':         items,
         'subtotal':           subtotal,
         'total':              subtotal,
+        'total_savings':      total_savings,
         'category_warnings':  category_warnings,
         'profile':            profile,
     })

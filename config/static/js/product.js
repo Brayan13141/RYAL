@@ -40,6 +40,7 @@ function _applyTier(currentQty) {
   const ctaEl = document.getElementById('ctaPrice');
   if (ctaEl) ctaEl.textContent = price.toLocaleString('es-MX');
 
+  // Tier table rows (legacy fallback)
   document.querySelectorAll('.tier-row').forEach(row => {
     const isActive = tier && parseInt(row.dataset.min) === tier.min_qty;
     row.classList.toggle('tier-row--active', isActive);
@@ -49,6 +50,16 @@ function _applyTier(currentQty) {
       priceEl.textContent = rowPrice.toLocaleString('es-MX');
     }
   });
+
+  // Tier buttons
+  document.querySelectorAll('.tier-btn').forEach(btn => {
+    const isActive = tier && parseInt(btn.dataset.min) === tier.min_qty;
+    btn.classList.toggle('tier-btn--active', isActive);
+  });
+}
+
+function selectTier(minQty, btn) {
+  setQty(minQty);
 }
 
 document.addEventListener('DOMContentLoaded', () => {

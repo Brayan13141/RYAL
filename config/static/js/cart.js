@@ -104,14 +104,14 @@ function renderCartItems(items, subtotal, shipping, total, categoryWarnings = []
           <span style="font-size:10px;color:var(--gold);font-family:var(--f-mono);">−$${formatMXN(item.discount)} dto.</span>
         </div>` : ''}
         <div class="oc-item-qty">
-          <button onclick="updateCartItem('${item.key}', ${item.qty - 1})" class="qty-btn-sm">−</button>
+          <button onclick="updateCartItem('${item.key}', ${item.qty - item.qty_step})" class="qty-btn-sm">−</button>
           <input
-            type="number" min="1" value="${item.qty}"
+            type="number" min="${item.qty_step}" step="${item.qty_step}" value="${item.qty}"
             class="qty-input-sm"
-            onchange="updateCartItem('${item.key}', Math.max(1, parseInt(this.value)||1))"
+            onchange="updateCartItem('${item.key}', Math.max(${item.qty_step}, Math.round((parseInt(this.value)||${item.qty_step}) / ${item.qty_step}) * ${item.qty_step}))"
             onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}"
           >
-          <button onclick="updateCartItem('${item.key}', ${item.qty + 1})" class="qty-btn-sm">+</button>
+          <button onclick="updateCartItem('${item.key}', ${item.qty + item.qty_step})" class="qty-btn-sm">+</button>
         </div>
       </div>
       <div class="oc-item-right">

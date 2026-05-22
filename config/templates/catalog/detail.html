@@ -94,28 +94,22 @@
       </div>
 
       {% if tiers %}
-      <div class="pd-tiers">
-        <div class="pd-tiers-label">Descuento por volumen</div>
-        <table class="tier-table" id="tierTable">
-          <thead>
-            <tr>
-              <th>Cantidad</th>
-              <th>Descuento</th>
-              <th>Precio/pza</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for tier in tiers %}
-            <tr class="tier-row" data-min="{{ tier.min_qty }}" data-price="{{ tier.price }}"
-                onclick="setQty({{ tier.min_qty }})"
-                style="cursor:pointer;" title="Pedir {{ tier.min_qty }} piezas">
-              <td>{{ tier.min_qty }}+ pzs <span style="font-size:0.7rem;color:#555;font-family:var(--font-display,monospace);">▸ elegir</span></td>
-              <td style="color:var(--gold);font-size:0.82rem;">-${{ tier.discount|floatformat:0 }}</td>
-              <td class="tier-price">$<span>{{ tier.price|floatformat:0 }}</span> MXN</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      <div class="pd-tiers" id="pdTiers">
+        <div class="pd-tiers-label">
+          Descuento por volumen
+          <span class="pd-tiers-hint">— toca para elegir cantidad</span>
+        </div>
+        <div class="tier-btns" id="tierBtns">
+          {% for tier in tiers %}
+          <button class="tier-btn" type="button"
+                  data-min="{{ tier.min_qty }}" data-price="{{ tier.price }}"
+                  onclick="selectTier({{ tier.min_qty }}, this)">
+            <span class="tier-btn-qty">{{ tier.min_qty }}+ pzas</span>
+            <span class="tier-btn-price">${{ tier.price|floatformat:0 }} <span class="tier-btn-unit">c/u</span></span>
+            <span class="tier-btn-save">−${{ tier.discount|floatformat:0 }}</span>
+          </button>
+          {% endfor %}
+        </div>
       </div>
       {% endif %}
 
@@ -237,6 +231,66 @@
 
 {% block extra_css %}
 <style>
+  /* ── Tier buttons ─────────────────────────────────────────────────────── */
+  .pd-tiers-hint {
+    font-size: 10px;
+    color: #444;
+    text-transform: none;
+    letter-spacing: 0;
+    font-family: inherit;
+    font-weight: 400;
+  }
+  .tier-btns {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+  .tier-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 10px 16px;
+    background: #0a0a0a;
+    border: 1px solid #1a1a1a;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    min-width: 96px;
+  }
+  .tier-btn:hover { border-color: rgba(212,175,55,.35); }
+  .tier-btn--active {
+    border-color: var(--gold);
+    background: rgba(212,175,55,.07);
+  }
+  .tier-btn-qty {
+    font-size: 10px;
+    color: #555;
+    font-family: var(--f-mono);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+  .tier-btn--active .tier-btn-qty { color: var(--gold); }
+  .tier-btn-price {
+    font-size: 15px;
+    font-weight: 600;
+    color: #bbb;
+    font-family: var(--f-mono);
+    line-height: 1.2;
+  }
+  .tier-btn--active .tier-btn-price { color: #fff; }
+  .tier-btn-unit { font-size: 10px; color: #444; font-weight: 400; }
+  .tier-btn-save {
+    font-size: 10px;
+    color: var(--gold);
+    background: rgba(212,175,55,.1);
+    padding: 1px 7px;
+    border-radius: 3px;
+    font-family: var(--f-mono);
+  }
+
+  /* ── Breadcrumb ───────────────────────────────────────────────────────── */
   .ryal-breadcrumb {
     font-family: var(--font-display, monospace);
     font-size: 0.65rem;
