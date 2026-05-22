@@ -106,8 +106,10 @@
           </thead>
           <tbody>
             {% for tier in tiers %}
-            <tr class="tier-row" data-min="{{ tier.min_qty }}" data-price="{{ tier.price }}">
-              <td>{{ tier.min_qty }}+ pzs</td>
+            <tr class="tier-row" data-min="{{ tier.min_qty }}" data-price="{{ tier.price }}"
+                onclick="setQty({{ tier.min_qty }})"
+                style="cursor:pointer;" title="Pedir {{ tier.min_qty }} piezas">
+              <td>{{ tier.min_qty }}+ pzs <span style="font-size:0.7rem;color:#555;font-family:var(--font-display,monospace);">▸ elegir</span></td>
               <td style="color:var(--gold);font-size:0.82rem;">-${{ tier.discount|floatformat:0 }}</td>
               <td class="tier-price">$<span>{{ tier.price|floatformat:0 }}</span> MXN</td>
             </tr>
@@ -269,6 +271,7 @@
   const PRODUCT_VARIANTS = {{ variants_json| safe }};
   const PRODUCT_ID = {{ product.pk }};
   const MIN_QTY = {{ product.effective_min_qty }};
+  const QTY_STEP = {{ qty_step }};
   const PRODUCT_BASE_PRICE = {{ base_final_price }};
   const PRODUCT_TIERS = {{ tiers_json| safe }};
 </script>

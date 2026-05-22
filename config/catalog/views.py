@@ -393,6 +393,8 @@ def product_detail(request, pk):
          'price': max(0.0, base_price - float(t['discount_amount']))}
         for t in tiers
     ]
+    root     = product.category.parent if product.category.parent_id else product.category
+    qty_step = int(root.min_qty_per_item) if root.min_qty_per_item > 0 else 1
     return render(request, 'catalog/detail.html', {
         'product':          product,
         'related_products': related_products,
@@ -400,6 +402,7 @@ def product_detail(request, pk):
         'tiers':            tiers,
         'tiers_json':       json.dumps(tiers_data),
         'base_final_price': base_price,
+        'qty_step':         qty_step,
     })
 
 

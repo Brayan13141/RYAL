@@ -23,6 +23,7 @@ function swapImage(url, btn) {
 // ─── Cantidad ────────────────────────────────────────────────────────────────
 
 const _minQty       = (typeof MIN_QTY !== 'undefined' && MIN_QTY > 1) ? MIN_QTY : 1;
+const _step         = (typeof QTY_STEP !== 'undefined' && QTY_STEP > 1) ? QTY_STEP : 1;
 const _basePrice    = (typeof PRODUCT_BASE_PRICE !== 'undefined') ? PRODUCT_BASE_PRICE : 0;
 const _tiers        = (typeof PRODUCT_TIERS !== 'undefined') ? PRODUCT_TIERS : [];
 let qty = _minQty;
@@ -57,9 +58,18 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function changeQty(delta) {
-  qty = Math.max(_minQty, qty + delta);
+  qty = Math.max(_minQty, qty + delta * _step);
   document.getElementById('qtyVal').textContent = qty;
   _applyTier(qty);
+}
+
+function setQty(n) {
+  // Snap to nearest valid multiple of _step that is >= _minQty
+  const snapped = _step > 1 ? Math.ceil(n / _step) * _step : n;
+  qty = Math.max(_minQty, snapped);
+  document.getElementById('qtyVal').textContent = qty;
+  _applyTier(qty);
+  document.getElementById('qtyVal')?.closest('.pd-qty')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 

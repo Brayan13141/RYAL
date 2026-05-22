@@ -124,16 +124,21 @@ def cart_get(request):
     for key, item in cart.items():
         try:
             product = Product.objects.select_related('category').prefetch_related('images').get(pk=item['product_id'])
-            cover   = product.cover_image
+            cover          = product.cover_image
+            price          = float(item['price'])
+            original_price = float(product.final_price)
+            discount       = round(original_price - price, 2) if original_price - price > 0.01 else 0
             items.append({
-                'key':      key,
-                'name':     product.name,
-                'sku':      product.sku,
-                'image':    cover.image.url if cover else None,
-                'variant':  item.get('variant_name', ''),
-                'qty':      item['quantity'],
-                'price':    float(item['price']),
-                'subtotal': float(item['price']) * item['quantity'],
+                'key':            key,
+                'name':           product.name,
+                'sku':            product.sku,
+                'image':          cover.image.url if cover else None,
+                'variant':        item.get('variant_name', ''),
+                'qty':            item['quantity'],
+                'price':          price,
+                'original_price': original_price,
+                'discount':       discount,
+                'subtotal':       price * item['quantity'],
             })
         except Product.DoesNotExist:
             continue

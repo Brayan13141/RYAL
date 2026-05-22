@@ -98,6 +98,11 @@ function renderCartItems(items, subtotal, shipping, total, categoryWarnings = []
       <div class="oc-item-info">
         <span class="oc-item-name">${item.name}</span>
         ${item.variant ? `<span class="oc-item-variant">${item.variant}</span>` : ''}
+        ${item.discount > 0 ? `
+        <div style="display:flex;align-items:center;gap:6px;margin-top:3px;">
+          <span style="font-size:10px;color:#555;text-decoration:line-through;">$${formatMXN(item.original_price)} c/u</span>
+          <span style="font-size:10px;color:var(--gold);font-family:var(--f-mono);">−$${formatMXN(item.discount)} dto.</span>
+        </div>` : ''}
         <div class="oc-item-qty">
           <button onclick="updateCartItem('${item.key}', ${item.qty - 1})" class="qty-btn-sm">−</button>
           <input
@@ -110,7 +115,10 @@ function renderCartItems(items, subtotal, shipping, total, categoryWarnings = []
         </div>
       </div>
       <div class="oc-item-right">
-        <span class="oc-item-price">$${formatMXN(item.subtotal)}</span>
+        <span class="oc-item-price">
+          ${item.qty > 1 ? `<span style="display:block;font-size:10px;color:#666;font-family:var(--f-mono);text-align:right;">${item.qty} × $${formatMXN(item.price)}</span>` : ''}
+          $${formatMXN(item.subtotal)}
+        </span>
         <button onclick="removeCartItem('${item.key}')" class="oc-item-remove" aria-label="Eliminar">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
             <path d="M2 2l10 10M12 2L2 12"/>
