@@ -4,6 +4,7 @@ django-ratelimit==4.1.0
 djangorestframework==3.17.1
 Pillow==12.2.0
 python-dotenv==1.2.2
+playwright>=1.44
 asgiref==3.11.1
 sqlparse==0.5.5
 tzdata==2026.1

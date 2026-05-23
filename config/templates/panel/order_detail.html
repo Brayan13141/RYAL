@@ -12,6 +12,20 @@
   <a href="{% url 'panel:order_ticket_pdf' order.pk %}" class="btn-o btn-sm">
     <i class="bi bi-file-earmark-pdf"></i> Descargar PDF
   </a>
+  {% if order.supplier_order %}
+  <a href="{% url 'panel:supplier_order_detail' order.pk %}" class="btn-o btn-sm"
+     style="background:#1a2b1a;color:#50c878;border-color:#2a4a2a;">
+    <i class="bi bi-shop"></i> Ver en modaverse
+  </a>
+  {% else %}
+  <form method="post" action="{% url 'panel:supplier_order_init' order.pk %}" style="display:inline;">
+    {% csrf_token %}
+    <button type="submit" class="btn-o btn-sm"
+            style="background:#1a2b1a;color:#50c878;border-color:#2a4a2a;">
+      <i class="bi bi-shop"></i> Armar en modaverse
+    </button>
+  </form>
+  {% endif %}
   <button id="btnWA" class="btn-o btn-sm" style="background:#1a3d2b;color:#25D366;border-color:#25D366;">
     <i class="bi bi-whatsapp"></i> Enviar ticket
   </button>

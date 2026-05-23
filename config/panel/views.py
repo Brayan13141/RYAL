@@ -15,7 +15,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from catalog.models import Category, HeroSlide, Product, ProductImage, Section, SiteConfig, SizeGroup, VolumeTier
-from orders.models import Order, OrderItem
+from orders.models import Order, OrderItem, SupplierOrder, SupplierOrderItem
 
 _LOGIN = '/accounts/login/'
 _UNSET = object()
@@ -1199,3 +1199,43 @@ def category_set_size_group(request, cat_pk):
     cat.save(update_fields=['size_group'])
     name = cat.size_group.name if cat.size_group else ''
     return JsonResponse({'ok': True, 'size_group_name': name})
+
+
+# ── Modaverse auto-order ──────────────────────────────────────────────────────
+
+@_staff
+@require_POST
+def supplier_order_init(request, pk):
+    order = get_object_or_404(Order, pk=pk)
+    supplier_order, created = SupplierOrder.objects.get_or_create(order=order)
+    if not created:
+        return redirect('panel:supplier_order_detail', pk=pk)
+
+    for oi in order.items.select_related('product').all():
+        url = ''
+        status = 'pending'
+        if oi.product and oi.product.supplier_url and 'modaverse' in oi.product.supplier_url:
+            url = oi.product.supplier_url
+        else:
+            status = 'no_url'
+        SupplierOrderItem.objects.create(
+            supplier_order=supplier_order,
+            order_item=oi,
+            supplier_url=url,
+            variant_target=oi.variant_snapshot or '',
+            status=status,
+        )
+    return redirect('panel:supplier_order_detail', pk=pk)
+
+
+@_staff
+def supplier_order_detail(request, pk):
+    order = get_object_or_404(Order, pk=pk)
+    supplier_order = get_object_or_404(
+        SupplierOrder.objects.prefetch_related('items__order_item'),
+        order=order,
+    )
+    return render(request, 'panel/supplier_order.html', {
+        'order': order,
+        'supplier_order': supplier_order,
+    })

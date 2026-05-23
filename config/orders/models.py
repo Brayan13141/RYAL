@@ -5,6 +5,22 @@ from django.contrib.auth.models import User
 from catalog.models import Product, ProductVariant
 
 
+SUPPLIER_ORDER_STATUS = [
+    ('pending',  'Pendiente'),
+    ('running',  'En progreso'),
+    ('done',     'Completado'),
+    ('partial',  'Parcial'),
+    ('failed',   'Fallido'),
+]
+
+SUPPLIER_ITEM_STATUS = [
+    ('pending',           'Pendiente'),
+    ('added',             'Agregado'),
+    ('variant_not_found', 'Variante no encontrada'),
+    ('no_url',            'Sin URL de proveedor'),
+]
+
+
 class SavedCartItem(models.Model):
     user      = models.ForeignKey(User, on_delete=models.CASCADE, related_name='saved_cart')
     cart_key  = models.CharField(max_length=60)
@@ -97,3 +113,33 @@ class OrderItem(models.Model):
 
     def __str__(self):
         return f'{self.quantity}x {self.sku_snapshot} — Pedido #{self.order_id}'
+
+
+class SupplierOrder(models.Model):
+    order           = models.OneToOneField(Order, on_delete=models.CASCADE, related_name='supplier_order')
+    status          = models.CharField(max_length=20, choices=SUPPLIER_ORDER_STATUS, default='pending')
+    modaverse_code  = models.CharField(max_length=100, blank=True)
+    screenshot      = models.ImageField(upload_to='supplier_orders/', null=True, blank=True)
+    created_at      = models.DateTimeField(auto_now_add=True)
+    updated_at      = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Pedido proveedor'
+
+    def __str__(self):
+        return f'SupplierOrder #{self.order.order_code} ({self.get_status_display()})'
+
+
+class SupplierOrderItem(models.Model):
+    supplier_order = models.ForeignKey(SupplierOrder, on_delete=models.CASCADE, related_name='items')
+    order_item     = models.ForeignKey(OrderItem, on_delete=models.CASCADE, related_name='supplier_item')
+    supplier_url   = models.URLField(max_length=500, blank=True)
+    variant_target = models.CharField(max_length=200, blank=True)
+    status         = models.CharField(max_length=30, choices=SUPPLIER_ITEM_STATUS, default='pending')
+    notes          = models.TextField(blank=True)
+
+    class Meta:
+        verbose_name = 'Ítem de pedido proveedor'
+
+    def __str__(self):
+        return f'{self.order_item.sku_snapshot} → {self.get_status_display()}'

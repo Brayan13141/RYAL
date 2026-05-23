@@ -280,6 +280,46 @@
     /* ── Divider ── */
     .p-divider { height: 1px; background: var(--pl); margin: 20px 0; }
 
+    /* ── Nav dropdown groups ── */
+    .p-nav-group-btn {
+      display: flex; align-items: center; gap: 9px;
+      padding: 9px 16px; width: 100%;
+      color: #777; background: none; border: none;
+      border-left: 2px solid transparent;
+      font-size: 13px; font-weight: 500; cursor: pointer;
+      text-align: left; white-space: nowrap; overflow: hidden;
+      transition: all .12s;
+    }
+    .p-nav-group-btn:hover { color: #ddd; background: rgba(255,255,255,.03); }
+    .p-nav-group-btn.on { color: var(--pg); border-left-color: var(--pg); background: rgba(212,175,55,.06); }
+    .p-nav-group-btn > i:first-child { font-size: 15px; width: 18px; flex-shrink: 0; }
+    .nav-chevron { margin-left: auto; font-size: 11px; transition: transform .18s; flex-shrink: 0; }
+    .p-nav-group.open .nav-chevron { transform: rotate(180deg); }
+
+    .p-nav-sub { overflow: hidden; max-height: 0; transition: max-height .2s ease; }
+    .p-nav-group.open .p-nav-sub { max-height: 200px; }
+    .p-nav-sub a { padding-left: 40px !important; font-size: 12px; color: #555; }
+    .p-nav-sub a:hover { color: #ccc; }
+    .p-nav-sub a.on { color: var(--pg); background: rgba(212,175,55,.04); border-left-color: var(--pg); }
+
+    /* Collapsed: ocultar sub y chevron, centrar botón */
+    .p-layout.collapsed .p-nav-group-btn { justify-content: center; padding: 10px 0; }
+    .p-layout.collapsed .p-nav-group-btn > i:first-child { width: auto; }
+    .p-layout.collapsed .nav-chevron { display: none; }
+    .p-layout.collapsed .p-nav-sub { max-height: 0 !important; }
+    /* Tooltip para grupo colapsado */
+    .p-layout.collapsed .p-nav-group-btn { position: relative; }
+    .p-layout.collapsed .p-nav-group-btn::after {
+      content: attr(title);
+      position: absolute; left: calc(var(--sidebar-collapsed-w) + 6px);
+      top: 50%; transform: translateY(-50%);
+      background: #222; color: #ddd; padding: 4px 9px;
+      border-radius: 5px; font-size: 12px; white-space: nowrap;
+      opacity: 0; pointer-events: none; border: 1px solid var(--pl); z-index: 300;
+      transition: opacity .12s;
+    }
+    .p-layout.collapsed .p-nav-group-btn:hover::after { opacity: 1; }
+
     @media print {
       .no-print { display: none !important; }
     }
@@ -327,44 +367,76 @@
       </a>
 
       <div class="p-nav-sec">Catálogo</div>
-      <a href="{% url 'panel:catalog_config' %}"
-         title="Categorías"
-         class="{% if request.resolver_match.url_name == 'catalog_config' %}on{% endif %}">
-        <i class="bi bi-grid-3x3-gap"></i>
-        <span class="nav-label">Categorías</span>
-      </a>
-      <a href="{% url 'panel:category_create' %}"
-         title="Nueva categoría"
-         class="{% if request.resolver_match.url_name == 'category_create' %}on{% endif %}"
-         style="padding-left:2.2rem;">
-        <i class="bi bi-plus-circle"></i>
-        <span class="nav-label">Nueva categoría</span>
-      </a>
-      <a href="{% url 'panel:products_list' %}"
-         title="Productos"
-         class="{% if 'product' in request.resolver_match.url_name %}on{% endif %}">
-        <i class="bi bi-box-seam"></i>
-        <span class="nav-label">Productos</span>
-      </a>
-      <a href="{% url 'panel:product_create' %}"
-         title="Nuevo producto"
-         class="{% if request.resolver_match.url_name == 'product_create' %}on{% endif %}"
-         style="padding-left:2.2rem;">
-        <i class="bi bi-plus-circle"></i>
-        <span class="nav-label">Nuevo producto</span>
-      </a>
-      <a href="{% url 'panel:sections_config' %}"
-         title="Secciones"
-         class="{% if 'section' in request.resolver_match.url_name %}on{% endif %}">
-        <i class="bi bi-layout-text-window-reverse"></i>
-        <span class="nav-label">Secciones</span>
-      </a>
-      <a href="{% url 'panel:sizes_list' %}"
-         title="Grupos de tallas"
-         class="{% if 'size' in request.resolver_match.url_name %}on{% endif %}">
-        <i class="bi bi-rulers"></i>
-        <span class="nav-label">Tallas</span>
-      </a>
+
+      {% with un=request.resolver_match.url_name %}
+
+      <!-- Dropdown: Categorías -->
+      {% with cat_active='catalog_config category_create category_edit sections_config sizes_list size_group_create size_group_edit' %}
+      <div class="p-nav-group {% if un in cat_active.split or 'category' in un or 'section' in un or 'size' in un %}open{% endif %}"
+           id="navGroupCat">
+        <button class="p-nav-group-btn {% if un in cat_active.split or 'category' in un or 'section' in un or 'size' in un %}on{% endif %}"
+                title="Categorías"
+                onclick="toggleNavGroup('navGroupCat')">
+          <i class="bi bi-grid-3x3-gap"></i>
+          <span class="nav-label">Categorías</span>
+          <i class="bi bi-chevron-down nav-chevron"></i>
+        </button>
+        <div class="p-nav-sub">
+          <a href="{% url 'panel:catalog_config' %}"
+             title="Gestionar categorías"
+             class="{% if un == 'catalog_config' %}on{% endif %}">
+            <i class="bi bi-sliders"></i>
+            <span class="nav-label">Gestionar</span>
+          </a>
+          <a href="{% url 'panel:category_create' %}"
+             title="Nueva categoría"
+             class="{% if un == 'category_create' %}on{% endif %}">
+            <i class="bi bi-plus-circle"></i>
+            <span class="nav-label">Nueva categoría</span>
+          </a>
+          <a href="{% url 'panel:sections_config' %}"
+             title="Secciones"
+             class="{% if 'section' in un %}on{% endif %}">
+            <i class="bi bi-layout-text-window-reverse"></i>
+            <span class="nav-label">Secciones</span>
+          </a>
+          <a href="{% url 'panel:sizes_list' %}"
+             title="Grupos de tallas"
+             class="{% if 'size' in un %}on{% endif %}">
+            <i class="bi bi-rulers"></i>
+            <span class="nav-label">Tallas</span>
+          </a>
+        </div>
+      </div>
+      {% endwith %}
+
+      <!-- Dropdown: Productos -->
+      <div class="p-nav-group {% if 'product' in un %}open{% endif %}"
+           id="navGroupProd">
+        <button class="p-nav-group-btn {% if 'product' in un %}on{% endif %}"
+                title="Productos"
+                onclick="toggleNavGroup('navGroupProd')">
+          <i class="bi bi-box-seam"></i>
+          <span class="nav-label">Productos</span>
+          <i class="bi bi-chevron-down nav-chevron"></i>
+        </button>
+        <div class="p-nav-sub">
+          <a href="{% url 'panel:products_list' %}"
+             title="Ver productos"
+             class="{% if un == 'products_list' %}on{% endif %}">
+            <i class="bi bi-list-ul"></i>
+            <span class="nav-label">Ver todos</span>
+          </a>
+          <a href="{% url 'panel:product_create' %}"
+             title="Nuevo producto"
+             class="{% if un == 'product_create' %}on{% endif %}">
+            <i class="bi bi-plus-circle"></i>
+            <span class="nav-label">Nuevo producto</span>
+          </a>
+        </div>
+      </div>
+
+      {% endwith %}
     </nav>
 
     <div class="p-sidebar-foot">
@@ -433,6 +505,13 @@
     if (!MOBILE()) layout.classList.remove('mob-open');
   });
 })();
+
+// ── Nav dropdowns ─────────────────────────────────────────────────────────────
+function toggleNavGroup(id) {
+  var group = document.getElementById(id);
+  if (!group) return;
+  group.classList.toggle('open');
+}
 </script>
 
 <!-- ── Toast container (global panel) ── -->

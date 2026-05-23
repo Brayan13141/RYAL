@@ -2,8 +2,71 @@
 {% block title %}{% if group.pk %}Editar{% else %}Nuevo{% endif %} Grupo de Tallas — Panel{% endblock %}
 {% block page_title %}{% if group.pk %}Editar grupo{% else %}Nuevo grupo{% endif %}{% endblock %}
 
+{% block extra_css %}
+<style>
+/* ── Chip input ── */
+.chip-wrap {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  padding: 8px 10px; min-height: 50px; cursor: text;
+  background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 6px;
+  transition: border-color .15s;
+}
+.chip-wrap:focus-within { border-color: var(--pg); }
+.size-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 5px 9px 5px 6px;
+  background: rgba(212,175,55,.1); border: 1px solid rgba(212,175,55,.28);
+  border-radius: 20px; font-size: 12px; color: var(--pg);
+  white-space: nowrap; cursor: grab; user-select: none;
+  transition: background .12s;
+}
+.size-chip:hover { background: rgba(212,175,55,.18); }
+.size-chip .grip { font-size: 11px; color: rgba(212,175,55,.35); cursor: grab; }
+.size-chip .rm {
+  background: none; border: none; color: rgba(212,175,55,.4);
+  cursor: pointer; padding: 0; font-size: 15px; line-height: 1;
+  margin-left: 2px; transition: color .12s;
+}
+.size-chip .rm:hover { color: #ff6060; }
+.chip-input {
+  border: none; background: none; color: #ccc; outline: none;
+  font-size: 13px; min-width: 110px; flex: 1; padding: 2px 0;
+}
+.chip-input::placeholder { color: #333; }
+/* ── Conv table ── */
+.conv-table-wrap { overflow-x: auto; margin-top: 10px; }
+.conv-table { border-collapse: collapse; }
+.conv-table th, .conv-table td { padding: 0; }
+.conv-header-inp {
+  width: 76px; background: #0f0f0f; border: 1px solid #2a2a2a;
+  border-radius: 4px 4px 0 0; color: var(--pg); font-size: 11px;
+  font-weight: 600; text-align: center; padding: 5px 4px;
+  outline: none; transition: border-color .12s;
+}
+.conv-header-inp:focus { border-color: var(--pg); }
+.conv-cell-inp {
+  width: 76px; background: #0a0a0a; border: 1px solid #1a1a1a;
+  border-top: none; color: #ccc; font-size: 12px;
+  text-align: center; padding: 5px 4px;
+  outline: none; transition: border-color .12s;
+}
+.conv-cell-inp:focus { border-color: var(--pg); z-index: 1; position: relative; }
+.conv-rm-col {
+  background: none; border: none; color: #333; cursor: pointer;
+  padding: 4px 6px; font-size: 13px; transition: color .12s;
+  display: block; text-align: center;
+}
+.conv-rm-col:hover { color: #ff6060; }
+.conv-rm-row {
+  background: none; border: none; color: #333; cursor: pointer;
+  padding: 0 6px; font-size: 16px; line-height: 1; transition: color .12s;
+}
+.conv-rm-row:hover { color: #ff6060; }
+</style>
+{% endblock %}
+
 {% block content %}
-<div style="padding:24px;max-width:680px">
+<div style="padding:24px;max-width:700px">
 
   <div style="margin-bottom:16px">
     <a href="{% url 'panel:sizes_list' %}" style="color:var(--pm);font-size:.85rem">
@@ -17,90 +80,128 @@
     </h2>
 
     {% if form_error %}
-    <div class="alert alert-danger">{{ form_error }}</div>
+    <div class="alert alert-danger" style="margin-bottom:16px">{{ form_error }}</div>
     {% endif %}
 
-    <form method="post"
-          onsubmit="serializeSizes(); serializeConv()">
+    <form method="post" onsubmit="serializeSizes(); serializeConv()">
       {% csrf_token %}
 
       <!-- Nombre -->
-      <div class="mb-4">
-        <label class="form-label" style="color:var(--pt)">Nombre</label>
+      <div style="margin-bottom:20px">
+        <label style="display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+                      color:#555;font-weight:600;margin-bottom:6px">Nombre</label>
         <input type="text" name="name" class="form-control p-input"
                value="{{ group.name|default:'' }}"
-               placeholder="Ej: Gorras numéricas" required>
+               placeholder="Ej: Gorras numéricas" required
+               style="max-width:340px">
       </div>
 
-      <!-- Tallas -->
-      <div class="mb-4">
-        <label class="form-label" style="color:var(--pt)">Tallas</label>
-        <ul id="sizesList" style="list-style:none;padding:0;margin:0 0 8px">
+      <!-- Tallas — chip input -->
+      <div style="margin-bottom:24px">
+        <label style="display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+                      color:#555;font-weight:600;margin-bottom:6px">
+          Tallas
+          <span style="text-transform:none;letter-spacing:0;font-weight:400;color:#444;margin-left:8px">
+            — Escribe y presiona Enter para agregar · Arrastra para reordenar
+          </span>
+        </label>
+        <div class="chip-wrap" id="sizeChipWrap" onclick="document.getElementById('sizeChipInput').focus()">
           {% if group.sizes %}
             {% for s in group.sizes %}
-            <li class="size-row" style="display:flex;gap:6px;margin-bottom:4px">
-              <span class="drag-handle" style="cursor:grab;color:var(--pm);padding:4px 6px">⠿</span>
-              <input type="text" class="form-control p-input size-val" value="{{ s }}" style="max-width:160px">
-              <button type="button" class="btn-sm-panel btn-danger-sm" onclick="this.closest('li').remove()">×</button>
-            </li>
+            <span class="size-chip" data-val="{{ s|escapejs }}">
+              <i class="bi bi-grip-vertical grip"></i>
+              {{ s }}
+              <button type="button" class="rm" onclick="removeChip(this)">×</button>
+            </span>
             {% endfor %}
-          {% else %}
-            <li class="size-row" style="display:flex;gap:6px;margin-bottom:4px">
-              <span class="drag-handle" style="cursor:grab;color:var(--pm);padding:4px 6px">⠿</span>
-              <input type="text" class="form-control p-input size-val" placeholder="Ej: 7" style="max-width:160px">
-              <button type="button" class="btn-sm-panel btn-danger-sm" onclick="this.closest('li').remove()">×</button>
-            </li>
           {% endif %}
-        </ul>
-        <button type="button" class="btn-sm-panel" onclick="addSizeRow()">
-          <i class="bi bi-plus"></i> Agregar talla
-        </button>
+          <input type="text" class="chip-input" id="sizeChipInput"
+                 placeholder="Nueva talla…"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();addChip();}
+                            if(event.key===','  ){event.preventDefault();addChip();}">
+        </div>
+        <div style="margin-top:7px;display:flex;gap:8px;align-items:center">
+          <button type="button" class="btn-g btn-sm" onclick="addChip()">
+            <i class="bi bi-plus"></i> Agregar
+          </button>
+          <span style="font-size:11px;color:#444" id="chipCount">
+            <span id="chipCountNum">{{ group.sizes|length|default:0 }}</span> talla{% if group.sizes|length != 1 %}s{% endif %}
+          </span>
+        </div>
         <input type="hidden" name="sizes_json" id="sizes_json">
       </div>
 
       <!-- Tabla de conversión -->
-      <details class="mb-4" {% if group.conversion_table %}open{% endif %}>
-        <summary style="cursor:pointer;color:var(--pm);font-size:.9rem;margin-bottom:12px">
-          Tabla de conversión <span style="font-size:.8rem">(opcional)</span>
+      <details style="margin-bottom:24px" {% if group.conversion_table %}open{% endif %}>
+        <summary style="cursor:pointer;color:var(--pm);font-size:.9rem;
+                        list-style:none;display:flex;align-items:center;gap:8px;
+                        padding:10px;background:#0a0a0a;border:1px solid #1a1a1a;
+                        border-radius:6px;margin-bottom:10px;user-select:none">
+          <i class="bi bi-table" style="color:#555"></i>
+          Tabla de conversión
+          <span style="font-size:.78rem;color:#444">(opcional — EU, MX, US…)</span>
+          <i class="bi bi-chevron-down" style="font-size:11px;margin-left:auto;color:#444"></i>
         </summary>
-        <div style="margin-top:10px;padding:16px;background:var(--pb2);border-radius:6px">
-          <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
-            <span style="color:var(--pm);font-size:.8rem;min-width:70px">Columnas:</span>
-            <div id="convHeaders" style="display:flex;gap:6px;flex-wrap:wrap">
-              {% if group.conversion_table %}
-                {% for h in group.conversion_table.headers %}
-                <input type="text" class="form-control p-input conv-header" value="{{ h }}" style="width:80px">
-                {% endfor %}
-              {% else %}
-                <input type="text" class="form-control p-input conv-header" placeholder="EU" style="width:80px">
-                <input type="text" class="form-control p-input conv-header" placeholder="MX" style="width:80px">
-                <input type="text" class="form-control p-input conv-header" placeholder="US" style="width:80px">
-              {% endif %}
-            </div>
-            <button type="button" class="btn-sm-panel" onclick="addConvHeader()">+ Col</button>
+
+        <div style="background:#0a0a0a;border:1px solid #1a1a1a;border-radius:6px;padding:16px">
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+            <button type="button" class="btn-sm" onclick="addConvCol()"
+                    style="background:transparent;border:1px solid #2a2a2a;color:#666;border-radius:4px;
+                           padding:4px 10px;font-size:12px;cursor:pointer;transition:all .12s;"
+                    onmouseover="this.style.borderColor='var(--pg)';this.style.color='var(--pg)'"
+                    onmouseout="this.style.borderColor='#2a2a2a';this.style.color='#666'">
+              <i class="bi bi-plus"></i> Columna
+            </button>
+            <button type="button" class="btn-sm" onclick="addConvRow()"
+                    style="background:transparent;border:1px solid #2a2a2a;color:#666;border-radius:4px;
+                           padding:4px 10px;font-size:12px;cursor:pointer;transition:all .12s;"
+                    onmouseover="this.style.borderColor='var(--pg)';this.style.color='var(--pg)'"
+                    onmouseout="this.style.borderColor='#2a2a2a';this.style.color='#666'">
+              <i class="bi bi-plus"></i> Fila
+            </button>
           </div>
-          <div id="convRows">
-            {% if group.conversion_table %}
-              {% for row in group.conversion_table.rows %}
-              <div class="conv-row" style="display:flex;gap:6px;margin-bottom:4px;align-items:center">
-                <div class="conv-cells" style="display:flex;gap:6px">
-                  {% for cell in row %}
-                  <input type="text" class="form-control p-input conv-cell" value="{{ cell }}" style="width:80px">
+          <div class="conv-table-wrap">
+            <table class="conv-table" id="convTable">
+              <thead>
+                <tr id="convHeaderRow">
+                  {% if group.conversion_table %}
+                    {% for h in group.conversion_table.headers %}
+                    <th>
+                      <input type="text" class="conv-header-inp" value="{{ h }}">
+                      <button type="button" class="conv-rm-col" onclick="removeConvCol(this)" title="Quitar columna">×</button>
+                    </th>
+                    {% endfor %}
+                  {% else %}
+                    <th><input type="text" class="conv-header-inp" placeholder="EU"><button type="button" class="conv-rm-col" onclick="removeConvCol(this)">×</button></th>
+                    <th><input type="text" class="conv-header-inp" placeholder="MX"><button type="button" class="conv-rm-col" onclick="removeConvCol(this)">×</button></th>
+                    <th><input type="text" class="conv-header-inp" placeholder="US"><button type="button" class="conv-rm-col" onclick="removeConvCol(this)">×</button></th>
+                  {% endif %}
+                  <th style="width:28px"></th>
+                </tr>
+              </thead>
+              <tbody id="convBody">
+                {% if group.conversion_table %}
+                  {% for row in group.conversion_table.rows %}
+                  <tr>
+                    {% for cell in row %}
+                    <td><input type="text" class="conv-cell-inp" value="{{ cell }}"></td>
+                    {% endfor %}
+                    <td><button type="button" class="conv-rm-row" onclick="this.closest('tr').remove()" title="Quitar fila">×</button></td>
+                  </tr>
                   {% endfor %}
-                </div>
-                <button type="button" class="btn-sm-panel btn-danger-sm" onclick="this.closest('.conv-row').remove()">×</button>
-              </div>
-              {% endfor %}
-            {% endif %}
+                {% endif %}
+              </tbody>
+            </table>
           </div>
-          <button type="button" class="btn-sm-panel" style="margin-top:6px" onclick="addConvRow()">+ Fila</button>
         </div>
         <input type="hidden" name="conversion_json" id="conversion_json" value="">
       </details>
 
       <div style="display:flex;gap:10px">
-        <button type="submit" class="btn-g">Guardar cambios</button>
-        <a href="{% url 'panel:sizes_list' %}" class="btn-sm-panel" style="padding:8px 16px">Cancelar</a>
+        <button type="submit" class="btn-g">
+          <i class="bi bi-floppy"></i> Guardar
+        </button>
+        <a href="{% url 'panel:sizes_list' %}" class="btn-o">Cancelar</a>
       </div>
     </form>
   </div>
@@ -108,59 +209,98 @@
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 <script>
-Sortable.create(document.getElementById('sizesList'), { handle: '.drag-handle', animation: 150 });
+// ── Chip input ──────────────────────────────────────────────────────────────
+function _wrap()  { return document.getElementById('sizeChipWrap'); }
+function _input() { return document.getElementById('sizeChipInput'); }
 
-function addSizeRow() {
-  const ul = document.getElementById('sizesList');
-  const li = document.createElement('li');
-  li.className = 'size-row';
-  li.style.cssText = 'display:flex;gap:6px;margin-bottom:4px';
-  li.innerHTML = `
-    <span class="drag-handle" style="cursor:grab;color:var(--pm);padding:4px 6px">⠿</span>
-    <input type="text" class="form-control p-input size-val" placeholder="Ej: 7 1/2" style="max-width:160px">
-    <button type="button" class="btn-sm-panel btn-danger-sm" onclick="this.closest('li').remove()">×</button>
-  `;
-  ul.appendChild(li);
+function addChip() {
+  const input = _input(), wrap = _wrap();
+  if (!input || !wrap) return;
+  const val = input.value.trim();
+  if (!val) return;
+  wrap.insertBefore(makeChip(val), input);
+  input.value = '';
+  syncChips();
+  input.focus();
 }
 
-function serializeSizes() {
-  const sizes = [...document.getElementById('sizesList').querySelectorAll('.size-val')]
-    .map(i => i.value.trim()).filter(Boolean);
-  document.getElementById('sizes_json').value = JSON.stringify(sizes);
+function makeChip(val) {
+  const span = document.createElement('span');
+  span.className = 'size-chip';
+  span.dataset.val = val;
+  span.innerHTML = `<i class="bi bi-grip-vertical grip"></i>${val}<button type="button" class="rm" onclick="removeChip(this)">×</button>`;
+  return span;
 }
 
-function addConvHeader() {
-  const h = document.createElement('input');
-  h.type = 'text'; h.className = 'form-control p-input conv-header';
-  h.placeholder = 'Col'; h.style.width = '80px';
-  document.getElementById('convHeaders').appendChild(h);
-  document.getElementById('convRows').querySelectorAll('.conv-row').forEach(row => {
-    const inp = document.createElement('input');
-    inp.type = 'text'; inp.className = 'form-control p-input conv-cell'; inp.style.width = '80px';
-    row.querySelector('.conv-cells').appendChild(inp);
+function removeChip(btn) {
+  btn.closest('.size-chip').remove();
+  const wrap = _wrap(), input = _input();
+  syncChips();
+}
+
+function syncChips() {
+  const wrap = _wrap();
+  if (!wrap) return;
+  const vals = [...wrap.querySelectorAll('.size-chip')].map(c => c.dataset.val);
+  document.getElementById('sizes_json').value = JSON.stringify(vals);
+  document.getElementById('chipCountNum').textContent = vals.length;
+}
+
+function serializeSizes() { syncChips(); }
+
+/* ── Init Sortable after DOM ready ── */
+document.addEventListener('DOMContentLoaded', function() {
+  const wrap = _wrap();
+  if (wrap && typeof Sortable !== 'undefined') {
+    Sortable.create(wrap, { draggable: '.size-chip', animation: 150, onEnd: syncChips });
+  }
+});
+
+// ── Conversion table ────────────────────────────────────────────────────────
+function colCount() {
+  return document.getElementById('convHeaderRow').querySelectorAll('.conv-header-inp').length;
+}
+
+function addConvCol() {
+  const th = document.createElement('th');
+  th.innerHTML = `<input type="text" class="conv-header-inp" placeholder="Col"><button type="button" class="conv-rm-col" onclick="removeConvCol(this)">×</button>`;
+  document.getElementById('convHeaderRow').insertBefore(th, document.getElementById('convHeaderRow').lastElementChild);
+  document.querySelectorAll('#convBody tr').forEach(row => {
+    const td = document.createElement('td');
+    td.innerHTML = `<input type="text" class="conv-cell-inp">`;
+    row.insertBefore(td, row.lastElementChild);
+  });
+}
+
+function removeConvCol(btn) {
+  const th  = btn.closest('th');
+  const idx = [...th.parentElement.children].indexOf(th);
+  th.remove();
+  document.querySelectorAll('#convBody tr').forEach(row => {
+    row.children[idx]?.remove();
   });
 }
 
 function addConvRow() {
-  const colCount = document.getElementById('convHeaders').querySelectorAll('.conv-header').length || 3;
-  const div = document.createElement('div');
-  div.className = 'conv-row'; div.style.cssText = 'display:flex;gap:6px;margin-bottom:4px;align-items:center';
+  const n = colCount();
+  const tr = document.createElement('tr');
   let cells = '';
-  for (let i = 0; i < colCount; i++) cells += `<input type="text" class="form-control p-input conv-cell" style="width:80px">`;
-  div.innerHTML = `<div class="conv-cells" style="display:flex;gap:6px">${cells}</div>
-    <button type="button" class="btn-sm-panel btn-danger-sm" onclick="this.closest('.conv-row').remove()">×</button>`;
-  document.getElementById('convRows').appendChild(div);
+  for (let i = 0; i < n; i++) cells += `<td><input type="text" class="conv-cell-inp"></td>`;
+  tr.innerHTML = cells + `<td><button type="button" class="conv-rm-row" onclick="this.closest('tr').remove()">×</button></td>`;
+  document.getElementById('convBody').appendChild(tr);
 }
 
 function serializeConv() {
-  const headers = [...document.getElementById('convHeaders').querySelectorAll('.conv-header')]
-    .map(i => i.value.trim()).filter(Boolean);
+  const headers = [...document.querySelectorAll('.conv-header-inp')].map(i => i.value.trim()).filter(Boolean);
   if (!headers.length) { document.getElementById('conversion_json').value = ''; return; }
-  const rows = [...document.getElementById('convRows').querySelectorAll('.conv-row')].map(row =>
-    [...row.querySelectorAll('.conv-cell')].map(i => i.value.trim())
+  const rows = [...document.querySelectorAll('#convBody tr')].map(row =>
+    [...row.querySelectorAll('.conv-cell-inp')].map(i => i.value.trim())
   ).filter(r => r.some(Boolean));
   if (!rows.length) { document.getElementById('conversion_json').value = ''; return; }
   document.getElementById('conversion_json').value = JSON.stringify({ headers, rows });
 }
+
+// Inicializar syncChips al cargar (para que el hidden tenga valor correcto)
+syncChips();
 </script>
 {% endblock %}

@@ -59,11 +59,26 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
 
   scrape_modaverse_final.py
   ─────────────────────────
-  Scraper de gorras, camisetas y sudaderas desde modaverse.vip.
-  Abre browser (Playwright) para capturar XHR del SPA, luego llama la API
-  REST directamente para paginar todas las categorías.
-  Salida: scraped_modaverse.json
+  Scraper de gorras, camisetas, sudaderas y más desde modaverse.vip.
+  En local usa Playwright (scrapling) para capturar XHR; en servidor usa
+  GET directo a la API REST (scrapling es opcional).
+  Salida: scraped_modaverse.json (ruta relativa al script — funciona en Windows y Linux)
   NOTA: La API solo devuelve 1 imagen por producto (limitación permanente).
+
+      python scrape_modaverse_final.py                    # scrape completo
+      python scrape_modaverse_final.py --list             # ver categorías disponibles
+      python scrape_modaverse_final.py --category gorra   # solo gorras (fusiona con JSON)
+      python scrape_modaverse_final.py --category g5 "1:1"  # varias categorías
+      python scrape_modaverse_final.py --category gorra --no-merge  # sobreescribe JSON
+
+  Categorías disponibles (2026-05-21):
+      gorra       → Gorra (29 subcats)
+      deportivas  → Camisetas deportivas y jerseys de fútbol (35 subcats)
+      g5          → Camisetas/Sudaderas Calidad G5 (87 subcats)
+      1:1         → Camisetas/Sudaderas Calidad 1:1 (41 subcats)
+      electr      → Electrónica (1 subcat)
+      zapato      → zapato (177 subcats — categoría nueva en modaverse)
+      van cleef   → Van Cleef & Arpels (2 subcats — categoría nueva)
 
   scrape_yupoo_pf.py
   ──────────────────
