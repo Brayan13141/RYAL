@@ -38,7 +38,9 @@ def _save_cart(request, cart):
     request.session['cart'] = cart
     request.session.modified = True
 
-def _cart_key(product_id, variant_id):
+def _cart_key(product_id, variant_id, size_name=None):
+    if size_name:
+        return f'{product_id}_size_{size_name}'
     return f'{product_id}_{variant_id or "none"}'
 
 
@@ -172,6 +174,7 @@ def cart_add(request):
         body       = json.loads(request.body)
         product_id = int(body['product_id'])
         variant_id = body.get('variant_id')
+        size_name  = body.get('size_name') or None
         qty        = int(body.get('qty', 1))
     except (KeyError, ValueError, json.JSONDecodeError):
         return JsonResponse({'ok': False, 'error': 'Datos inválidos'}, status=400)
@@ -188,16 +191,24 @@ def cart_add(request):
         price   = float(variant.final_price)
 
     cart = _get_cart(request)
-    key  = _cart_key(product_id, variant_id)
+    key  = _cart_key(product_id, variant_id, size_name)
 
-    # Primer add: la cantidad inicial debe cumplir el mínimo por modelo.
-    # Adds posteriores (ya hay qty en carrito) se validan via cart warnings.
-    min_qty = product.effective_min_qty
-    if key not in cart and qty < min_qty:
+    # Productos con grupo de tallas requieren selección explícita de talla.
+    if not size_name and product.category.size_group_id:
         return JsonResponse(
-            {'ok': False, 'error': f'Mínimo {min_qty} piezas para {product.name}'},
+            {'ok': False, 'error': 'Selecciona las tallas antes de agregar al carrito'},
             status=400,
         )
+
+    # Items de talla se agregan individualmente — el frontend ya validó el total.
+    # Items normales: primer add debe cumplir el mínimo por modelo.
+    if not size_name:
+        min_qty = product.effective_min_qty
+        if key not in cart and qty < min_qty:
+            return JsonResponse(
+                {'ok': False, 'error': f'Mínimo {min_qty} piezas para {product.name}'},
+                status=400,
+            )
 
     # Aplicar tier de volumen basado en cantidad total (existente + nueva)
     total_qty = cart.get(key, {}).get('quantity', 0) + qty
@@ -206,6 +217,8 @@ def cart_add(request):
     if tier:
         price = max(0.0, float(product.final_price) - float(tier.discount_amount))
 
+    variant_name = f'Talla {size_name}' if size_name else (variant.name if variant else '')
+
     if key in cart:
         cart[key]['quantity'] += qty
         cart[key]['price']     = price
@@ -213,7 +226,7 @@ def cart_add(request):
         cart[key] = {
             'product_id':   product_id,
             'variant_id':   variant_id,
-            'variant_name': variant.name if variant else '',
+            'variant_name': variant_name,
             'quantity':     qty,
             'price':        price,
         }
@@ -226,7 +239,7 @@ def cart_add(request):
             defaults={
                 'product_id':   product_id,
                 'variant_id':   variant_id,
-                'variant_name': variant.name if variant else '',
+                'variant_name': variant_name,
                 'quantity':     cart[key]['quantity'],
             }
         )

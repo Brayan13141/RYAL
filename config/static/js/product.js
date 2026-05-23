@@ -176,3 +176,93 @@ document.getElementById('addToCartBtn')?.addEventListener('click', async functio
 function capitalize(str) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
+
+
+// ─── Grid de tallas ──────────────────────────────────────────────────────────
+
+if (typeof SIZE_NAMES !== 'undefined' && SIZE_NAMES && SIZE_NAMES.length > 0) {
+  const _sizeQtys = {};
+  SIZE_NAMES.forEach(s => { _sizeQtys[s] = 0; });
+
+  function _slugifySize(s) {
+    return s.toLowerCase()
+      .replace(/[^\w\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  function _sizeTotalQty() {
+    return Object.values(_sizeQtys).reduce((a, b) => a + b, 0);
+  }
+
+  function _updateSizeTotal() {
+    const total = _sizeTotalQty();
+    const totalEl = document.getElementById('sizeTotalVal');
+    if (totalEl) totalEl.textContent = total;
+    const btn = document.getElementById('addSizesBtn');
+    if (!btn) return;
+    const minOk = SIZE_MIN_QTY <= 1 ? total > 0 : total >= SIZE_MIN_QTY;
+    btn.disabled = !minOk;
+  }
+
+  function changeSizeQty(sizeName, delta) {
+    _sizeQtys[sizeName] = Math.max(0, (_sizeQtys[sizeName] || 0) + delta);
+    const el = document.getElementById('sqty-' + _slugifySize(sizeName));
+    if (el) el.textContent = _sizeQtys[sizeName];
+    _updateSizeTotal();
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    _updateSizeTotal();
+
+    const btn = document.getElementById('addSizesBtn');
+    if (!btn) return;
+
+    btn.addEventListener('click', async function () {
+      const entries = Object.entries(_sizeQtys).filter(([, q]) => q > 0);
+      if (!entries.length) return;
+
+      const minOk = SIZE_MIN_QTY <= 1 ? true : _sizeTotalQty() >= SIZE_MIN_QTY;
+      if (!minOk) {
+        showToast(`Mínimo ${SIZE_MIN_QTY} piezas en total por modelo`, 'error');
+        return;
+      }
+
+      const original = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Agregando...';
+
+      for (const [sizeName, qty] of entries) {
+        const res = await fetch(URLS.cartAdd, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': CSRF_TOKEN,
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          body: JSON.stringify({ product_id: PRODUCT_ID, size_name: sizeName, qty }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          updateBadge(data.cart_count);
+        } else {
+          showToast(data.error || 'Error al agregar talla ' + sizeName, 'error');
+          btn.disabled = false;
+          btn.innerHTML = original;
+          return;
+        }
+      }
+
+      showToast(`${btn.dataset.productName || 'Producto'} agregado al carrito`);
+      openCart();
+      // Resetear cantidades
+      SIZE_NAMES.forEach(s => {
+        _sizeQtys[s] = 0;
+        const el = document.getElementById('sqty-' + _slugifySize(s));
+        if (el) el.textContent = '0';
+      });
+      _updateSizeTotal();
+      btn.innerHTML = original;
+    });
+  });
+}

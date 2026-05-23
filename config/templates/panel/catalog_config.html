@@ -220,6 +220,20 @@
               <div style="font-size:11px;color:#444;margin-top:2px;">
                 {{ sub.products.count }} prod{% if not sub.is_active %} · <span style="color:#ff6060;">Oculta</span>{% endif %}
               </div>
+              <!-- Grupo de tallas -->
+              <div style="margin-top:4px;display:flex;align-items:center;gap:6px">
+                <select class="p-input" style="font-size:11px;padding:2px 6px;max-width:160px;background:#111;color:#aaa;border:1px solid #2a2a2a;border-radius:4px"
+                        data-sub-pk="{{ sub.pk }}"
+                        onchange="setSizeGroup({{ sub.pk }}, this.value)">
+                  <option value="" {% if not sub.size_group %}selected{% endif %}>Sin tallas</option>
+                  {% for sg in size_groups %}
+                  <option value="{{ sg.pk }}" {% if sub.size_group_id == sg.pk %}selected{% endif %}>{{ sg.name }}</option>
+                  {% endfor %}
+                </select>
+                <span id="sg-badge-{{ sub.pk }}" style="font-size:10px;color:var(--pg);display:{% if sub.size_group %}inline{% else %}none{% endif %}">
+                  <i class="bi bi-rulers"></i>
+                </span>
+              </div>
             </div>
 
             <!-- Acciones imagen + nombre -->
@@ -779,5 +793,25 @@ document.querySelectorAll('.sub-list').forEach(function(list) {
     }
   });
 });
+
+/* ──────────────────────────────────────── Grupo de tallas ── */
+function setSizeGroup(pk, sgId) {
+  fetch('/panel/categorias/' + pk + '/size-group/', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+    body: JSON.stringify({size_group_id: sgId ? parseInt(sgId) : null})
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) {
+      const badge = document.getElementById('sg-badge-' + pk);
+      if (badge) badge.style.display = d.size_group_name ? 'inline' : 'none';
+      showToast(d.size_group_name ? 'Grupo «' + d.size_group_name + '» asignado.' : 'Grupo de tallas removido.', 'success');
+    } else {
+      showToast(d.error || 'Error al asignar grupo.', 'error');
+    }
+  })
+  .catch(() => showToast('Error de red.', 'error'));
+}
 </script>
 {% endblock %}

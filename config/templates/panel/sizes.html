@@ -1,0 +1,417 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Grupos de Tallas — Panel{% endblock %}
+{% block page_title %}Grupos de Tallas{% endblock %}
+
+{% block content %}
+<div style="padding:24px">
+
+  <!-- Header -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+    <h2 style="margin:0;font-size:1.1rem;color:var(--pt)">Grupos de tallas</h2>
+    <button class="btn-g" onclick="toggleNewForm()">
+      <i class="bi bi-plus-lg"></i> Nuevo grupo
+    </button>
+  </div>
+
+  <!-- Mensajes -->
+  {% if messages %}
+  {% for msg in messages %}
+  <div class="alert alert-danger alert-dismissible fade show mb-3" role="alert">
+    {{ msg }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  <!-- Formulario de creación (colapsado por defecto) -->
+  <div id="newFormWrap" style="display:{% if show_form %}block{% else %}none{% endif %};margin-bottom:24px">
+    <div class="card-panel" style="padding:20px">
+      <h3 style="font-size:.95rem;color:var(--pg);margin-bottom:16px">Nuevo grupo de tallas</h3>
+      {% if form_error %}<div class="alert alert-danger">{{ form_error }}</div>{% endif %}
+      <form method="post" action="{% url 'panel:size_group_create' %}" onsubmit="serializeSizes('newSizesList','sizes_json_new'); serializeConv('convHeadersNew','convRowsNew','conversion_json_new')">
+        {% csrf_token %}
+        <div class="mb-3">
+          <label class="form-label" style="color:var(--pt)">Nombre</label>
+          <input type="text" name="name" class="form-control p-input" value="{{ form_name|default:'' }}" placeholder="Ej: Gorras numéricas" required>
+        </div>
+
+        <!-- Tallas dinámicas -->
+        <div class="mb-3">
+          <label class="form-label" style="color:var(--pt)">Tallas</label>
+          <ul id="newSizesList" class="sizes-edit-list" style="list-style:none;padding:0;margin:0 0 8px">
+            {% if form_sizes %}
+              {% for s in form_sizes %}
+              <li class="size-row" style="display:flex;gap:6px;margin-bottom:4px">
+                <span class="drag-handle" style="cursor:grab;color:var(--pm);padding:4px 6px">⠿</span>
+                <input type="text" class="form-control p-input size-val" value="{{ s }}" placeholder="Ej: 7 1/2" style="max-width:160px">
+                <button type="button" class="btn-sm-panel btn-danger-sm" onclick="this.closest('li').remove()">×</button>
+              </li>
+              {% endfor %}
+            {% else %}
+              <li class="size-row" style="display:flex;gap:6px;margin-bottom:4px">
+                <span class="drag-handle" style="cursor:grab;color:var(--pm);padding:4px 6px">⠿</span>
+                <input type="text" class="form-control p-input size-val" placeholder="Ej: 7" style="max-width:160px">
+                <button type="button" class="btn-sm-panel btn-danger-sm" onclick="this.closest('li').remove()">×</button>
+              </li>
+            {% endif %}
+          </ul>
+          <button type="button" class="btn-sm-panel" onclick="addSizeRow('newSizesList')">
+            <i class="bi bi-plus"></i> Agregar talla
+          </button>
+          <input type="hidden" name="sizes_json" id="sizes_json_new" value="{{ form_sizes|default:'[]' }}">
+        </div>
+
+        <!-- Tabla de conversión (colapsada) -->
+        <details class="mb-3">
+          <summary style="cursor:pointer;color:var(--pm);font-size:.85rem;margin-bottom:8px">Tabla de conversión (opcional)</summary>
+          <div style="margin-top:10px">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+              <span style="color:var(--pm);font-size:.8rem">Columnas:</span>
+              <div id="convHeadersNew" style="display:flex;gap:6px;flex-wrap:wrap">
+                <input type="text" class="form-control p-input conv-header" placeholder="EU" style="width:80px">
+                <input type="text" class="form-control p-input conv-header" placeholder="MX" style="width:80px">
+                <input type="text" class="form-control p-input conv-header" placeholder="US" style="width:80px">
+              </div>
+              <button type="button" class="btn-sm-panel" onclick="addConvHeader('convHeadersNew','convRowsNew')">+ Col</button>
+            </div>
+            <div id="convRowsNew"></div>
+            <button type="button" class="btn-sm-panel" onclick="addConvRow('convHeadersNew','convRowsNew')">+ Fila</button>
+          </div>
+          <input type="hidden" name="conversion_json" id="conversion_json_new" value="">
+        </details>
+
+        <div style="display:flex;gap:8px">
+          <button type="submit" class="btn-g">Guardar</button>
+          <button type="button" class="btn-sm-panel" onclick="toggleNewForm()">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Tabla de grupos existentes -->
+  <div class="card-panel" style="overflow:hidden">
+    {% if groups %}
+    <table class="p-table" style="width:100%">
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Tallas</th>
+          <th style="text-align:center">Conversión</th>
+          <th style="text-align:center">Subcategorías</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in groups %}
+        <tr>
+          <td><strong style="color:var(--pt)">{{ g.name }}</strong></td>
+          <td style="color:var(--pm);font-size:.85rem;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            {{ g.sizes|join:" · " }}
+          </td>
+          <td style="text-align:center">
+            {% if g.conversion_table %}
+              <i class="bi bi-check-lg" style="color:#4caf50"></i>
+            {% else %}
+              <span style="color:var(--pm)">—</span>
+            {% endif %}
+          </td>
+          <td style="text-align:center">
+            <button class="btn-sm-panel" onclick="openAssign({{ g.pk }}, '{{ g.name|escapejs }}')"
+                    title="Asignar a subcategorías"
+                    style="display:inline-flex;align-items:center;gap:4px;">
+              <i class="bi bi-diagram-3"></i>
+              <span id="cat-count-{{ g.pk }}">{{ g.cat_count }}</span>
+            </button>
+          </td>
+          <td style="text-align:right;white-space:nowrap">
+            <a href="{% url 'panel:size_group_edit' g.pk %}" class="btn-sm-panel" title="Editar">
+              <i class="bi bi-pencil"></i>
+            </a>
+            <form method="post" action="{% url 'panel:size_group_delete' g.pk %}" style="display:inline"
+                  onsubmit="return confirm('¿Eliminar el grupo «{{ g.name }}»?')">
+              {% csrf_token %}
+              <button class="btn-sm-panel btn-danger-sm" title="Eliminar">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="padding:24px;color:var(--pm);text-align:center">
+      No hay grupos de tallas. <a href="#" onclick="toggleNewForm();return false" style="color:var(--pg)">Crear uno</a>.
+    </p>
+    {% endif %}
+  </div>
+
+</div>
+
+
+<!-- ── Modal: asignar subcategorías ── -->
+<div id="assignModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);
+     z-index:2000;align-items:center;justify-content:center;padding:16px;">
+  <div style="background:#111;border:1px solid #222;border-radius:10px;
+              width:520px;max-width:100%;max-height:85vh;display:flex;flex-direction:column;">
+    <!-- header -->
+    <div style="padding:14px 18px;border-bottom:1px solid #1a1a1a;
+                display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+      <span style="font-size:13px;font-weight:600;color:#ddd;">
+        Asignar grupo <span id="assignGroupName" style="color:var(--pg)"></span>
+      </span>
+      <button onclick="closeAssign()"
+              style="background:none;border:none;color:#555;cursor:pointer;font-size:20px;line-height:1;
+                     padding:0 4px;transition:color .12s;"
+              onmouseover="this.style.color='#ddd'" onmouseout="this.style.color='#555'">×</button>
+    </div>
+    <!-- body -->
+    <div style="padding:16px;overflow-y:auto;flex:1;">
+      <p style="color:#555;font-size:12px;margin:0 0 14px;">
+        Marca las subcategorías que usarán este grupo. Desmarcar quita la asignación.
+      </p>
+      <div id="assignSubcatList"></div>
+    </div>
+    <!-- footer -->
+    <div style="padding:12px 18px;border-top:1px solid #1a1a1a;display:flex;
+                justify-content:flex-end;gap:8px;flex-shrink:0;">
+      <button onclick="closeAssign()"
+              style="background:transparent;border:1px solid #333;color:#888;border-radius:6px;
+                     padding:7px 16px;font-size:13px;cursor:pointer;">
+        Cancelar
+      </button>
+      <button id="assignSaveBtn" onclick="saveAssign()"
+              style="background:var(--pg);border:none;color:#000;border-radius:6px;
+                     padding:7px 16px;font-size:13px;cursor:pointer;font-weight:600;">
+        Guardar
+      </button>
+    </div>
+  </div>
+</div>
+
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script>
+const CSRF = '{{ csrf_token }}';
+
+// Datos de subcategorías (pk, nombre, cat padre, size_group_id actual)
+const SUBCATS = [
+  {% for sub in subcats %}
+  { pk: {{ sub.pk }}, name: '{{ sub.name|escapejs }}', parent: '{{ sub.parent.name|escapejs }}', sgId: {{ sub.size_group_id|default:'null' }} }{% if not forloop.last %},{% endif %}
+  {% endfor %}
+];
+
+/* ── Formulario nuevo grupo ── */
+function toggleNewForm() {
+  const w = document.getElementById('newFormWrap');
+  w.style.display = w.style.display === 'none' ? 'block' : 'none';
+}
+
+function addSizeRow(listId) {
+  const ul = document.getElementById(listId);
+  const li = document.createElement('li');
+  li.className = 'size-row';
+  li.style.cssText = 'display:flex;gap:6px;margin-bottom:4px';
+  li.innerHTML = `
+    <span class="drag-handle" style="cursor:grab;color:var(--pm);padding:4px 6px">⠿</span>
+    <input type="text" class="form-control p-input size-val" placeholder="Ej: 7 1/2" style="max-width:160px">
+    <button type="button" class="btn-sm-panel btn-danger-sm" onclick="this.closest('li').remove()">×</button>
+  `;
+  ul.appendChild(li);
+}
+
+function serializeSizes(listId, hiddenId) {
+  const sizes = [...document.getElementById(listId).querySelectorAll('.size-val')]
+    .map(i => i.value.trim()).filter(Boolean);
+  document.getElementById(hiddenId).value = JSON.stringify(sizes);
+}
+
+function addConvHeader(headersId, rowsId) {
+  const h = document.createElement('input');
+  h.type = 'text'; h.className = 'form-control p-input conv-header';
+  h.placeholder = 'Col'; h.style.width = '80px';
+  document.getElementById(headersId).appendChild(h);
+  document.getElementById(rowsId).querySelectorAll('.conv-row').forEach(row => {
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.className = 'form-control p-input conv-cell';
+    inp.style.width = '80px';
+    row.querySelector('.conv-cells').appendChild(inp);
+  });
+}
+
+function addConvRow(headersId, rowsId) {
+  const colCount = document.getElementById(headersId).querySelectorAll('.conv-header').length || 3;
+  const div = document.createElement('div');
+  div.className = 'conv-row'; div.style.cssText = 'display:flex;gap:6px;margin-bottom:4px;align-items:center';
+  let cells = '';
+  for (let i = 0; i < colCount; i++) cells += `<input type="text" class="form-control p-input conv-cell" style="width:80px">`;
+  div.innerHTML = `<div class="conv-cells" style="display:flex;gap:6px">${cells}</div>
+    <button type="button" class="btn-sm-panel btn-danger-sm" onclick="this.closest('.conv-row').remove()">×</button>`;
+  document.getElementById(rowsId).appendChild(div);
+}
+
+function serializeConv(headersId, rowsId, hiddenId) {
+  const headers = [...document.getElementById(headersId).querySelectorAll('.conv-header')]
+    .map(i => i.value.trim()).filter(Boolean);
+  if (!headers.length) { document.getElementById(hiddenId).value = ''; return; }
+  const rows = [...document.getElementById(rowsId).querySelectorAll('.conv-row')].map(row =>
+    [...row.querySelectorAll('.conv-cell')].map(i => i.value.trim())
+  ).filter(r => r.some(Boolean));
+  if (!rows.length) { document.getElementById(hiddenId).value = ''; return; }
+  document.getElementById(hiddenId).value = JSON.stringify({ headers, rows });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const list = document.getElementById('newSizesList');
+  if (list) Sortable.create(list, { handle: '.drag-handle', animation: 150 });
+});
+
+/* ── Modal asignar ── */
+let _currentGroupPk = null;
+let _originalChecks = {};
+
+function openAssign(groupPk, groupName) {
+  _currentGroupPk = groupPk;
+  document.getElementById('assignGroupName').textContent = '«' + groupName + '»';
+
+  // Construir lista de subcategorías agrupadas por categoría padre
+  const byParent = {};
+  SUBCATS.forEach(s => {
+    if (!byParent[s.parent]) byParent[s.parent] = [];
+    byParent[s.parent].push(s);
+  });
+
+  let html = '';
+  let parentIdx = 0;
+  Object.entries(byParent).forEach(([parent, subs]) => {
+    const allChecked = subs.every(s => s.sgId === groupPk);
+    const someChecked = subs.some(s => s.sgId === groupPk);
+    const parentId = 'parent-chk-' + parentIdx++;
+
+    subs.forEach(s => { _originalChecks[s.pk] = s.sgId === groupPk; });
+
+    html += `<div style="margin-bottom:14px;">
+      <label style="display:flex;align-items:center;gap:8px;padding:6px 10px;
+                    background:#0a0a0a;border:1px solid #222;border-radius:6px;
+                    margin-bottom:6px;cursor:pointer;">
+        <input type="checkbox" id="${parentId}"
+               ${allChecked ? 'checked' : ''}
+               ${!allChecked && someChecked ? 'data-indeterminate="1"' : ''}
+               style="accent-color:var(--pg);width:15px;height:15px;flex-shrink:0;cursor:pointer;"
+               onchange="toggleParentCat(this, '${parent.replace(/'/g,"\\'")}')">
+        <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+                     color:#aaa;font-weight:600;">${parent}</span>
+        <span style="font-size:10px;color:#555;margin-left:auto;">${subs.length} subcat${subs.length !== 1 ? 's' : ''}</span>
+      </label>`;
+
+    subs.forEach(s => {
+      const checked = s.sgId === groupPk;
+      html += `<label style="display:flex;align-items:center;gap:10px;padding:7px 10px 7px 28px;
+                              background:#0d0d0d;border:1px solid #1a1a1a;border-radius:6px;
+                              margin-bottom:4px;cursor:pointer;transition:border-color .12s;"
+                      onmouseover="this.style.borderColor='#333'"
+                      onmouseout="this.style.borderColor='#1a1a1a'">
+        <input type="checkbox" id="asgn-${s.pk}" data-sub-pk="${s.pk}" data-parent="${parent.replace(/"/g,'&quot;')}"
+               ${checked ? 'checked' : ''}
+               style="accent-color:var(--pg);width:15px;height:15px;flex-shrink:0;cursor:pointer;"
+               onchange="syncParentChk(this)">
+        <span style="font-size:13px;color:#ddd;">${s.name}</span>
+        ${s.sgId && s.sgId !== groupPk
+          ? `<span style="font-size:10px;color:#f59e0b;margin-left:auto;">tiene otro grupo</span>`
+          : ''}
+      </label>`;
+    });
+    html += '</div>';
+  });
+
+  if (!html) html = '<p style="color:#555;font-size:13px;">No hay subcategorías disponibles.</p>';
+
+  document.getElementById('assignSubcatList').innerHTML = html;
+
+  // Inicializar estado indeterminate (no soportado por atributo HTML)
+  document.querySelectorAll('#assignSubcatList input[data-indeterminate="1"]')
+    .forEach(el => { el.indeterminate = true; });
+
+  document.getElementById('assignModal').style.display = 'flex';
+}
+
+function closeAssign() {
+  document.getElementById('assignModal').style.display = 'none';
+  _currentGroupPk = null;
+  _originalChecks = {};
+}
+
+document.getElementById('assignModal').addEventListener('click', function(e) {
+  if (e.target === this) closeAssign();
+});
+
+function toggleParentCat(parentChk, parentName) {
+  document.querySelectorAll(`#assignSubcatList input[data-parent="${parentName}"]`)
+    .forEach(cb => { cb.checked = parentChk.checked; });
+}
+
+function syncParentChk(subChk) {
+  const parentName = subChk.dataset.parent;
+  const siblings = [...document.querySelectorAll(`#assignSubcatList input[data-parent="${parentName}"]`)];
+  const allChk  = siblings.every(cb => cb.checked);
+  const someChk = siblings.some(cb => cb.checked);
+  // Encontrar el checkbox del padre (buscar por el label de texto)
+  document.querySelectorAll('#assignSubcatList input[id^="parent-chk-"]').forEach(pChk => {
+    const label = pChk.closest('label');
+    if (label && label.querySelector('span')?.textContent.trim().toUpperCase() === parentName.toUpperCase()) {
+      pChk.checked = allChk;
+      pChk.indeterminate = !allChk && someChk;
+    }
+  });
+}
+
+async function saveAssign() {
+  const btn = document.getElementById('assignSaveBtn');
+  btn.disabled = true;
+  btn.textContent = 'Guardando…';
+
+  const checkboxes = document.querySelectorAll('#assignSubcatList input[type=checkbox]');
+  const promises = [];
+
+  checkboxes.forEach(cb => {
+    const subPk  = parseInt(cb.dataset.subPk);
+    const nowChk = cb.checked;
+    const wasChk = _originalChecks[subPk];
+    if (nowChk === wasChk) return;  // sin cambio
+
+    const sgId = nowChk ? _currentGroupPk : null;
+    promises.push(
+      fetch('/panel/categorias/' + subPk + '/size-group/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+        body: JSON.stringify({size_group_id: sgId})
+      }).then(r => r.json()).then(d => ({ subPk, ok: d.ok, sgId }))
+    );
+  });
+
+  if (!promises.length) { closeAssign(); btn.disabled = false; btn.textContent = 'Guardar'; return; }
+
+  const results = await Promise.all(promises);
+  const allOk = results.every(r => r.ok);
+
+  if (allOk) {
+    // Actualizar datos locales (SUBCATS) para reflejar los cambios
+    results.forEach(({ subPk, sgId }) => {
+      const sub = SUBCATS.find(s => s.pk === subPk);
+      if (sub) sub.sgId = sgId;
+    });
+    // Actualizar contador en la tabla
+    const assigned = SUBCATS.filter(s => s.sgId === _currentGroupPk).length;
+    const countEl = document.getElementById('cat-count-' + _currentGroupPk);
+    if (countEl) countEl.textContent = assigned;
+
+    closeAssign();
+    showToast('Asignaciones guardadas.', 'success');
+  } else {
+    showToast('Hubo errores al guardar algunas asignaciones.', 'error');
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Guardar';
+}
+</script>
+{% endblock %}

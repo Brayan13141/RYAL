@@ -20,6 +20,10 @@ class Category(models.Model):
     is_active       = models.BooleanField(default=True)
     display_order = models.PositiveIntegerField(default=0)
     banner_text   = models.TextField(blank=True)
+    size_group    = models.ForeignKey(
+        'SizeGroup', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='categories',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -266,6 +270,21 @@ class VolumeTier(models.Model):
 
     def __str__(self):
         return f'{self.category.name} — {self.min_qty}+ pzs → -${self.discount_amount}'
+
+
+class SizeGroup(models.Model):
+    name             = models.CharField(max_length=100)
+    sizes            = models.JSONField()
+    conversion_table = models.JSONField(null=True, blank=True)
+    created_at       = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = 'Grupo de tallas'
+        verbose_name_plural = 'Grupos de tallas'
+
+    def __str__(self):
+        return self.name
 
 
 class Section(models.Model):

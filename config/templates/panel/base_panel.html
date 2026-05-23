@@ -359,6 +359,12 @@
         <i class="bi bi-layout-text-window-reverse"></i>
         <span class="nav-label">Secciones</span>
       </a>
+      <a href="{% url 'panel:sizes_list' %}"
+         title="Grupos de tallas"
+         class="{% if 'size' in request.resolver_match.url_name %}on{% endif %}">
+        <i class="bi bi-rulers"></i>
+        <span class="nav-label">Tallas</span>
+      </a>
     </nav>
 
     <div class="p-sidebar-foot">

@@ -113,7 +113,71 @@
       </div>
       {% endif %}
 
-      <!-- Variantes -->
+      {% if size_group %}
+      <!-- ── Guía de tallas (conversión) ── -->
+      {% if size_group.conversion_table %}
+      <details class="pd-size-guide">
+        <summary>
+          <i class="bi bi-rulers"></i> Guía de tallas
+          <i class="bi bi-chevron-down pd-guide-chevron"></i>
+        </summary>
+        <div class="pd-guide-table-wrap">
+          <table class="pd-guide-table">
+            <thead>
+              <tr>
+                {% for h in size_group.conversion_table.headers %}
+                <th>{{ h }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in size_group.conversion_table.rows %}
+              <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+      {% endif %}
+
+      <!-- ── Grid de tallas ── -->
+      {% if product.status == 'available' %}
+      <div class="pd-size-grid">
+        <div class="pd-size-grid-header">
+          <span class="pd-qty-label">Selecciona tallas</span>
+          {% if product.effective_min_qty > 1 %}
+          <span class="pd-min-badge">Mín. {{ product.effective_min_qty }} pzs por modelo</span>
+          {% endif %}
+        </div>
+        <div id="sizeRows">
+          {% for s in size_group.sizes %}
+          <div class="size-row-item">
+            <span class="size-row-label">{{ s }}</span>
+            <div class="qty-control qty-control--sm">
+              <button class="qty-btn" type="button" onclick="changeSizeQty('{{ s|escapejs }}', -1)" aria-label="Reducir">−</button>
+              <span class="qty-val" id="sqty-{{ s|slugify }}">0</span>
+              <button class="qty-btn" type="button" onclick="changeSizeQty('{{ s|escapejs }}', 1)" aria-label="Aumentar">+</button>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="pd-size-total">
+          Total: <strong id="sizeTotalVal">0</strong> piezas
+        </div>
+        <button class="btn-add-cart" id="addSizesBtn" disabled
+                data-product-id="{{ product.pk }}" data-product-name="{{ product.name }}">
+          <i class="bi bi-cart3"></i>
+          Agregar al carrito · $<span id="ctaPrice">{{ product.final_price|floatformat:0 }}</span> MXN
+        </button>
+      </div>
+      {% elif product.status == 'sold_out' %}
+      <button class="btn-add-cart" disabled>Agotado</button>
+      {% else %}
+      <button class="btn-add-cart" disabled>Próximamente</button>
+      {% endif %}
+
+      {% else %}
+      <!-- Variantes (comportamiento original) -->
       {% if product.variants.exists %}
       <div class="pd-variants" id="variantsSection">
         <div id="variantControls"></div>
@@ -144,6 +208,7 @@
       <button class="btn-add-cart" disabled>Agotado</button>
       {% else %}
       <button class="btn-add-cart" disabled>Próximamente</button>
+      {% endif %}
       {% endif %}
 
       <!-- Feature pills -->
@@ -316,6 +381,55 @@
   .ryal-breadcrumb .breadcrumb-item+.breadcrumb-item::before {
     color: rgba(255, 255, 255, 0.25);
   }
+
+  /* ── Guía de tallas ───────────────────────────────────────────────────── */
+  .pd-size-guide {
+    margin: 16px 0 8px;
+    border: 1px solid #222;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .pd-size-guide summary {
+    padding: 10px 14px;
+    cursor: pointer;
+    color: var(--gold);
+    font-size: .85rem;
+    font-weight: 600;
+    letter-spacing: .04em;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #111;
+  }
+  .pd-size-guide summary::-webkit-details-marker { display: none; }
+  .pd-guide-chevron { margin-left: auto; transition: transform .2s; }
+  .pd-size-guide[open] .pd-guide-chevron { transform: rotate(180deg); }
+  .pd-guide-table-wrap { overflow-x: auto; padding: 12px 14px; background: #0d0d0d; }
+  .pd-guide-table { border-collapse: collapse; font-size: .82rem; }
+  .pd-guide-table th, .pd-guide-table td { padding: 6px 18px 6px 0; text-align: center; }
+  .pd-guide-table th { color: var(--gold); border-bottom: 1px solid #222; font-weight: 600; }
+  .pd-guide-table td { color: #ccc; border-bottom: 1px solid #181818; }
+
+  /* ── Grid de tallas ───────────────────────────────────────────────────── */
+  .pd-size-grid { margin: 12px 0; }
+  .pd-size-grid-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .size-row-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid #1a1a1a;
+  }
+  .size-row-label { font-size: .92rem; color: #ddd; min-width: 70px; }
+  .qty-control--sm .qty-btn { width: 28px; height: 28px; font-size: .85rem; }
+  .qty-control--sm .qty-val { font-size: .9rem; min-width: 28px; }
+  .pd-size-total {
+    margin: 12px 0 8px;
+    font-size: .85rem;
+    color: #888;
+  }
+  .pd-size-total strong { color: var(--gold); font-size: 1rem; }
 </style>
 {% endblock %}
 
@@ -327,9 +441,11 @@
   const MIN_QTY = {{ product.effective_min_qty }};
   const QTY_STEP = {{ qty_step }};
   const PRODUCT_BASE_PRICE = {{ base_final_price }};
+  const SIZE_NAMES = {{ sizes_json|safe }};
+  const SIZE_MIN_QTY = {{ product.effective_min_qty }};
   const PRODUCT_TIERS = {{ tiers_json| safe }};
 </script>
-<script src="{% static 'js/product.js' %}"></script>
+<script src="{% static 'js/product.js' %}?v=2"></script>
 <script>
   function toggleDesc(toggle) {
     toggle.classList.toggle('open');

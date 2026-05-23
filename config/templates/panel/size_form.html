@@ -1,0 +1,166 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}{% if group.pk %}Editar{% else %}Nuevo{% endif %} Grupo de Tallas — Panel{% endblock %}
+{% block page_title %}{% if group.pk %}Editar grupo{% else %}Nuevo grupo{% endif %}{% endblock %}
+
+{% block content %}
+<div style="padding:24px;max-width:680px">
+
+  <div style="margin-bottom:16px">
+    <a href="{% url 'panel:sizes_list' %}" style="color:var(--pm);font-size:.85rem">
+      <i class="bi bi-arrow-left"></i> Grupos de tallas
+    </a>
+  </div>
+
+  <div class="card-panel" style="padding:24px">
+    <h2 style="font-size:1rem;color:var(--pg);margin-bottom:20px">
+      {% if group.pk %}Editar: {{ group.name }}{% else %}Nuevo grupo de tallas{% endif %}
+    </h2>
+
+    {% if form_error %}
+    <div class="alert alert-danger">{{ form_error }}</div>
+    {% endif %}
+
+    <form method="post"
+          onsubmit="serializeSizes(); serializeConv()">
+      {% csrf_token %}
+
+      <!-- Nombre -->
+      <div class="mb-4">
+        <label class="form-label" style="color:var(--pt)">Nombre</label>
+        <input type="text" name="name" class="form-control p-input"
+               value="{{ group.name|default:'' }}"
+               placeholder="Ej: Gorras numéricas" required>
+      </div>
+
+      <!-- Tallas -->
+      <div class="mb-4">
+        <label class="form-label" style="color:var(--pt)">Tallas</label>
+        <ul id="sizesList" style="list-style:none;padding:0;margin:0 0 8px">
+          {% if group.sizes %}
+            {% for s in group.sizes %}
+            <li class="size-row" style="display:flex;gap:6px;margin-bottom:4px">
+              <span class="drag-handle" style="cursor:grab;color:var(--pm);padding:4px 6px">⠿</span>
+              <input type="text" class="form-control p-input size-val" value="{{ s }}" style="max-width:160px">
+              <button type="button" class="btn-sm-panel btn-danger-sm" onclick="this.closest('li').remove()">×</button>
+            </li>
+            {% endfor %}
+          {% else %}
+            <li class="size-row" style="display:flex;gap:6px;margin-bottom:4px">
+              <span class="drag-handle" style="cursor:grab;color:var(--pm);padding:4px 6px">⠿</span>
+              <input type="text" class="form-control p-input size-val" placeholder="Ej: 7" style="max-width:160px">
+              <button type="button" class="btn-sm-panel btn-danger-sm" onclick="this.closest('li').remove()">×</button>
+            </li>
+          {% endif %}
+        </ul>
+        <button type="button" class="btn-sm-panel" onclick="addSizeRow()">
+          <i class="bi bi-plus"></i> Agregar talla
+        </button>
+        <input type="hidden" name="sizes_json" id="sizes_json">
+      </div>
+
+      <!-- Tabla de conversión -->
+      <details class="mb-4" {% if group.conversion_table %}open{% endif %}>
+        <summary style="cursor:pointer;color:var(--pm);font-size:.9rem;margin-bottom:12px">
+          Tabla de conversión <span style="font-size:.8rem">(opcional)</span>
+        </summary>
+        <div style="margin-top:10px;padding:16px;background:var(--pb2);border-radius:6px">
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+            <span style="color:var(--pm);font-size:.8rem;min-width:70px">Columnas:</span>
+            <div id="convHeaders" style="display:flex;gap:6px;flex-wrap:wrap">
+              {% if group.conversion_table %}
+                {% for h in group.conversion_table.headers %}
+                <input type="text" class="form-control p-input conv-header" value="{{ h }}" style="width:80px">
+                {% endfor %}
+              {% else %}
+                <input type="text" class="form-control p-input conv-header" placeholder="EU" style="width:80px">
+                <input type="text" class="form-control p-input conv-header" placeholder="MX" style="width:80px">
+                <input type="text" class="form-control p-input conv-header" placeholder="US" style="width:80px">
+              {% endif %}
+            </div>
+            <button type="button" class="btn-sm-panel" onclick="addConvHeader()">+ Col</button>
+          </div>
+          <div id="convRows">
+            {% if group.conversion_table %}
+              {% for row in group.conversion_table.rows %}
+              <div class="conv-row" style="display:flex;gap:6px;margin-bottom:4px;align-items:center">
+                <div class="conv-cells" style="display:flex;gap:6px">
+                  {% for cell in row %}
+                  <input type="text" class="form-control p-input conv-cell" value="{{ cell }}" style="width:80px">
+                  {% endfor %}
+                </div>
+                <button type="button" class="btn-sm-panel btn-danger-sm" onclick="this.closest('.conv-row').remove()">×</button>
+              </div>
+              {% endfor %}
+            {% endif %}
+          </div>
+          <button type="button" class="btn-sm-panel" style="margin-top:6px" onclick="addConvRow()">+ Fila</button>
+        </div>
+        <input type="hidden" name="conversion_json" id="conversion_json" value="">
+      </details>
+
+      <div style="display:flex;gap:10px">
+        <button type="submit" class="btn-g">Guardar cambios</button>
+        <a href="{% url 'panel:sizes_list' %}" class="btn-sm-panel" style="padding:8px 16px">Cancelar</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script>
+Sortable.create(document.getElementById('sizesList'), { handle: '.drag-handle', animation: 150 });
+
+function addSizeRow() {
+  const ul = document.getElementById('sizesList');
+  const li = document.createElement('li');
+  li.className = 'size-row';
+  li.style.cssText = 'display:flex;gap:6px;margin-bottom:4px';
+  li.innerHTML = `
+    <span class="drag-handle" style="cursor:grab;color:var(--pm);padding:4px 6px">⠿</span>
+    <input type="text" class="form-control p-input size-val" placeholder="Ej: 7 1/2" style="max-width:160px">
+    <button type="button" class="btn-sm-panel btn-danger-sm" onclick="this.closest('li').remove()">×</button>
+  `;
+  ul.appendChild(li);
+}
+
+function serializeSizes() {
+  const sizes = [...document.getElementById('sizesList').querySelectorAll('.size-val')]
+    .map(i => i.value.trim()).filter(Boolean);
+  document.getElementById('sizes_json').value = JSON.stringify(sizes);
+}
+
+function addConvHeader() {
+  const h = document.createElement('input');
+  h.type = 'text'; h.className = 'form-control p-input conv-header';
+  h.placeholder = 'Col'; h.style.width = '80px';
+  document.getElementById('convHeaders').appendChild(h);
+  document.getElementById('convRows').querySelectorAll('.conv-row').forEach(row => {
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.className = 'form-control p-input conv-cell'; inp.style.width = '80px';
+    row.querySelector('.conv-cells').appendChild(inp);
+  });
+}
+
+function addConvRow() {
+  const colCount = document.getElementById('convHeaders').querySelectorAll('.conv-header').length || 3;
+  const div = document.createElement('div');
+  div.className = 'conv-row'; div.style.cssText = 'display:flex;gap:6px;margin-bottom:4px;align-items:center';
+  let cells = '';
+  for (let i = 0; i < colCount; i++) cells += `<input type="text" class="form-control p-input conv-cell" style="width:80px">`;
+  div.innerHTML = `<div class="conv-cells" style="display:flex;gap:6px">${cells}</div>
+    <button type="button" class="btn-sm-panel btn-danger-sm" onclick="this.closest('.conv-row').remove()">×</button>`;
+  document.getElementById('convRows').appendChild(div);
+}
+
+function serializeConv() {
+  const headers = [...document.getElementById('convHeaders').querySelectorAll('.conv-header')]
+    .map(i => i.value.trim()).filter(Boolean);
+  if (!headers.length) { document.getElementById('conversion_json').value = ''; return; }
+  const rows = [...document.getElementById('convRows').querySelectorAll('.conv-row')].map(row =>
+    [...row.querySelectorAll('.conv-cell')].map(i => i.value.trim())
+  ).filter(r => r.some(Boolean));
+  if (!rows.length) { document.getElementById('conversion_json').value = ''; return; }
+  document.getElementById('conversion_json').value = JSON.stringify({ headers, rows });
+}
+</script>
+{% endblock %}

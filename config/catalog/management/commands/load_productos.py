@@ -132,8 +132,8 @@ class Command(BaseCommand):
                             default='modaverse')
         parser.add_argument('--recategorize', action='store_true',
                             help='Re-categoriza productos actualmente en categoría General usando el JSON')
-        parser.add_argument('--fix-urls', action='store_true',
-                            help='Actualiza supplier_url de productos modaverse ya importados al nuevo formato (categoryId)')
+        parser.add_argument('--fix-urls', '--fix-proinfo-urls', action='store_true',
+                            help='Actualiza supplier_url de productos modaverse al formato directo #/proinfo/{pid}')
 
     def handle(self, *args, **options):
         no_images = options['no_images']
@@ -315,11 +315,16 @@ class Command(BaseCommand):
 
             sku = f"RYL-{prefix}-{prefix_counters[prefix]:03d}"
 
+            product_id = p.get('sku', '')  # JSON guarda productId en 'sku'
+            supplier_url = (
+                f"https://www.modaverse.vip/#/proinfo/{product_id}"
+                if product_id else p.get('url', '')
+            )
             created = self._create_product(
                 sku=sku, name=name, category=cat_obj,
                 base_price=base,
                 description=p.get('description', ''),
-                supplier_url=p.get('url', ''),
+                supplier_url=supplier_url,
                 images=p.get('images', []),
                 tag=tag_nuevo,
                 no_images=no_images,
@@ -498,17 +503,19 @@ class Command(BaseCommand):
         total = productos_general.count()
         self.stdout.write(f'  Productos en General: {total}')
 
+        # Extrae pid de cualquier formato de supplier_url modaverse:
+        # #/proinfo/{pid}  |  #/product/{catId}?pid={pid}  |  #/product/{numericPid}
         import re as _re
-        _old_pid_re = _re.compile(r'#/product/(\d{15,})')
+        _pid_re = _re.compile(r'#/proinfo/(\d{15,})|[?&]pid=(\d{15,})|#/product/(\d{15,})$')
 
         moved = not_found = 0
         for product in productos_general:
             info = url_to_cat.get(product.supplier_url)
             if not info:
-                # Fallback: extraer pid del URL (ambos formatos)
-                m = _old_pid_re.search(product.supplier_url or '')
+                m = _pid_re.search(product.supplier_url or '')
                 if m:
-                    info = pid_to_cat.get(m.group(1))
+                    pid = m.group(1) or m.group(2) or m.group(3)
+                    info = pid_to_cat.get(pid)
             if not info:
                 not_found += 1
                 continue
@@ -532,54 +539,46 @@ class Command(BaseCommand):
             self.style.SUCCESS(f'  Movidos: {moved}, sin categoría disponible: {not_found}')
         )
 
-    # ── Actualizar supplier_url de productos modaverse al nuevo formato ────────
+    # ── Actualizar supplier_url de productos modaverse al formato #/proinfo/{pid} ─
 
     def _fix_modaverse_urls(self):
-        self.stdout.write('\n── Actualizando supplier_url de productos modaverse ──')
-        json_path = Path(__file__).resolve().parents[4] / 'scraped_modaverse.json'
-        if not json_path.exists():
-            self.stdout.write(self.style.WARNING(f'  ⚠ No se encontró {json_path}'))
-            return
+        self.stdout.write('\n── Actualizando supplier_url de modaverse → #/proinfo/{pid} ──')
 
-        with open(json_path, encoding='utf-8') as f:
-            data = json.load(f)
+        # Formato 1: #/product/{numericPid}  (sin categoryId, sku numérico)
+        _pat_numeric = re.compile(r'#/product/(\d{15,})(?:[?#]|$)')
+        # Formato 2: #/product/{catId}?pid={numericPid}
+        _pat_pid_param = re.compile(r'[?&]pid=(\d{15,})')
+        # Formato 3: #/product/PR{...}  (sku con prefijo PR — el más común)
+        _pat_pr = re.compile(r'#/product/(PR\w+)')
 
-        # Mapa: pid → cat_id (del JSON regenerado con el nuevo formato)
-        pid_to_cat = {}
-        for p in data.get('products', []):
-            pid = p.get('sku', '')    # el JSON guarda productId en sku
-            cat = p.get('category_id', '')
-            if pid and cat:
-                pid_to_cat[pid] = cat
+        to_update = []
+        already = no_match = 0
 
-        self.stdout.write(f'  {len(pid_to_cat)} productos en JSON')
-
-        # Los productos ya en DB con URLs antiguas tienen el pid al final:
-        # https://www.modaverse.vip/#/product/{numericPid}
-        import re as _re
-        old_pattern = _re.compile(r'#/product/(\d{15,})$')
-
-        updated = skipped = 0
         for product in Product.objects.filter(
-            supplier_url__contains='modaverse.vip/#/product/'
+            supplier_url__contains='modaverse.vip'
         ).only('pk', 'supplier_url'):
-            m = old_pattern.search(product.supplier_url)
-            if not m:
-                skipped += 1
+            url = product.supplier_url or ''
+
+            if '#/proinfo/' in url:
+                already += 1
                 continue
+
+            m = _pat_numeric.search(url) or _pat_pid_param.search(url) or _pat_pr.search(url)
+            if not m:
+                no_match += 1
+                continue
+
             pid = m.group(1)
-            cat_id = pid_to_cat.get(pid, '')
-            if cat_id:
-                new_url = f"https://www.modaverse.vip/#/product/{cat_id}?pid={pid}"
-            else:
-                new_url = product.supplier_url  # sin cambio si no hay cat_id
-            if new_url != product.supplier_url:
+            new_url = f"https://www.modaverse.vip/#/proinfo/{pid}"
+            if new_url != url:
                 product.supplier_url = new_url
-                product.save(update_fields=['supplier_url'])
-                updated += 1
+                to_update.append(product)
+
+        if to_update:
+            Product.objects.bulk_update(to_update, ['supplier_url'], batch_size=500)
 
         self.stdout.write(self.style.SUCCESS(
-            f'  ✓ Actualizados: {updated}  sin cambio: {skipped}'
+            f'  ✓ Actualizados: {len(to_update)}  ya en proinfo: {already}  sin match: {no_match}'
         ))
 
     # ── Helper genérico ────────────────────────────────────────────────────────

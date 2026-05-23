@@ -211,8 +211,9 @@ async function updateCartItem(key, qty) {
 function cardQuickAdd(btn) {
   const productId   = btn.dataset.productId;
   const hasVariants = btn.dataset.hasVariants === 'true';
+  const hasSizes    = btn.dataset.hasSizes === 'true';
   const minQty      = parseInt(btn.dataset.minQty || '1', 10);
-  if (hasVariants || minQty > 1) {
+  if (hasVariants || hasSizes || minQty > 1) {
     window.location.href = `/catalogo/${productId}/`;
     return;
   }

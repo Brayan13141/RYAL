@@ -14,7 +14,7 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from catalog.models import Category, HeroSlide, Product, ProductImage, Section, SiteConfig, VolumeTier
+from catalog.models import Category, HeroSlide, Product, ProductImage, Section, SiteConfig, SizeGroup, VolumeTier
 from orders.models import Order, OrderItem
 
 _LOGIN = '/accounts/login/'
@@ -624,13 +624,14 @@ def product_image_set_cover(request, img_pk):
 def catalog_config(request):
     top_cats = (Category.objects
                 .filter(parent=None)
-                .prefetch_related('subcategories')
+                .prefetch_related('subcategories__size_group')
                 .order_by('-is_active', 'display_order', 'name'))
     cats_data = []
     for cat in top_cats:
-        subs = list(cat.subcategories.all().order_by('-is_active', 'display_order', 'name'))
+        subs = list(cat.subcategories.all().select_related('size_group').order_by('-is_active', 'display_order', 'name'))
         cats_data.append({'cat': cat, 'subs': subs})
-    return render(request, 'panel/catalog_config.html', {'cats_data': cats_data})
+    size_groups = list(SizeGroup.objects.order_by('name'))
+    return render(request, 'panel/catalog_config.html', {'cats_data': cats_data, 'size_groups': size_groups})
 
 
 @_staff
@@ -1097,3 +1098,104 @@ def hero_slide_toggle(request, pk):
     slide.is_active = not slide.is_active
     slide.save(update_fields=['is_active'])
     return JsonResponse({'ok': True, 'is_active': slide.is_active})
+
+
+# ─── Grupos de tallas ────────────────────────────────────────────────────────
+
+@_staff
+def sizes_list(request):
+    groups = SizeGroup.objects.annotate(cat_count=Count('categories')).order_by('name')
+    subcats = list(
+        Category.objects
+        .filter(parent__isnull=False)
+        .select_related('parent', 'size_group')
+        .order_by('parent__name', 'name')
+    )
+    return render(request, 'panel/sizes.html', {'groups': groups, 'subcats': subcats})
+
+
+@_staff
+def size_group_create(request):
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        sizes_raw = request.POST.get('sizes_json', '[]')
+        conv_raw = request.POST.get('conversion_json', '').strip()
+        try:
+            sizes = [s.strip() for s in json.loads(sizes_raw) if str(s).strip()]
+        except (json.JSONDecodeError, ValueError):
+            sizes = []
+        if not name or not sizes:
+            groups = SizeGroup.objects.annotate(cat_count=Count('categories')).order_by('name')
+            return render(request, 'panel/sizes.html', {
+                'groups': groups,
+                'form_error': 'El nombre y al menos una talla son obligatorios.',
+                'form_name': name,
+                'form_sizes': sizes_raw,
+                'form_conv': conv_raw,
+                'show_form': True,
+            })
+        try:
+            conv = json.loads(conv_raw) if conv_raw else None
+        except (json.JSONDecodeError, ValueError):
+            conv = None
+        SizeGroup.objects.create(name=name, sizes=sizes, conversion_table=conv)
+        return redirect('panel:sizes_list')
+    return redirect('panel:sizes_list')
+
+
+@_staff
+def size_group_edit(request, pk):
+    group = get_object_or_404(SizeGroup, pk=pk)
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        sizes_raw = request.POST.get('sizes_json', '[]')
+        conv_raw = request.POST.get('conversion_json', '').strip()
+        try:
+            sizes = [s.strip() for s in json.loads(sizes_raw) if str(s).strip()]
+        except (json.JSONDecodeError, ValueError):
+            sizes = []
+        if not name or not sizes:
+            return render(request, 'panel/size_form.html', {
+                'group': group,
+                'form_error': 'El nombre y al menos una talla son obligatorios.',
+            })
+        try:
+            conv = json.loads(conv_raw) if conv_raw else None
+        except (json.JSONDecodeError, ValueError):
+            conv = None
+        group.name = name
+        group.sizes = sizes
+        group.conversion_table = conv
+        group.save()
+        return redirect('panel:sizes_list')
+    return render(request, 'panel/size_form.html', {'group': group})
+
+
+@_staff
+@require_POST
+def size_group_delete(request, pk):
+    group = get_object_or_404(SizeGroup, pk=pk)
+    if group.categories.exists():
+        from django.contrib import messages
+        messages.error(request, f'No se puede eliminar "{group.name}" — está asignado a subcategorías.')
+        return redirect('panel:sizes_list')
+    group.delete()
+    return redirect('panel:sizes_list')
+
+
+@_staff
+@require_POST
+def category_set_size_group(request, cat_pk):
+    cat = get_object_or_404(Category, pk=cat_pk)
+    try:
+        body = json.loads(request.body)
+        sg_id = body.get('size_group_id')
+    except (json.JSONDecodeError, KeyError):
+        return JsonResponse({'ok': False, 'error': 'Datos inválidos'}, status=400)
+    if sg_id is None:
+        cat.size_group = None
+    else:
+        cat.size_group = get_object_or_404(SizeGroup, pk=int(sg_id))
+    cat.save(update_fields=['size_group'])
+    name = cat.size_group.name if cat.size_group else ''
+    return JsonResponse({'ok': True, 'size_group_name': name})

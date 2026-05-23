@@ -363,7 +363,7 @@ def search_results(request):
 def product_detail(request, pk):
     product = get_object_or_404(
         Product.objects
-        .select_related('category__parent')
+        .select_related('category__parent', 'category__size_group')
         .prefetch_related('images', 'tags', 'variants'),
         pk=pk, is_active=True
     )
@@ -395,6 +395,11 @@ def product_detail(request, pk):
         for t in tiers
     ]
     qty_step = int(root.min_qty_per_item) if root.min_qty_per_item > 0 else 1
+
+    size_group = product.category.size_group
+    sizes_json = json.dumps(size_group.sizes) if size_group else 'null'
+    conv_json  = json.dumps(size_group.conversion_table) if (size_group and size_group.conversion_table) else 'null'
+
     return render(request, 'catalog/detail.html', {
         'product':          product,
         'related_products': related_products,
@@ -403,6 +408,9 @@ def product_detail(request, pk):
         'tiers_json':       json.dumps(tiers_data),
         'base_final_price': base_price,
         'qty_step':         qty_step,
+        'size_group':       size_group,
+        'sizes_json':       sizes_json,
+        'conv_json':        conv_json,
     })
 
 
