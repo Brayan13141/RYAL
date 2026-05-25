@@ -2,7 +2,7 @@
 <div class="card {% if product.status == 'sold_out' %}card-soldout{% endif %}">
   <a href="{% url 'catalog:detail' product.pk %}" class="card-media">
     {% if product.cover_image %}
-      <img src="{{ product.cover_image.image.url }}" alt="{{ product.name }}" loading="lazy">
+      <img src="{{ product.cover_image.image.url }}" alt="{{ product.name }}" loading="lazy" class="card-main-img">
     {% else %}
       <div class="ph-img" data-label="{{ product.sku }}"></div>
     {% endif %}
@@ -26,6 +26,19 @@
 
   <!-- Botón que aparece al hover — fuera del <a> para evitar button-in-anchor -->
   <div class="card-reveal">
+    {% with imgs=product.images.all %}
+      {% if imgs|length > 1 %}
+      <div class="card-thumbstrip">
+        {% for img in imgs|slice:":4" %}
+        <span class="card-thumb {% if forloop.first %}card-thumb--active{% endif %}"
+              data-src="{{ img.image.url }}"
+              onclick="cardThumbSwap(this)">
+          <img src="{{ img.image.url }}" alt="" loading="lazy">
+        </span>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% endwith %}
     {% if product.status == 'available' %}
       <button class="card-reveal-btn"
               data-product-id="{{ product.pk }}"

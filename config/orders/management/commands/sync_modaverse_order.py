@@ -3,16 +3,24 @@ Arma el carrito en modaverse.vip para un pedido de ryalsneackers.
 
 Flujo:
 1. Bootstrapping: navega a homepage → primera cat → primer sub → llega a /product/ con bar_box.
-2. Por cada ítem: usa el menú bar_box (CLICK, no hover) para navegar a la subcategoría.
-   - Trigger click → .mu_i padre → .option subcategoría → /product/{id}
-3. Busca la tarjeta del producto por SKU o nombre (has-text, no text-is exacto).
-4. btn_1 → click directo; btn_2 → selecciona talla en el dialog.
-5. Abre el carrito, ajusta cantidades, toma screenshot, genera código.
+2. Agrupa los ítems del pedido por supplier_url (= mismo producto físico) para manejar
+   correctamente los productos con múltiples tallas.
+3. Por cada grupo de ítems (mismo producto):
+   - Navega al listado de subcategoría vía bar_box (CLICK, no hover).
+   - Encuentra la tarjeta del producto por SKU o nombre.
+   - btn_1 (sin tallas): un solo click agrega al carrito.
+   - btn_2 (con tallas): abre el dialog UNA SOLA VEZ, selecciona todas las tallas necesarias,
+     ajusta cantidades, y hace click en "Agregar" una sola vez.
+     Esto evita que Agregar repetitivo sobreescriba el ítem del mismo producto.
+4. Para ítems btn_1 con qty > 1: actualiza directamente localStorage tras el click.
+5. Exporta el localStorage SIN abrir el carrito (abrirlo dispara sync con el servidor
+   que sobreescribe shopCarList con solo el último ítem actualizado).
 6. Guarda todos los resultados DESPUÉS de cerrar Playwright (no ORM dentro del bloque).
 
 Sin login — modaverse es acceso público.
 """
-from django.core.files.base import ContentFile
+import json
+
 from django.core.management.base import BaseCommand, CommandError
 
 from orders.models import SupplierOrder, SupplierOrderItem
@@ -82,6 +90,13 @@ class Command(BaseCommand):
                 'category':     category,
             })
 
+        # Agrupar por supplier_url: mismo producto físico va en un solo grupo
+        # (preserva el orden de primer aparición)
+        item_groups = {}
+        for data in items_data:
+            key = data['supplier_url'] or f'__nurl_{data["id"]}'
+            item_groups.setdefault(key, []).append(data)
+
         try:
             from playwright.sync_api import sync_playwright
         except ImportError:
@@ -91,48 +106,52 @@ class Command(BaseCommand):
             )
 
         # ── PLAYWRIGHT (sin ORM) ──────────────────────────────────────────────
-        results          = {}   # {item_id: {'status': str, 'notes': str}}
-        screenshot_bytes = None
-        modaverse_code   = ''
+        results     = {}   # {item_id: {'status': str, 'notes': str}}
+        cart_script = ''
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=headless)
-            ctx     = browser.new_context(viewport={'width': 1280, 'height': 900})
-            page    = ctx.new_page()
+            browser = p.chromium.launch(
+                headless=headless,
+                args=['--no-sandbox', '--disable-blink-features=AutomationControlled'],
+            )
+            ctx = browser.new_context(
+                viewport={'width': 1280, 'height': 900},
+                user_agent=(
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                    'AppleWebKit/537.36 (KHTML, like Gecko) '
+                    'Chrome/124.0.0.0 Safari/537.36'
+                ),
+            )
+            # Ocultar navigator.webdriver para evitar detección headless
+            ctx.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            )
+            page = ctx.new_page()
 
             self.stdout.write(f'Abriendo {MODAVERSE_BASE}...')
-            page.goto(MODAVERSE_BASE, timeout=TIMEOUT)
-            page.wait_for_load_state('networkidle', timeout=TIMEOUT)
-            page.wait_for_timeout(1500)
+            self._bootstrap_to_product_page(page)
 
-            for data in items_data:
-                result = self._add_item(page, data)
-                results[data['id']] = result
-
-            # Abrir carrito
-            self.stdout.write('\nAbriendo carrito...')
-            if not self._open_cart(page):
-                self.stdout.write(self.style.WARNING('No se pudo abrir el carrito'))
-            page.wait_for_timeout(1500)
-
-            # Ajustar cantidades
-            added_data = [d for d in items_data if results.get(d['id'], {}).get('status') == 'added']
-            self._adjust_quantities(page, added_data)
-            page.wait_for_timeout(800)
-
-            # Screenshot
             try:
-                screenshot_bytes = page.screenshot(full_page=False)
-                self.stdout.write('Screenshot capturado ✓')
-            except Exception as exc:
-                self.stdout.write(self.style.WARNING(f'Screenshot fallido: {exc}'))
+                for group in item_groups.values():
+                    try:
+                        group_results = self._add_item_group(page, group)
+                    except Exception as exc:
+                        first = group[0]
+                        self.stdout.write(self.style.WARNING(f'  [{first["sku"]}] Error inesperado: {exc}'))
+                        group_results = {
+                            d['id']: {'status': 'variant_not_found', 'notes': f'Error inesperado: {exc}'}
+                            for d in group
+                        }
+                    results.update(group_results)
+                    self._debug_cart_size(page, group[0]['sku'])
 
-            # Generar código
-            modaverse_code = self._generate_code(page)
-            if modaverse_code:
-                self.stdout.write(self.style.SUCCESS(f'Código generado: {modaverse_code}'))
-            else:
-                self.stdout.write(self.style.WARNING('No se pudo capturar el código — el carrito puede estar vacío'))
+                cart_script = self._extract_cart_script(page)
+                if cart_script:
+                    self.stdout.write(self.style.SUCCESS('Script de carrito generado OK'))
+                else:
+                    self.stdout.write(self.style.WARNING('No se pudo exportar el carrito'))
+            except Exception as exc:
+                self.stdout.write(self.style.ERROR(f'Error inesperado en Playwright: {exc}'))
 
             browser.close()
 
@@ -144,16 +163,6 @@ class Command(BaseCommand):
                 item.notes  = r['notes']
                 item.save(update_fields=['status', 'notes'])
 
-        if screenshot_bytes:
-            supplier_order.screenshot.save(
-                f'order_{order_id}_cart.png',
-                ContentFile(screenshot_bytes),
-                save=False,
-            )
-
-        if modaverse_code:
-            supplier_order.modaverse_code = modaverse_code
-
         statuses = {results[i.id]['status'] for i in pending_items if i.id in results}
         if statuses <= {'added', 'no_url'}:
             supplier_order.status = 'done'
@@ -162,40 +171,176 @@ class Command(BaseCommand):
         else:
             supplier_order.status = 'failed'
 
-        supplier_order.save(update_fields=['status', 'screenshot', 'modaverse_code', 'updated_at'])
+        supplier_order.cart_script = cart_script
+        supplier_order.save(update_fields=['status', 'cart_script', 'updated_at'])
 
         items_final = list(supplier_order.items.select_related('order_item').all())
-        self._print_summary(items_final, modaverse_code)
+        self._print_summary(items_final, cart_script)
 
-    # ── HELPERS ───────────────────────────────────────────────────────────────
+    # ── ITEM GROUP (punto de entrada por grupo de producto) ───────────────────
 
-    def _add_item(self, page, data: dict) -> dict:
-        sku = data['sku']
-        self.stdout.write(f'\n[{sku}] Buscando en categoría "{data["category"]}"...')
+    def _add_item_group(self, page, group: list) -> dict:
+        """
+        Procesa todos los ítems del mismo producto en una sola navegación.
+        Retorna {item_id: {'status', 'notes'}} para cada ítem del grupo.
 
-        navigated = self._navigate_to_category(page, data)
+        Siempre usa bar_box (navegar por categoría + buscar tarjeta).
+        La navegación directa a #/proinfo/ fue descartada: la página del SPA
+        renderiza pero btn_1/btn_2 son exclusivos de las tarjetas de listado.
+        """
+        first = group[0]
+        sku   = first['sku']
+
+        self.stdout.write(f'\n[{sku}] Buscando en categoría "{first["category"]}"...')
+        navigated = self._navigate_to_category(page, first)
         if not navigated:
-            return {'status': 'variant_not_found',
-                    'notes': f'No se pudo navegar a la categoría "{data["category"]}"'}
-
-        card = self._find_product_with_pagination(page, data)
+            note = f'No se pudo navegar a la categoría "{first["category"]}"'
+            return {d['id']: {'status': 'variant_not_found', 'notes': note} for d in group}
+        card = self._find_product_with_pagination(page, first)
         if card is None:
-            return {'status': 'variant_not_found',
-                    'notes': f'Producto no encontrado en la subcategoría (revisadas hasta {MAX_PAGES} páginas)'}
+            note = f'Producto no encontrado (hasta {MAX_PAGES} páginas)'
+            return {d['id']: {'status': 'variant_not_found', 'notes': note} for d in group}
+        root = card
+        try:
+            root.scroll_into_view_if_needed()
+            page.wait_for_timeout(300)
+        except Exception:
+            pass
 
-        btn_simple = card.locator('button.btn_1').first
-        btn_specs  = card.locator('button.btn_2').first
+        btn_simple = root.locator('button.btn_1').first
+        btn_specs  = root.locator('button.btn_2').first
 
-        if btn_simple.is_visible():
-            btn_simple.click()
+        # Usar count() en lugar de is_visible(): la tarjeta puede estar fuera
+        # del viewport inicialmente y Playwright's click() ya hace scroll automático.
+        if root.locator('button.btn_1').count() > 0:
+            try:
+                btn_simple.click()
+                page.wait_for_timeout(CART_WAIT)
+                qty = group[0]['quantity']
+                if qty > 1:
+                    self._set_last_cart_item_qty(page, qty)
+                self.stdout.write(self.style.SUCCESS('  [OK] Agregado (sin especificaciones)'))
+                return {d['id']: {'status': 'added', 'notes': ''} for d in group}
+            except Exception as exc:
+                self.stdout.write(self.style.WARNING(f'  btn_1 encontrado pero click falló: {exc}'))
+
+        if root.locator('button.btn_2').count() > 0:
+            return self._add_with_specs_multi(page, root, group)
+
+        # Diagnóstico: esperar 3s más y listar todos los elementos con clase *btn*
+        page.wait_for_timeout(3000)
+        try:
+            info = page.evaluate("""
+                () => ({
+                    url: location.href,
+                    buttons: Array.from(document.querySelectorAll('button')).map(
+                        b => b.className + ' | ' + b.innerText.trim().slice(0, 30)
+                    ),
+                    btn_divs: Array.from(document.querySelectorAll('[class*="btn"]')).slice(0, 10).map(
+                        el => el.tagName + '.' + el.className + ' | ' + el.innerText.trim().slice(0, 30)
+                    ),
+                    body_len: document.body.innerHTML.length
+                })
+            """)
+            self.stdout.write(f'  [diag] url={info["url"]}')
+            self.stdout.write(f'  [diag] body_len={info["body_len"]}')
+            self.stdout.write(f'  [diag] buttons={info["buttons"]}')
+            self.stdout.write(f'  [diag] btn_divs={info["btn_divs"]}')
+        except Exception as exc:
+            self.stdout.write(self.style.WARNING(f'  [diag] Error: {exc}'))
+        note = 'Sin botón de compra visible'
+        return {d['id']: {'status': 'variant_not_found', 'notes': note} for d in group}
+
+    def _add_with_specs_multi(self, page, card, group: list) -> dict:
+        """
+        Abre el dialog de tallas y agrega cada talla con un click en "Agregar" separado.
+
+        El selector de tallas es radio (un solo seleccionado a la vez): cada click
+        en una .zhi_i reemplaza la selección anterior. Por eso se hace click en
+        "Agregar" una vez POR TALLA, no una vez al final.
+
+        La cantidad no se puede fijar con fill+Tab (Vue no reactiva), así que se
+        actualiza directamente en localStorage con _set_last_cart_item_qty tras
+        cada Agregar.
+        """
+        card.locator('button.btn_2').first.click()
+        page.wait_for_timeout(900)
+
+        dialog = page.locator('.el-dialog.dialog_box')
+        if not dialog.is_visible():
+            note = 'Diálogo de especificaciones no apareció'
+            return {d['id']: {'status': 'variant_not_found', 'notes': note} for d in group}
+
+        top_options = dialog.locator('.zhi_box .zhi_i')
+        available   = [opt.locator('span').first.inner_text().strip() for opt in top_options.all()]
+
+        item_results = {}
+        added_parts  = []
+
+        for data in group:
+            variant    = data['variant'].strip()
+            size_value = variant.removeprefix('Talla').strip() if variant.startswith('Talla') else variant
+            qty        = data['quantity']
+            item_id    = data['id']
+
+            if not size_value:
+                all_opts = top_options.all()
+                if not all_opts:
+                    item_results[item_id] = {'status': 'variant_not_found', 'notes': 'Sin opciones en el diálogo'}
+                    continue
+                all_opts[0].click()
+                page.wait_for_timeout(400)
+                dialog.locator('.btn_box button.btn').first.click()
+                page.wait_for_timeout(CART_WAIT)
+                if qty > 1:
+                    self._set_last_cart_item_qty(page, qty)
+                label = available[0] if available else '?'
+                self.stdout.write(self.style.WARNING(f'  Sin variante — seleccionando primera: "{label}"'))
+                item_results[item_id] = {'status': 'added', 'notes': f'Sin variante — seleccionado: "{label}"'}
+                added_parts.append(f'?×{qty}')
+                continue
+
+            matched = self._match_size_option(top_options, size_value)
+            if not matched:
+                note = f'Talla "{size_value}" no encontrada. Disponibles: {", ".join(available)}'
+                item_results[item_id] = {'status': 'variant_not_found', 'notes': note}
+                self.stdout.write(self.style.WARNING(f'  {note}'))
+                continue
+
+            matched.click()
+            page.wait_for_timeout(400)
+            dialog.locator('.btn_box button.btn').first.click()
             page.wait_for_timeout(CART_WAIT)
-            self.stdout.write(self.style.SUCCESS('  ✓ Agregado (sin especificaciones)'))
-            return {'status': 'added', 'notes': ''}
+            if qty > 1:
+                self._set_last_cart_item_qty(page, qty)
+            item_results[item_id] = {'status': 'added', 'notes': ''}
+            added_parts.append(f'{size_value}×{qty}')
 
-        if btn_specs.is_visible():
-            return self._add_with_specs(page, card, data)
+        # Cerrar dialog
+        try:
+            if dialog.is_visible():
+                dialog.locator('.el-dialog__headerbtn').click()
+                page.wait_for_timeout(400)
+        except Exception:
+            pass
 
-        return {'status': 'variant_not_found', 'notes': 'Sin botón de compra visible en la tarjeta'}
+        if added_parts:
+            self.stdout.write(self.style.SUCCESS(f'  [OK] Tallas agregadas: {", ".join(added_parts)}'))
+
+        return item_results
+
+    def _match_size_option(self, options, size_value: str):
+        """Busca un .zhi_i que coincida con size_value (exacto, luego parcial)."""
+        for opt in options.all():
+            if opt.locator('span').first.inner_text().strip().lower() == size_value.lower():
+                return opt
+        for opt in options.all():
+            txt = opt.locator('span').first.inner_text().strip().lower()
+            if size_value.lower() in txt or txt in size_value.lower():
+                return opt
+        return None
+
+    # ── NAVEGACIÓN ────────────────────────────────────────────────────────────
 
     def _navigate_to_category(self, page, data: dict) -> bool:
         """
@@ -209,7 +354,6 @@ class Command(BaseCommand):
             return False
 
         try:
-            # Bootstrap: llegar a una página /product/ que tiene el bar_box
             if '/product/' not in page.url:
                 if not self._bootstrap_to_product_page(page):
                     self.stdout.write(self.style.WARNING('  Bootstrap fallido — no se pudo llegar a /product/'))
@@ -225,14 +369,13 @@ class Command(BaseCommand):
         """
         Desde el homepage, hace 2 clicks para llegar a una página /product/{id}
         que tiene el bar_box con el menú de categorías.
+        Siempre navega al homepage primero para garantizar estado limpio.
         """
         try:
-            if MODAVERSE_BASE not in page.url or len(page.url) > len(MODAVERSE_BASE) + 3:
-                page.goto(MODAVERSE_BASE, timeout=TIMEOUT)
-                page.wait_for_load_state('networkidle', timeout=TIMEOUT)
-                page.wait_for_timeout(1500)
+            page.goto(MODAVERSE_BASE, timeout=TIMEOUT)
+            page.wait_for_load_state('networkidle', timeout=TIMEOUT)
+            page.wait_for_timeout(1500)
 
-            # Click primera categoría → /zifenlei/
             first_cat = page.locator('.product_item').first
             if not first_cat.is_visible():
                 return False
@@ -240,7 +383,6 @@ class Command(BaseCommand):
             page.wait_for_load_state('networkidle', timeout=TIMEOUT)
             page.wait_for_timeout(1200)
 
-            # Click primera subcategoría → /product/
             if '/zifenlei/' in page.url:
                 first_sub = page.locator('.product_item').first
                 if not first_sub.is_visible():
@@ -271,14 +413,12 @@ class Command(BaseCommand):
         trigger.click()
         page.wait_for_timeout(800)
 
-        # Clic en la categoría padre para cargar sus subcategorías en el lado derecho
         if parent_cat:
             mu_i = page.locator('.info_box .mu_i').filter(has_text=parent_cat).first
             if mu_i.is_visible():
                 mu_i.click()
                 page.wait_for_timeout(500)
 
-        # Clic en la subcategoría
         option = page.locator('.info_box .option').filter(has_text=category).first
         if not option.is_visible():
             self.stdout.write(self.style.WARNING(f'  Subcategoría "{category}" no encontrada en el menú'))
@@ -286,9 +426,16 @@ class Command(BaseCommand):
 
         option.click()
         page.wait_for_load_state('networkidle', timeout=TIMEOUT)
-        page.wait_for_timeout(1200)
+        # Esperar a que Vue renderice al menos un producto antes de buscar
+        try:
+            page.wait_for_selector('.product_item', timeout=8000)
+        except Exception:
+            pass
+        page.wait_for_timeout(800)
         self.stdout.write(f'  Navegado a "{category}"')
         return True
+
+    # ── BÚSQUEDA DE PRODUCTO ──────────────────────────────────────────────────
 
     def _find_product_with_pagination(self, page, data: dict):
         """
@@ -306,19 +453,46 @@ class Command(BaseCommand):
             next_btn.click()
             page.wait_for_load_state('networkidle', timeout=TIMEOUT)
             page.wait_for_timeout(800)
-            self.stdout.write(f'  Página {page_num + 1}...')
+            self.stdout.write(f'  Pagina {page_num + 1}...')
+
+        # No encontrado — imprimir qué nombres hay en la página para diagnóstico
+        try:
+            names = page.evaluate("""
+                () => Array.from(document.querySelectorAll('.pro_name'))
+                      .slice(0, 8)
+                      .map(el => el.innerText.trim())
+            """)
+            buscando = (data.get('name') or '')[:50]
+            self.stdout.write(f'  [no encontrado] buscando: "{buscando}"')
+            for n in names:
+                try:
+                    self.stdout.write(f'    - {n[:60]}')
+                except UnicodeEncodeError:
+                    self.stdout.write(f'    - (nombre con chars especiales)')
+        except Exception:
+            pass
 
         return None
 
     def _find_product_card(self, page, data: dict):
         """
-        Busca .product_item por SKU o nombre usando has-text (substring, case-insensitive).
+        Busca .product_item por varias estrategias (orden de prioridad):
+        1. Nombre completo (has-text substring) — basta con count()>0; click() ya hace scroll
+        2. Primeras 3 palabras del nombre (útil si el nombre está truncado)
+        3. Única card en la página → asumir que es el producto correcto
         """
-        for search in (data['sku'], data['name']):
-            if not search:
-                continue
-            card = page.locator(f'.product_item:has(.pro_name:has-text("{search}"))').first
-            if card.is_visible():
+        name = (data.get('name') or '').strip()
+
+        if name:
+            card = page.locator(f'.product_item:has(.pro_name:has-text("{name}"))').first
+            if card.count() > 0:
+                return card
+
+        words = name.split()
+        if len(words) >= 3:
+            short = ' '.join(words[:3])
+            card = page.locator(f'.product_item:has(.pro_name:has-text("{short}"))').first
+            if card.count() > 0:
                 return card
 
         all_cards = page.locator('.product_item').all()
@@ -327,176 +501,100 @@ class Command(BaseCommand):
 
         return None
 
-    def _add_with_specs(self, page, card, data: dict) -> dict:
-        """
-        Abre el dialog de especificaciones, selecciona la talla y agrega al carrito.
+    # ── CARRITO ────────────────────────────────────────────────────────────────
 
-        Estructura del dialog:
-          .el-dialog.dialog_box
-            .zhi_box > .zhi_i > span   ← opciones de talla
-            .btn_box > button.btn      ← "Agregar"
-          .el-dialog__headerbtn        ← cerrar
-        """
-        variant    = data['variant'].strip()
-        size_value = variant.removeprefix('Talla').strip() if variant.startswith('Talla') else variant
-
-        card.locator('button.btn_2').first.click()
-        page.wait_for_timeout(900)
-
-        dialog = page.locator('.el-dialog.dialog_box')
-        if not dialog.is_visible():
-            self.stdout.write(self.style.WARNING('  Diálogo no abrió'))
-            return {'status': 'variant_not_found', 'notes': 'Diálogo de especificaciones no apareció'}
-
-        options   = dialog.locator('.zhi_box .zhi_i')
-        available = []
-        matched   = None
-
-        for opt in options.all():
-            txt = opt.locator('span').first.inner_text().strip()
-            available.append(txt)
-            if size_value and txt.lower() == size_value.lower():
-                matched = opt
-
-        # Fallback: match parcial
-        if not matched and size_value:
-            for opt in options.all():
-                txt = opt.locator('span').first.inner_text().strip()
-                if size_value.lower() in txt.lower() or txt.lower() in size_value.lower():
-                    matched = opt
-                    break
-
-        # Sin variante especificada → primera disponible
-        if not matched and not size_value:
-            all_opts = options.all()
-            if all_opts:
-                matched = all_opts[0]
-                label = available[0] if available else '?'
-                self.stdout.write(self.style.WARNING(f'  Sin variante — seleccionando primera: "{label}"'))
-
-        if not matched:
-            try:
-                dialog.locator('.el-dialog__headerbtn').click()
-                page.wait_for_timeout(400)
-            except Exception:
-                pass
-            notes = f'Disponibles: {", ".join(available)}' if available else 'Sin opciones en el diálogo'
-            self.stdout.write(self.style.WARNING(f'  Talla "{size_value}" no encontrada — {notes}'))
-            return {'status': 'variant_not_found', 'notes': notes}
-
-        matched.click()
-        page.wait_for_timeout(400)
-
-        dialog.locator('.btn_box button.btn').first.click()
-        page.wait_for_timeout(CART_WAIT)
-
-        # Cerrar dialog (puede que ya se cerró solo)
+    def _debug_cart_size(self, page, sku: str):
+        """Imprime el tamaño del shopCarList tras cada grupo."""
         try:
-            if dialog.is_visible():
-                dialog.locator('.el-dialog__headerbtn').click()
-                page.wait_for_timeout(400)
-        except Exception:
-            pass
-
-        label = size_value if size_value else (available[0] if available else '?')
-        self.stdout.write(self.style.SUCCESS(f'  ✓ Variante "{label}" agregada'))
-        return {'status': 'added', 'notes': ''}
-
-    def _open_cart(self, page) -> bool:
-        """Clic en el ícono del carrito (.car_W) para abrir el panel."""
-        try:
-            cart_icon = page.locator('.car_W').first
-            if cart_icon.is_visible():
-                cart_icon.click()
-                page.wait_for_timeout(1200)
-                return True
-            page.goto(f'{MODAVERSE_BASE}/#/cart', timeout=TIMEOUT)
-            page.wait_for_load_state('networkidle', timeout=TIMEOUT)
-            page.wait_for_timeout(1000)
-            return True
-        except Exception:
-            return False
-
-    def _adjust_quantities(self, page, added_data: list):
-        """
-        Ajusta cantidades en el carrito para ítems con qty > 1.
-        Busca por SKU o nombre con has-text.
-        """
-        for data in added_data:
-            qty = data['quantity']
-            if qty <= 1:
-                continue
-            for search in (data['sku'], data['name']):
-                if not search:
-                    continue
-                card = page.locator(
-                    f'.body_box .product_item:has(.pro_name:has-text("{search}"))'
-                ).first
-                if card.is_visible():
-                    try:
-                        inp = card.locator('.el-input__inner').first
-                        inp.fill(str(qty))
-                        inp.press('Enter')
-                        page.wait_for_timeout(400)
-                        self.stdout.write(f'  [{data["sku"]}] Cantidad → {qty}')
-                    except Exception as exc:
-                        self.stdout.write(self.style.WARNING(
-                            f'  [{data["sku"]}] Error ajustando cantidad: {exc}'
-                        ))
-                    break
-
-    def _generate_code(self, page) -> str:
-        """
-        Clic en 'Generar código de pedido' (solo si habilitado) y captura el código.
-        El código es una cadena corta alfanumérica (ej: KD260524) que aparece sola en una línea.
-        """
-        import re
-        try:
-            gen_btn = page.locator('button:has-text("Generar código de pedido")').first
-            if not gen_btn.is_visible():
-                return ''
-
-            cls = gen_btn.get_attribute('class') or ''
-            if 'is-disabled' in cls:
-                self.stdout.write(self.style.WARNING('  Botón deshabilitado — el carrito parece vacío'))
-                return ''
-
-            gen_btn.click()
-            page.wait_for_timeout(2500)
-
-            for selector in (
-                '[class*="order_code"]',
-                '[class*="orderCode"]',
-                '.el-message-box__message',
-                '.el-dialog__body',
-                '[class*="success"] span',
-                '[class*="result"] span',
-            ):
-                el = page.locator(selector).first
-                if el.is_visible():
-                    txt = el.inner_text().strip()
-                    if not txt:
-                        continue
-                    # Extraer solo el código (línea corta alfanumérica, ej: KD260524)
-                    for line in txt.splitlines():
-                        line = line.strip()
-                        if re.match(r'^[A-Z]{2}\d{6,}$', line) or re.match(r'^[A-Z0-9]{6,12}$', line):
-                            return line
-                    # Fallback: primera línea que parezca un código
-                    match = re.search(r'\b([A-Z]{1,3}\d{4,})\b', txt)
-                    if match:
-                        return match.group(1)
+            count = page.evaluate("""
+                () => {
+                    try {
+                        const u = JSON.parse(localStorage.getItem('user') || '{}');
+                        return (u.shopCarList || []).length;
+                    } catch(e) { return -1; }
+                }
+            """)
+            self.stdout.write(f'  [diag tras {sku}] shopCarList={count}')
         except Exception as exc:
-            self.stdout.write(self.style.WARNING(f'  Error capturando código: {exc}'))
-        return ''
+            self.stdout.write(self.style.WARNING(f'  [diag] Error: {exc}'))
 
-    def _print_summary(self, items, modaverse_code):
-        self.stdout.write('\n─── Resumen ───────────────────────────────────────')
+    def _set_last_cart_item_qty(self, page, qty: int):
+        """
+        Actualiza el campo `num` del último ítem de shopCarList en localStorage.
+        Llamar inmediatamente después de btn_1.click() cuando qty > 1.
+        No abre el carrito (abrir el carrito dispara un sync con el servidor
+        que sobreescribe shopCarList con solo el ítem actualizado).
+        """
+        page.evaluate(f"""
+            () => {{
+                try {{
+                    const u = JSON.parse(localStorage.getItem('user') || '{{}}');
+                    if (u.shopCarList && u.shopCarList.length > 0) {{
+                        u.shopCarList[u.shopCarList.length - 1].num = {qty};
+                        localStorage.setItem('user', JSON.stringify(u));
+                    }}
+                }} catch(e) {{}}
+            }}
+        """)
+
+    def _extract_cart_script(self, page) -> str:
+        """
+        Extrae el shopCarList de modaverse y genera un script JS que el usuario
+        pega en la consola de su navegador.
+
+        El script fusiona shopCarList en el objeto 'user' existente del navegador
+        del usuario, preservando su sesión (userToken) si está logueado.
+        """
+        try:
+            shop_car_list = page.evaluate("""
+                () => {
+                    const raw = localStorage.getItem('user');
+                    if (!raw) return null;
+                    try {
+                        const parsed = JSON.parse(raw);
+                        return parsed.shopCarList || null;
+                    } catch(e) {
+                        return null;
+                    }
+                }
+            """)
+
+            if not shop_car_list:
+                self.stdout.write(self.style.WARNING('  shopCarList vacío — el carrito no tiene ítems'))
+                return ''
+
+            self.stdout.write(f'  shopCarList extraído: {len(shop_car_list)} items')
+
+            cart_json = json.dumps(shop_car_list, ensure_ascii=False)
+            # Fusiona solo shopCarList en el user existente → preserva userToken/sesión
+            return (
+                "(function(){"
+                f"var c={cart_json};"
+                "console.log('[modaverse-script] Items en carrito:', c.length, c.map(function(i){return (i.productName||i.name||i.productId||'?')+'(qty:'+(i.num||i.quantity||i.qty||'?')+')';}));"
+                "var u=JSON.parse(localStorage.getItem('user')||'{}');"
+                "u.shopCarList=c;"
+                "localStorage.setItem('user',JSON.stringify(u));"
+                "window.location.hash='/cart';"
+                "})()"
+            )
+        except Exception as exc:
+            self.stdout.write(self.style.WARNING(f'  Error exportando carrito: {exc}'))
+            return ''
+
+    def _print_summary(self, items, cart_script):
+        self.stdout.write('\n--- Resumen ---')
         for item in items:
-            icon = {'added': '✓', 'variant_not_found': '⚠', 'no_url': '○', 'pending': '?'}.get(item.status, '?')
-            self.stdout.write(f'  {icon} {item.order_item.sku_snapshot} — {item.get_status_display()}')
-            if item.notes:
-                self.stdout.write(f'      {item.notes[:120]}')
-        if modaverse_code:
-            self.stdout.write(f'\n  Código modaverse: {modaverse_code}')
+            icon = {'added': 'OK', 'variant_not_found': '!!', 'no_url': '--', 'pending': '??'}.get(item.status, '??')
+            try:
+                self.stdout.write(f'  [{icon}] {item.order_item.sku_snapshot} -- {item.get_status_display()}')
+                if item.notes:
+                    self.stdout.write(f'      {item.notes[:120]}')
+            except UnicodeEncodeError:
+                self.stdout.write(f'  [{icon}] {item.order_item.sku_snapshot}')
+
+        if cart_script:
+            self.stdout.write('\n  Para importar el carrito en tu navegador:')
+            self.stdout.write(f'  1. Abre {MODAVERSE_BASE}/#/cart')
+            self.stdout.write('  2. Abre la consola (F12 → Console)')
+            self.stdout.write('  3. Pega el script que aparece en el panel')
         self.stdout.write('')

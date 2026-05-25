@@ -233,3 +233,15 @@ function updateBadge(count) {
 function formatMXN(n) {
   return Number(n).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
+
+
+// ─── Thumbstrip — cambio de imagen en card ──────────────────────────────────
+
+function cardThumbSwap(thumb) {
+  const card = thumb.closest('.card');
+  const mainImg = card?.querySelector('.card-main-img');
+  if (!mainImg) return;
+  card.querySelectorAll('.card-thumb').forEach(t => t.classList.remove('card-thumb--active'));
+  thumb.classList.add('card-thumb--active');
+  mainImg.src = thumb.dataset.src;
+}

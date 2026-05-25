@@ -4,69 +4,124 @@
 
 {% block content %}
 
-<div style="display:flex;gap:10px;margin-bottom:20px;align-items:center;">
+<div style="display:flex;gap:10px;margin-bottom:20px;align-items:center;flex-wrap:wrap;">
   <a href="{% url 'panel:order_detail' order.pk %}" class="btn-o btn-sm">
     <i class="bi bi-arrow-left"></i> Volver al pedido
   </a>
 
-  {% with s=supplier_order.status %}
-  <span class="bs bs-{% if s == 'done' %}delivered{% elif s == 'partial' %}shipped{% elif s == 'failed' %}cancelled{% elif s == 'running' %}confirmed{% else %}pending{% endif %}">
+  <span id="statusBadge" class="bs bs-{% with s=supplier_order.status %}{% if s == 'done' %}delivered{% elif s == 'partial' %}shipped{% elif s == 'failed' %}cancelled{% elif s == 'running' %}confirmed{% else %}pending{% endif %}{% endwith %}">
     {{ supplier_order.get_status_display }}
   </span>
-  {% endwith %}
+
+  {% if supplier_order.status != 'running' %}
+  <form id="runForm" method="post" action="{% url 'panel:supplier_order_run' order.pk %}" style="margin:0;">
+    {% csrf_token %}
+    <button type="submit" id="runBtn" class="btn-g btn-sm">
+      <i class="bi bi-play-circle"></i>
+      {% if supplier_order.status == 'done' or supplier_order.status == 'partial' %}
+        Reintentar fallidos
+      {% else %}
+        Ejecutar en servidor
+      {% endif %}
+    </button>
+  </form>
+  {% else %}
+  <span style="font-size:13px;color:#888;">
+    <span class="spinner-border spinner-border-sm text-warning" style="width:12px;height:12px;border-width:2px;"></span>
+    Ejecutando...
+  </span>
+  {% endif %}
 
   <span style="margin-left:auto;font-size:12px;color:#555;">
-    Creado {{ supplier_order.created_at|date:"d/m/Y H:i" }}
-    &nbsp;·&nbsp;
-    Actualizado {{ supplier_order.updated_at|date:"d/m/Y H:i" }}
+    Actualizado <span id="updatedAt">{{ supplier_order.updated_at|date:"d/m/Y H:i" }}</span>
   </span>
 </div>
 
 <!-- Ítems -->
-<div class="p-card" style="margin-bottom:18px;">
+<div class="p-card" style="margin-bottom:18px;overflow-x:auto;">
   <div class="p-card-head">
     <h2>Ítems del pedido</h2>
+    <span style="font-size:12px;color:#555;">Marca manualmente los que ya agregaste en modaverse</span>
   </div>
-  <table class="p-table">
+  <table class="p-table" id="itemsTable" style="min-width:700px;">
     <thead>
       <tr>
+        <th style="width:52px;"></th>
         <th>SKU</th>
-        <th>Producto</th>
-        <th>Variante buscada</th>
+        <th>Producto / Ubicación en modaverse</th>
+        <th>Variante</th>
         <th style="text-align:center;">Qty</th>
         <th style="text-align:center;">Estado</th>
-        <th>Notas / Disponibles</th>
-        <th></th>
+        <th>Notas</th>
+        <th style="text-align:center;">Acción</th>
       </tr>
     </thead>
     <tbody>
       {% for si in supplier_order.items.all %}
       {% with oi=si.order_item %}
-      <tr>
-        <td style="font-family:monospace;color:#666;font-size:12px;">{{ oi.sku_snapshot }}</td>
-        <td style="color:#ddd;">{{ oi.name_snapshot }}</td>
-        <td style="color:#aaa;">{{ si.variant_target|default:"—" }}</td>
-        <td style="text-align:center;">{{ oi.quantity }}</td>
-        <td style="text-align:center;">
-          {% if si.status == 'added' %}
-            <span style="color:#50c878;font-size:13px;">✓ Agregado</span>
-          {% elif si.status == 'variant_not_found' %}
-            <span style="color:#e8a020;font-size:13px;">⚠ Variante no encontrada</span>
-          {% elif si.status == 'no_url' %}
-            <span style="color:#555;font-size:13px;">○ Sin URL</span>
+      <tr data-sku="{{ oi.sku_snapshot }}"
+          data-item-pk="{{ si.pk }}"
+          data-update-url="{% url 'panel:supplier_item_update' order.pk si.pk %}">
+        <td style="padding:6px 8px;">
+          {% if oi.product %}
+            {% with oi.product.images.all as imgs %}
+              {% if imgs %}
+                <img src="{{ imgs.0.image.url }}"
+                     style="width:44px;height:44px;object-fit:cover;border-radius:5px;border:1px solid #222;display:block;">
+              {% else %}
+                <div style="width:44px;height:44px;border-radius:5px;border:1px solid #1a1a1a;background:#0d0d0d;display:flex;align-items:center;justify-content:center;">
+                  <i class="bi bi-image" style="color:#333;font-size:16px;"></i>
+                </div>
+              {% endif %}
+            {% endwith %}
           {% else %}
-            <span style="color:#888;font-size:13px;">— Pendiente</span>
+            <div style="width:44px;height:44px;border-radius:5px;border:1px solid #1a1a1a;background:#0d0d0d;display:flex;align-items:center;justify-content:center;">
+              <i class="bi bi-image" style="color:#333;font-size:16px;"></i>
+            </div>
           {% endif %}
         </td>
-        <td style="color:#666;font-size:12px;max-width:260px;word-break:break-word;">
-          {{ si.notes|default:"—" }}
+        <td style="font-family:monospace;color:#666;font-size:12px;white-space:nowrap;">
+          {{ oi.sku_snapshot }}
         </td>
         <td>
-          {% if si.supplier_url %}
-          <a href="{{ si.supplier_url }}" target="_blank"
-             style="color:var(--pg);font-size:12px;white-space:nowrap;">
-            <i class="bi bi-box-arrow-up-right"></i> Ver en modaverse
-          </a>
+          <div style="color:#ddd;">{{ oi.name_snapshot }}</div>
+          {% with cat=oi.product.category %}
+          {% if cat %}
+          <div style="font-size:11px;color:#555;margin-top:3px;">
+            <i class="bi bi-signpost-split" style="font-size:10px;"></i>
+            {% if cat.parent %}{{ cat.parent.name }} → {% endif %}{{ cat.name }}
+            {% if si.supplier_url %}
+            <a href="{{ si.supplier_url }}" target="_blank"
+               style="color:#4a7acc;margin-left:6px;text-decoration:none;"
+               title="Ver producto en modaverse">
+              <i class="bi bi-box-arrow-up-right" style="font-size:10px;"></i> modaverse
+            </a>
+            {% endif %}
+          </div>
+          {% endif %}
+          {% endwith %}
+        </td>
+        <td style="color:#aaa;font-size:12px;">{{ si.variant_target|default:"—" }}</td>
+        <td style="text-align:center;">{{ oi.quantity }}</td>
+        <td style="text-align:center;" class="item-status">
+          {% include "panel/_supplier_item_status.html" with status=si.status %}
+        </td>
+        <td style="color:#666;font-size:12px;max-width:200px;word-break:break-word;" class="item-notes">
+          {{ si.notes|default:"—" }}
+        </td>
+        <td style="text-align:center;white-space:nowrap;" class="item-action">
+          {% if si.status != 'no_url' %}
+            {% if si.status == 'added' %}
+            <button class="btn-o btn-sm" style="font-size:11px;padding:3px 8px;"
+                    onclick="updateItemStatus(this, 'pending')">
+              ↩ Deshacer
+            </button>
+            {% else %}
+            <button class="btn-g btn-sm" style="font-size:11px;padding:3px 8px;"
+                    onclick="updateItemStatus(this, 'added')">
+              ✓ Agregar
+            </button>
+            {% endif %}
           {% endif %}
         </td>
       </tr>
@@ -76,57 +131,213 @@
   </table>
 </div>
 
-<!-- Código generado -->
-{% if supplier_order.modaverse_code %}
-<div class="p-card" style="margin-bottom:18px;border-color:#2a4a2a;">
-  <div class="p-card-head"><h2>Código de pedido modaverse</h2></div>
-  <div class="p-card-body" style="display:flex;align-items:center;gap:16px;">
-    <code style="font-size:20px;font-weight:700;color:#50c878;letter-spacing:.05em;">
-      {{ supplier_order.modaverse_code }}
-    </code>
-    <span style="font-size:12px;color:#555;">Generado por el comando — usa este código para rastrear el pedido en modaverse</span>
+<!-- Carrito para importar -->
+<div id="cartCard" {% if not supplier_order.cart_script %}style="display:none;"{% endif %}>
+  <div class="p-card" style="border-color:#2a3a4a;">
+    <div class="p-card-head">
+      <h2>Importar carrito en tu navegador</h2>
+    </div>
+    <div class="p-card-body">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
+        <a href="https://www.modaverse.vip/#/cart" target="_blank" class="btn-g btn-sm">
+          <i class="bi bi-bag-check"></i> Abrir modaverse
+        </a>
+        <button onclick="copyScript()" class="btn-o btn-sm" id="copyBtn">
+          <i class="bi bi-clipboard"></i> Copiar script
+        </button>
+        <span style="font-size:12px;color:#555;">
+          Abre modaverse → F12 → Console → escribe <code style="color:#c9a84c;">allow pasting</code> → Enter → pega el script → Enter
+        </span>
+      </div>
+      <pre id="cartScript"
+           style="background:#0d0d0d;border:1px solid #1a1a1a;border-radius:6px;
+                  padding:12px;font-size:11px;color:#6496ff;overflow-x:auto;
+                  white-space:pre-wrap;word-break:break-all;max-height:140px;margin:0;">{{ supplier_order.cart_script }}</pre>
+    </div>
   </div>
 </div>
-{% endif %}
 
-<!-- Comando + screenshot -->
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+{% endblock %}
 
-  <div class="p-card">
-    <div class="p-card-head"><h2>Comando local</h2></div>
-    <div class="p-card-body">
-      <p style="color:#888;font-size:13px;margin-bottom:10px;">
-        Ejecuta este comando en tu PC (con Playwright instalado y credenciales en <code>.env</code>):
-      </p>
-      <code style="display:block;background:#0d0d0d;border:1px solid #1a1a1a;border-radius:6px;padding:12px;color:#c9c9c9;font-size:13px;user-select:all;">
-        python manage.py sync_modaverse_order {{ order.pk }}
-      </code>
-      <p style="color:#555;font-size:11px;margin-top:8px;">
-        Agrega <code>--headless</code> para ejecutarlo sin ventana de navegador.<br>
-        No requiere credenciales — modaverse es acceso público.
-      </p>
-    </div>
-  </div>
+{% block extra_js %}
+<script>
+(function () {
+  var STATUS_URL = "{% url 'panel:supplier_order_status' order.pk %}";
+  var RUN_URL    = "{% url 'panel:supplier_order_run' order.pk %}";
+  var CSRF       = "{{ csrf_token }}";
+  var pollTimer  = null;
 
-  {% if supplier_order.screenshot %}
-  <div class="p-card">
-    <div class="p-card-head"><h2>Captura del carrito</h2></div>
-    <div class="p-card-body" style="text-align:center;">
-      <a href="{{ supplier_order.screenshot.url }}" target="_blank">
-        <img src="{{ supplier_order.screenshot.url }}" alt="Screenshot carrito modaverse"
-             style="max-width:100%;border-radius:6px;border:1px solid #1a1a1a;">
-      </a>
-    </div>
-  </div>
-  {% else %}
-  <div class="p-card">
-    <div class="p-card-head"><h2>Captura del carrito</h2></div>
-    <div class="p-card-body" style="color:#555;font-size:13px;">
-      Sin captura aún. Se genera automáticamente al ejecutar el comando.
-    </div>
-  </div>
+  {% if supplier_order.status == 'running' %}
+  startPolling();
   {% endif %}
 
-</div>
+  var form = document.getElementById('runForm');
+  if (form) {
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var btn = document.getElementById('runBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:12px;height:12px;border-width:2px;"></span> Iniciando...';
 
+      fetch(RUN_URL, {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF, 'Content-Type': 'application/json'},
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.ok) {
+          setStatusBadge('running', 'En progreso');
+          form.style.display = 'none';
+          startPolling();
+        } else {
+          showToast(data.error || 'Error al iniciar', 'error');
+          btn.disabled = false;
+          btn.innerHTML = '<i class="bi bi-play-circle"></i> Ejecutar en servidor';
+        }
+      })
+      .catch(function () {
+        showToast('Error de red', 'error');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-play-circle"></i> Ejecutar en servidor';
+      });
+    });
+  }
+
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(poll, 3000);
+  }
+
+  function stopPolling() {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+
+  function poll() {
+    fetch(STATUS_URL)
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        updateItemsFromPoll(data.items);
+        setStatusBadge(data.status, data.status_display);
+
+        if (data.cart_script) {
+          document.getElementById('cartCard').style.display = '';
+          document.getElementById('cartScript').textContent = data.cart_script;
+        }
+
+        if (data.status !== 'running') {
+          stopPolling();
+          var formArea = document.getElementById('runForm');
+          if (!formArea) {
+            var badgeEl   = document.getElementById('statusBadge');
+            var retryForm = document.createElement('form');
+            retryForm.id     = 'runForm';
+            retryForm.method = 'post';
+            retryForm.action = RUN_URL;
+            retryForm.style.margin = '0';
+            retryForm.innerHTML =
+              '<input type="hidden" name="csrfmiddlewaretoken" value="' + CSRF + '">' +
+              '<button type="submit" id="runBtn" class="btn-g btn-sm">' +
+              '<i class="bi bi-play-circle"></i> Reintentar fallidos</button>';
+            badgeEl.insertAdjacentElement('afterend', retryForm);
+          }
+          showToast(
+            data.status === 'done'
+              ? 'Carrito listo — importa el script en modaverse ✓'
+              : 'Finalizado: ' + data.status_display,
+            data.status === 'done' ? 'success' : 'error'
+          );
+        }
+      })
+      .catch(function () {});
+  }
+
+  function updateItemsFromPoll(items) {
+    if (!items) return;
+    items.forEach(function (item) {
+      var row = document.querySelector('tr[data-sku="' + item.sku + '"]');
+      if (!row) return;
+      row.querySelector('.item-status').innerHTML = statusHtml(item.status);
+      row.querySelector('.item-notes').textContent = item.notes || '—';
+      updateActionCell(row, item.status, parseInt(row.dataset.itemPk));
+    });
+  }
+
+  function updateActionCell(row, status, itemPk) {
+    var cell = row.querySelector('.item-action');
+    if (!cell) return;
+    if (status === 'no_url') {
+      cell.innerHTML = '';
+    } else if (status === 'added') {
+      cell.innerHTML = '<button class="btn-o btn-sm" style="font-size:11px;padding:3px 8px;" onclick="updateItemStatus(this,\'pending\')">↩ Deshacer</button>';
+    } else {
+      cell.innerHTML = '<button class="btn-g btn-sm" style="font-size:11px;padding:3px 8px;" onclick="updateItemStatus(this,\'added\')">✓ Agregar</button>';
+    }
+  }
+
+  function statusHtml(status) {
+    var map = {
+      added:             '<span style="color:#50c878;font-size:13px;">✓ Agregado</span>',
+      variant_not_found: '<span style="color:#e8a020;font-size:13px;">⚠ No encontrado</span>',
+      no_url:            '<span style="color:#555;font-size:13px;">○ Sin URL</span>',
+      pending:           '<span style="color:#888;font-size:13px;">— Pendiente</span>',
+      running:           '<span style="color:#6496ff;font-size:13px;">↻ En progreso</span>',
+    };
+    return map[status] || '<span style="color:#888;font-size:13px;">— ' + status + '</span>';
+  }
+
+  function setStatusBadge(status, label) {
+    var el  = document.getElementById('statusBadge');
+    var cls = {done:'delivered', partial:'shipped', failed:'cancelled', running:'confirmed', pending:'pending'};
+    el.className = 'bs bs-' + (cls[status] || 'pending');
+    el.textContent = label;
+  }
+
+  // Exponer globalmente para uso desde onclick
+  window.updateItemStatus = function (btn, newStatus) {
+    var row = btn.closest('tr');
+    var url  = row.dataset.updateUrl;
+    btn.disabled = true;
+
+    fetch(url, {
+      method:  'POST',
+      headers: {'X-CSRFToken': CSRF, 'Content-Type': 'application/x-www-form-urlencoded'},
+      body:    'status=' + newStatus,
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (!data.ok) {
+        showToast(data.error || 'Error', 'error');
+        btn.disabled = false;
+        return;
+      }
+      row.querySelector('.item-status').innerHTML = statusHtml(data.item_status);
+      row.querySelector('.item-notes').textContent = data.item_notes || '—';
+      updateActionCell(row, data.item_status, parseInt(row.dataset.itemPk));
+      setStatusBadge(data.order_status, data.order_status_display);
+
+      if (data.order_status === 'done') {
+        showToast('Pedido listo en modaverse ✓', 'success');
+      }
+    })
+    .catch(function () {
+      showToast('Error de red', 'error');
+      btn.disabled = false;
+    });
+  };
+})();
+
+function copyScript() {
+  var text = document.getElementById('cartScript').textContent.trim();
+  navigator.clipboard.writeText(text).then(function () {
+    var btn = document.getElementById('copyBtn');
+    btn.innerHTML = '<i class="bi bi-check2"></i> Copiado';
+    setTimeout(function () {
+      btn.innerHTML = '<i class="bi bi-clipboard"></i> Copiar script';
+    }, 2000);
+  }).catch(function () {
+    showToast('No se pudo copiar', 'error');
+  });
+}
+</script>
 {% endblock %}

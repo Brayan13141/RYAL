@@ -78,6 +78,7 @@
       <table class="p-table">
         <thead>
           <tr>
+            <th style="width:52px;"></th>
             <th>SKU</th>
             <th>Producto</th>
             <th>Variante</th>
@@ -89,6 +90,24 @@
         <tbody>
           {% for item in order.items.all %}
           <tr>
+            <td style="padding:6px 8px;">
+              {% if item.product %}
+                {% with item.product.images.all as imgs %}
+                  {% if imgs %}
+                    <img src="{{ imgs.0.image.url }}"
+                         style="width:44px;height:44px;object-fit:cover;border-radius:5px;border:1px solid #222;display:block;">
+                  {% else %}
+                    <div style="width:44px;height:44px;border-radius:5px;border:1px solid #1a1a1a;background:#0d0d0d;display:flex;align-items:center;justify-content:center;">
+                      <i class="bi bi-image" style="color:#333;font-size:16px;"></i>
+                    </div>
+                  {% endif %}
+                {% endwith %}
+              {% else %}
+                <div style="width:44px;height:44px;border-radius:5px;border:1px solid #1a1a1a;background:#0d0d0d;display:flex;align-items:center;justify-content:center;">
+                  <i class="bi bi-image" style="color:#333;font-size:16px;"></i>
+                </div>
+              {% endif %}
+            </td>
             <td style="font-family:monospace;color:#666;font-size:12px;">{{ item.sku_snapshot }}</td>
             <td style="color:#ddd;">{{ item.name_snapshot }}</td>
             <td style="color:#666;">{{ item.variant_snapshot|default:"—" }}</td>

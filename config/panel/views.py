@@ -1,7 +1,11 @@
 import csv
 import json
 import os
+import subprocess
+import sys
+import tempfile
 from datetime import timedelta
+from pathlib import Path
 from decimal import Decimal, InvalidOperation
 
 from django.contrib.admin.views.decorators import staff_member_required
@@ -311,7 +315,7 @@ def orders_export(request):
 @_staff
 def order_detail(request, pk):
     order = get_object_or_404(
-        Order.objects.prefetch_related('items__product', 'items__variant'),
+        Order.objects.prefetch_related('items__product__images', 'items__variant'),
         pk=pk,
     )
     return render(request, 'panel/order_detail.html', {
@@ -1232,10 +1236,111 @@ def supplier_order_init(request, pk):
 def supplier_order_detail(request, pk):
     order = get_object_or_404(Order, pk=pk)
     supplier_order = get_object_or_404(
-        SupplierOrder.objects.prefetch_related('items__order_item'),
+        SupplierOrder.objects.prefetch_related(
+            'items__order_item__product__category__parent',
+            'items__order_item__product__images',
+        ),
         order=order,
     )
     return render(request, 'panel/supplier_order.html', {
         'order': order,
         'supplier_order': supplier_order,
+    })
+
+
+@_staff
+@require_POST
+def supplier_item_update(request, pk, item_pk):
+    """Marca manualmente un SupplierOrderItem como agregado o pendiente y recalcula el estado del pedido proveedor."""
+    order = get_object_or_404(Order, pk=pk)
+    supplier_order = get_object_or_404(SupplierOrder, order=order)
+    item = get_object_or_404(SupplierOrderItem, pk=item_pk, supplier_order=supplier_order)
+
+    new_status = request.POST.get('status', '')
+    if new_status not in ('added', 'pending', 'variant_not_found', 'no_url'):
+        return JsonResponse({'ok': False, 'error': 'Estado inválido'})
+
+    item.status = new_status
+    if new_status == 'added' and not item.notes:
+        item.notes = 'Agregado manualmente'
+    elif new_status == 'pending' and item.notes == 'Agregado manualmente':
+        item.notes = ''
+    item.save(update_fields=['status', 'notes'])
+
+    all_statuses = set(supplier_order.items.values_list('status', flat=True))
+    if all_statuses <= {'added', 'no_url'}:
+        supplier_order.status = 'done'
+    elif 'added' in all_statuses:
+        supplier_order.status = 'partial'
+    elif 'variant_not_found' in all_statuses:
+        supplier_order.status = 'failed'
+    else:
+        supplier_order.status = 'pending'
+    supplier_order.save(update_fields=['status', 'updated_at'])
+
+    return JsonResponse({
+        'ok':                  True,
+        'item_status':         item.status,
+        'item_status_display': item.get_status_display(),
+        'item_notes':          item.notes,
+        'order_status':        supplier_order.status,
+        'order_status_display': supplier_order.get_status_display(),
+    })
+
+
+@_staff
+@require_POST
+def supplier_order_run(request, pk):
+    """Lanza sync_modaverse_order --headless como subproceso en background."""
+    order = get_object_or_404(Order, pk=pk)
+    supplier_order = get_object_or_404(SupplierOrder, order=order)
+
+    if supplier_order.status == 'running':
+        return JsonResponse({'ok': False, 'error': 'Ya está en progreso'})
+
+    # Resetear ítems fallidos/no encontrados para reintentar
+    supplier_order.items.filter(status='variant_not_found').update(status='pending', notes='')
+    supplier_order.status = 'pending'
+    supplier_order.save(update_fields=['status'])
+
+    manage_py = Path(__file__).resolve().parent.parent / 'manage.py'
+    env = {**os.environ, 'PYTHONUTF8': '1'}
+    log_path = Path(tempfile.gettempdir()) / f'modaverse_{order.pk}.log'
+    log_f = open(log_path, 'w', encoding='utf-8', errors='replace')
+    subprocess.Popen(
+        [sys.executable, str(manage_py), 'sync_modaverse_order', str(order.pk), '--headless'],
+        cwd=str(manage_py.parent),
+        env=env,
+        stdout=log_f,
+        stderr=subprocess.STDOUT,
+    )
+    log_f.close()
+
+    return JsonResponse({'ok': True, 'log': str(log_path)})
+
+
+@_staff
+def supplier_order_status(request, pk):
+    """Devuelve el estado actual del SupplierOrder para polling AJAX."""
+    order = get_object_or_404(Order, pk=pk)
+    supplier_order = get_object_or_404(
+        SupplierOrder.objects.prefetch_related('items__order_item'),
+        order=order,
+    )
+
+    items = [
+        {
+            'sku':            si.order_item.sku_snapshot,
+            'status':         si.status,
+            'status_display': si.get_status_display(),
+            'notes':          si.notes,
+        }
+        for si in supplier_order.items.all()
+    ]
+
+    return JsonResponse({
+        'status':         supplier_order.status,
+        'status_display': supplier_order.get_status_display(),
+        'cart_script':    supplier_order.cart_script,
+        'items':          items,
     })

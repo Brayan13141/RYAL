@@ -317,6 +317,32 @@ button, input, select, textarea { font-family: inherit; color: inherit; }
   pointer-events: none;
 }
 
+/* ——— card thumbstrip — miniaturas de cambio de imagen ——— */
+.card-thumbstrip {
+  display: flex;
+  gap: 5px;
+  justify-content: center;
+  margin-bottom: 8px;
+  pointer-events: auto;
+}
+.card-thumb {
+  width: 36px; height: 36px;
+  border-radius: 5px;
+  border: 2px solid rgba(255,255,255,0.15);
+  overflow: hidden;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color .2s, transform .15s;
+}
+.card-thumb img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+.card-thumb--active { border-color: var(--gold); }
+.card-thumb:hover { border-color: rgba(201,168,76,0.65); transform: scale(1.08); }
+
 /* ——— banner-notice — aviso de pedido mínimo ——— */
 .banner-notice {
   display: flex;

@@ -118,8 +118,7 @@ class OrderItem(models.Model):
 class SupplierOrder(models.Model):
     order           = models.OneToOneField(Order, on_delete=models.CASCADE, related_name='supplier_order')
     status          = models.CharField(max_length=20, choices=SUPPLIER_ORDER_STATUS, default='pending')
-    modaverse_code  = models.CharField(max_length=100, blank=True)
-    screenshot      = models.ImageField(upload_to='supplier_orders/', null=True, blank=True)
+    cart_script     = models.TextField(blank=True)
     created_at      = models.DateTimeField(auto_now_add=True)
     updated_at      = models.DateTimeField(auto_now=True)
 

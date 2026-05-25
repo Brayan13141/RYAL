@@ -1,0 +1,11 @@
+{% if status == 'added' %}
+  <span style="color:#50c878;font-size:13px;">✓ Agregado</span>
+{% elif status == 'variant_not_found' %}
+  <span style="color:#e8a020;font-size:13px;">⚠ Variante no encontrada</span>
+{% elif status == 'no_url' %}
+  <span style="color:#555;font-size:13px;">○ Sin URL</span>
+{% elif status == 'running' %}
+  <span style="color:#6496ff;font-size:13px;">↻ En progreso</span>
+{% else %}
+  <span style="color:#888;font-size:13px;">— Pendiente</span>
+{% endif %}

@@ -4,6 +4,43 @@
 
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  new Chart(document.getElementById('chartVentas'), {
+    type: 'bar',
+    data: {
+      labels: {{ chart_labels|safe }},
+      datasets: [
+        {
+          label: 'Ingresos MXN',
+          data: {{ chart_revenue|safe }},
+          backgroundColor: 'rgba(201,168,76,0.7)',
+          borderColor: '#c9a84c',
+          borderWidth: 1,
+          borderRadius: 4,
+        },
+        {
+          label: 'Ganancia MXN',
+          data: {{ chart_profit|safe }},
+          backgroundColor: 'rgba(80,200,120,0.5)',
+          borderColor: '#50c878',
+          borderWidth: 1,
+          borderRadius: 4,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#aaa', boxWidth: 12 } } },
+      scales: {
+        x: { ticks: { color: '#666' }, grid: { color: '#1a1a1a' } },
+        y: { ticks: { color: '#666' }, grid: { color: '#1a1a1a' }, beginAtZero: true },
+      },
+    },
+  });
+});
+</script>
 {% endblock %}
 
 {% block content %}
@@ -35,41 +72,6 @@
     <canvas id="chartVentas"></canvas>
   </div>
 </div>
-<script>
-new Chart(document.getElementById('chartVentas'), {
-  type: 'bar',
-  data: {
-    labels: {{ chart_labels|safe }},
-    datasets: [
-      {
-        label: 'Ingresos MXN',
-        data: {{ chart_revenue|safe }},
-        backgroundColor: 'rgba(201,168,76,0.7)',
-        borderColor: '#c9a84c',
-        borderWidth: 1,
-        borderRadius: 4,
-      },
-      {
-        label: 'Ganancia MXN',
-        data: {{ chart_profit|safe }},
-        backgroundColor: 'rgba(80,200,120,0.5)',
-        borderColor: '#50c878',
-        borderWidth: 1,
-        borderRadius: 4,
-      },
-    ],
-  },
-  options: {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: { legend: { labels: { color: '#aaa', boxWidth: 12 } } },
-    scales: {
-      x: { ticks: { color: '#666' }, grid: { color: '#1a1a1a' } },
-      y: { ticks: { color: '#666' }, grid: { color: '#1a1a1a' }, beginAtZero: true },
-    },
-  },
-});
-</script>
 
 <!-- Stats de pedidos -->
 <h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:#555;font-weight:600;margin-bottom:12px;">Estado de pedidos</h3>

@@ -1,11 +1,13 @@
 """
-Repara ProductImages guardadas con path incorrecto por el bug de extracción de extensión.
+Repara ProductImages guardadas con path incorrecto o nombre no normalizado.
 
-El bug causaba que URLs sin extensión (como api.modaverse.vip/kkd_boot/.../ZA-091_XYZ)
-generaran un filename con barras (ZA-091_XYZ = "vip/kkd_boot/.../ZA-091_XYZ"),
-creando una jerarquía de directorios en media/ en lugar de un archivo plano.
+Casos que corrige:
+  1. Bug de directorio anidado: URL sin extensión generaba jerarquía en media/products/
+     (ej. products/api.modaverse.vip/kkd_boot/.../ZA-091_XYZ)
+  2. Extensión con sufijo extra: URLs de modaverse incluyen timestamp tras la ext
+     (ej. products/XT_0102836.jpg_1774322093986 → products/RYL-SKU-001_0.jpg)
 
-El JPEG sí fue descargado — solo está en el path incorrecto.
+En ambos casos el archivo existe — solo está mal nombrado.
 
 Uso:
     python manage.py repair_images
@@ -111,31 +113,47 @@ class Command(BaseCommand):
                 errors += 1
                 continue
 
-            # Si ya tiene extension de imagen valida -> ok
+            # Si ya tiene extensión de imagen válida -> ok
             if img_path.suffix.lower() in ('.jpg', '.jpeg', '.png', '.webp', '.gif'):
                 skipped += 1
                 continue
 
-            # Archivo existe pero sin extensión reconocible → es el bug
+            # Archivo existe pero con extensión no válida (p.ej. .jpg_1774322093986 o sin ext)
+            # Determinar extensión real: si el stem contiene ".jpg"/".png"/etc., usar esa
+            stem = img_path.name  # ej. "XT_0102836.jpg_1774322093986"
+            real_ext = 'jpg'
+            for candidate in ('.jpg', '.jpeg', '.png', '.webp', '.gif'):
+                if candidate in stem.lower():
+                    real_ext = candidate.lstrip('.')
+                    break
+
             sku = pi.product.sku
             order = pi.display_order
-            new_name = f'products/{sku}_{order}.jpg'
+            new_name = f'products/{sku}_{order}.{real_ext}'
             new_path = media_root / new_name
 
             self.stdout.write(f'  >> {sku}_{order}: {img_path.name} -> {new_name}')
 
             if not dry:
+                if new_path.exists() and new_path != img_path:
+                    self.stdout.write(
+                        self.style.WARNING(f'  [!] {new_name} ya existe — saltando {img_path.name}')
+                    )
+                    errors += 1
+                    continue
+
                 new_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(img_path, new_path)
 
-                # Limpiar el directorio raíz del path incorrecto
-                # El directorio "padre" inmediato dentro de products/ es el que tiene
-                # el nombre tipo "RYL-CAP-003_0.vip"
+                # Caso 1: directorio anidado (bug original) → borrar árbol
                 parts = img_path.relative_to(media_root / 'products').parts
-                if parts:
+                if len(parts) > 1:
                     garbage_dir = media_root / 'products' / parts[0]
                     if garbage_dir.is_dir() and garbage_dir != new_path.parent:
                         shutil.rmtree(garbage_dir)
+                # Caso 2: archivo plano con extensión incorrecta → borrar el original
+                elif img_path.is_file() and img_path != new_path:
+                    img_path.unlink()
 
                 pi.image.name = new_name
                 pi.save(update_fields=['image'])
