@@ -1,0 +1,145 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Ordenar Productos — Panel RYAL{% endblock %}
+{% block page_title %}Ordenar Productos: {{ subcat.name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+.drag-handle { cursor: grab; }
+.drag-handle:active { cursor: grabbing; }
+.prod-sortable-ghost { opacity: .35 !important; background: rgba(212,175,55,.1) !important; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div style="margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0" style="font-size:13px;">
+      <li class="breadcrumb-item"><a href="{% url 'panel:catalog_config' %}" style="color:var(--pg);text-decoration:none;">Categorías</a></li>
+      <li class="breadcrumb-item active" aria-current="page" style="color:#888;">{{ subcat.parent.name }} / {{ subcat.name }} / Ordenar productos</li>
+    </ol>
+  </nav>
+  <a href="{% url 'panel:catalog_config' %}" class="btn-o btn-sm">
+    <i class="bi bi-arrow-left"></i> Volver a categorías
+  </a>
+</div>
+
+<div class="p-card">
+  <div class="p-card-head">
+    <h2>Productos en {{ subcat.name }} ({{ products|length }} ítems)</h2>
+    <span style="font-size:11px;color:#555;">Arrastra desde el icono de la izquierda para reordenar. El cambio se guarda automáticamente.</span>
+  </div>
+  <div class="p-card-body">
+    {% if products %}
+      <div class="prod-list" id="prod-list-{{ subcat.pk }}"
+           data-reorder-url="{% url 'panel:subcategory_products_reorder_bulk' subcat.pk %}">
+        {% for p in products %}
+        <div id="product-row-{{ p.pk }}" data-product-row
+             style="display:flex;align-items:center;gap:12px;padding:10px 14px;
+                    background:#0d0d0d;border:1px solid {% if not p.is_active %}rgba(255,80,80,.2){% else %}#1a1a1a{% endif %};
+                    border-radius:8px;margin-bottom:8px;transition:opacity .15s;
+                    {% if not p.is_active %}opacity:.5;{% endif %}">
+          
+          <!-- Drag handle -->
+          <div class="drag-handle" title="Arrastrar para ordenar"
+               style="flex-shrink:0;padding:6px;color:#444;display:flex;align-items:center;">
+            <i class="bi bi-grip-vertical" style="font-size:18px;"></i>
+          </div>
+
+          <!-- Thumbnail -->
+          <div style="width:48px;height:48px;border-radius:4px;border:1px solid #222;
+                      overflow:hidden;background:#111;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            {% if p.cover_image %}
+              <img src="{{ p.cover_image.image.url }}" alt="{{ p.name }}"
+                   style="width:100%;height:100%;object-fit:cover;display:block;">
+            {% else %}
+              <i class="bi bi-image" style="font-size:1rem;color:#2a2a2a;"></i>
+            {% endif %}
+          </div>
+
+          <!-- Product Details -->
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:13px;font-weight:600;color:{% if not p.is_active %}#555{% else %}#ddd{% endif %};
+                        white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+              {{ p.name }}
+            </div>
+            <div style="font-size:11px;color:#555;margin-top:2px;font-family:var(--f-mono);">
+              SKU: {{ p.sku }} · ${{ p.final_price|floatformat:0 }} MXN
+            </div>
+          </div>
+
+          <!-- Status / Visibility badges -->
+          <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+            {% if not p.is_active %}
+              <span class="bs bs-off">Oculto</span>
+            {% else %}
+              <span class="bs bs-on">Activo</span>
+            {% endif %}
+
+            {% if p.status == 'available' %}
+              <span class="bs bs-available">Disponible</span>
+            {% elif p.status == 'sold_out' %}
+              <span class="bs bs-sold_out">Agotado</span>
+            {% else %}
+              <span class="bs bs-coming_soon">Próximamente</span>
+            {% endif %}
+          </div>
+
+        </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div style="text-align:center;padding:40px;color:#444;">
+        <i class="bi bi-box-seam" style="font-size:2rem;display:block;margin-bottom:10px;opacity:.3;"></i>
+        No hay productos en esta subcategoría.
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+const CSRF = '{{ csrf_token }}';
+</script>
+
+{% endblock content %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const list = document.querySelector('.prod-list');
+  if (list) {
+    new Sortable(list, {
+      handle: '.drag-handle',
+      animation: 150,
+      ghostClass: 'prod-sortable-ghost',
+      onEnd: function() {
+        const pks = Array.from(list.querySelectorAll('[data-product-row]')).map(function(row) {
+          return parseInt(row.id.replace('product-row-', ''));
+        });
+        
+        fetch(list.dataset.reorderUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': CSRF
+          },
+          body: JSON.stringify({order: pks})
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.ok) {
+            showToast('Orden de productos guardado con éxito.', 'success');
+          } else {
+            showToast(d.error || 'Error al guardar el orden.', 'error');
+          }
+        })
+        .catch(function() {
+          showToast('Error de red al guardar el orden.', 'error');
+        });
+      }
+    });
+  }
+});
+</script>
+{% endblock %}

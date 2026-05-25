@@ -45,17 +45,17 @@
       <!-- ── Vista agrupada por secciones ── -->
       {% for entry in sections_data %}
       {% if entry.subcats %}
-      <div class="mb-5">
+      <div class="cat-section">
         <!-- Cabecera de sección -->
-        <div class="d-flex align-items-center justify-content-between mb-3 pb-2"
-             style="border-bottom:1px solid rgba(212,175,55,0.15);">
-          <div class="d-flex align-items-center gap-3">
-            <span style="font-size:0.6rem;font-family:monospace;letter-spacing:0.2em;color:var(--ryal-gold);opacity:.6;">
-              /{{ forloop.counter|stringformat:"02d" }}
-            </span>
-            <h2 class="mb-0 fw-semibold text-white" style="font-size:1.05rem;letter-spacing:0.04em;">
-              {{ entry.section.name }}
-            </h2>
+        <div class="cat-section-head">
+          <div class="cat-section-head-left">
+            <span class="cat-section-badge">{{ forloop.counter|stringformat:"02d" }}</span>
+            <div>
+              <h2 class="cat-section-title">{{ entry.section.name }}</h2>
+              <div class="cat-section-subtitle">
+                {{ entry.subcats|length }} subcategoría{{ entry.subcats|length|pluralize }} disponible{{ entry.subcats|length|pluralize }}
+              </div>
+            </div>
           </div>
         </div>
         <!-- Subcategorías de la sección -->
@@ -72,10 +72,19 @@
 
       <!-- Subcategorías sin sección -->
       {% if unassigned %}
-      <div class="mb-5">
-        <div class="d-flex align-items-center gap-3 mb-3 pb-2"
-             style="border-bottom:1px solid rgba(255,255,255,0.06);">
-          <h2 class="mb-0 fw-semibold" style="font-size:1.05rem;color:rgba(255,255,255,0.35);">Otros</h2>
+      <div class="cat-section" style="background: rgba(255, 255, 255, 0.01); border-color: rgba(255, 255, 255, 0.03);">
+        <div class="cat-section-head">
+          <div class="cat-section-head-left">
+            <span class="cat-section-badge" style="color: rgba(255,255,255,0.4); background: rgba(255,255,255,0.02); border-color: rgba(255,255,255,0.08);">
+              <i class="bi bi-folder" style="font-size: 0.95rem;"></i>
+            </span>
+            <div>
+              <h2 class="cat-section-title" style="color: rgba(255,255,255,0.6);">Otras categorías</h2>
+              <div class="cat-section-subtitle">
+                {{ unassigned|length }} subcategoría{{ unassigned|length|pluralize }} disponible{{ unassigned|length|pluralize }}
+              </div>
+            </div>
+          </div>
         </div>
         <div class="row g-3 g-md-4">
           {% for sub in unassigned %}
@@ -112,6 +121,84 @@
 
 {% block extra_css %}
 <style>
+/* ── Secciones por subcategoría ── */
+.cat-section {
+  background: linear-gradient(180deg, rgba(28, 28, 28, 0.35) 0%, rgba(10, 10, 10, 0) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  margin-bottom: 40px;
+}
+.cat-section:hover {
+  border-color: rgba(212, 175, 55, 0.12);
+  box-shadow: 0 15px 35px rgba(212, 175, 55, 0.03);
+}
+.cat-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.cat-section-head-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.cat-section-badge {
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ryal-gold);
+  background: rgba(212, 175, 55, 0.07);
+  border: 1px solid rgba(212, 175, 55, 0.22);
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+}
+.cat-section-title {
+  font-family: var(--font-heading);
+  font-size: clamp(1.4rem, 2.5vw, 2rem);
+  font-weight: 400;
+  margin: 0;
+  line-height: 1.1;
+  color: var(--ryal-white);
+  letter-spacing: 0.02em;
+}
+.cat-section-subtitle {
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.45);
+  margin-top: 4px;
+  font-weight: 300;
+  letter-spacing: 0.04em;
+}
+
+@media (max-width: 768px) {
+  .cat-section {
+    padding: 16px 12px;
+    border-radius: 12px;
+  }
+  .cat-section-head {
+    margin-bottom: 18px;
+  }
+  .cat-section-badge {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    font-size: 0.65rem;
+  }
+}
+
 .ryal-breadcrumb {
   font-family: var(--font-display);
   font-size: 0.65rem;

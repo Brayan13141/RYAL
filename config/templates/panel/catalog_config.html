@@ -283,6 +283,16 @@
                       title="{% if sub.is_active %}Ocultar{% else %}Mostrar{% endif %}">
                 <i class="bi {% if sub.is_active %}bi-eye-slash{% else %}bi-eye{% endif %}"></i>
               </button>
+              <!-- Ordenar productos -->
+              <a href="{% url 'panel:subcategory_products_reorder' sub.pk %}"
+                 class="btn-sm" title="Ordenar productos"
+                 style="background:transparent;border:1px solid #333;color:#888;
+                        width:28px;height:28px;padding:0;display:flex;align-items:center;
+                        justify-content:center;border-radius:4px;transition:all .12s;text-decoration:none;"
+                 onmouseover="this.style.borderColor='var(--pg)';this.style.color='var(--pg)'"
+                 onmouseout="this.style.borderColor='#333';this.style.color='#888'">
+                <i class="bi bi-arrow-down-up" style="font-size:11px;"></i>
+              </a>
               <!-- Eliminar subcategoría -->
               <button class="btn-r btn-sm" title="Eliminar subcategoría"
                       onclick="deleteSubcat({{ sub.pk }}, '{{ sub.name|escapejs }}')">

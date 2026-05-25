@@ -135,12 +135,17 @@
       <!-- Cabecera de sección -->
       <div class="cat-section-head">
         <div class="cat-section-head-left">
-          <span class="cat-section-index">/{{ forloop.counter|stringformat:"02d" }}</span>
-          <h2 class="cat-section-title">{{ section.label }}</h2>
+          <span class="cat-section-badge">{{ forloop.counter|stringformat:"02d" }}</span>
+          <div>
+            <h2 class="cat-section-title">{{ section.label }}</h2>
+            <div class="cat-section-subtitle">
+              {{ section.total }} producto{{ section.total|pluralize }} disponible{{ section.total|pluralize }}
+            </div>
+          </div>
         </div>
         {% if section.ver_url %}
-        <a href="{{ section.ver_url }}" class="cat-section-link">
-          Ver los {{ section.total }} →
+        <a href="{{ section.ver_url }}" class="cat-section-btn">
+          <span>Ver todo</span> <i class="bi bi-arrow-right"></i>
         </a>
         {% endif %}
       </div>
@@ -354,51 +359,118 @@
 {% block extra_css %}
 <style>
 /* ── Secciones por subcategoría ── */
+.cat-section {
+  background: linear-gradient(180deg, rgba(28, 28, 28, 0.35) 0%, rgba(10, 10, 10, 0) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+.cat-section:hover {
+  border-color: rgba(212, 175, 55, 0.12);
+  box-shadow: 0 15px 35px rgba(212, 175, 55, 0.03);
+}
 .cat-section-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 20px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--ryal-border);
+  margin-bottom: 24px;
+  flex-wrap: wrap;
 }
 .cat-section-head-left {
   display: flex;
-  align-items: baseline;
-  gap: 14px;
+  align-items: center;
+  gap: 16px;
 }
-.cat-section-index {
+.cat-section-badge {
   font-family: var(--font-display);
-  font-size: 0.6rem;
-  letter-spacing: 0.22em;
+  font-size: 0.72rem;
+  font-weight: 600;
   color: var(--ryal-gold);
-  opacity: 0.7;
+  background: rgba(212, 175, 55, 0.07);
+  border: 1px solid rgba(212, 175, 55, 0.22);
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 0.02em;
   flex-shrink: 0;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.15);
 }
 .cat-section-title {
   font-family: var(--font-heading);
-  font-size: clamp(1.5rem, 3vw, 2.2rem);
+  font-size: clamp(1.4rem, 2.5vw, 2rem);
   font-weight: 400;
   margin: 0;
   line-height: 1.1;
   color: var(--ryal-white);
+  letter-spacing: 0.02em;
 }
-.cat-section-link {
+.cat-section-subtitle {
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.45);
+  margin-top: 4px;
+  font-weight: 300;
+  letter-spacing: 0.04em;
+}
+.cat-section-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-family: var(--font-display);
-  font-size: 0.62rem;
+  font-size: 0.65rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--ryal-gold);
+  background: rgba(255, 255, 255, 0.01);
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  padding: 8px 18px;
+  border-radius: 4px;
   text-decoration: none;
-  opacity: 0.75;
-  white-space: nowrap;
-  transition: opacity 0.2s;
-  padding-bottom: 1px;
-  border-bottom: 1px solid rgba(212,175,55,0.35);
+  transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   flex-shrink: 0;
 }
-.cat-section-link:hover { opacity: 1; color: var(--ryal-gold); }
+.cat-section-btn:hover {
+  background: var(--ryal-gold);
+  color: #000 !important;
+  border-color: var(--ryal-gold);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(212, 175, 55, 0.3);
+}
+.cat-section-btn i {
+  font-size: 0.8rem;
+  transition: transform 0.2s ease;
+}
+.cat-section-btn:hover i {
+  transform: translateX(4px);
+}
+
+@media (max-width: 768px) {
+  .cat-section {
+    padding: 16px 12px;
+    border-radius: 12px;
+  }
+  .cat-section-head {
+    margin-bottom: 18px;
+  }
+  .cat-section-badge {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    font-size: 0.65rem;
+  }
+  .cat-section-btn {
+    padding: 6px 12px;
+    font-size: 0.6rem;
+    letter-spacing: 0.12em;
+  }
+}
 
 /* ── Breadcrumb ── */
 .ryal-breadcrumb {

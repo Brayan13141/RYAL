@@ -86,13 +86,14 @@ class Product(models.Model):
     supplier_url = models.URLField(blank=True, help_text='URL del producto en el proveedor')
     is_active   = models.BooleanField(default=True)
     is_featured = models.BooleanField(default=False, help_text='Aparece en "Nuevos ingresos" del inicio')
+    display_order = models.PositiveIntegerField(default=0)
     created_at  = models.DateTimeField(auto_now_add=True)
     updated_at  = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = 'Producto'
         verbose_name_plural = 'Productos'
-        ordering = ['-created_at']
+        ordering = ['display_order', '-created_at']
 
     @property
     def effective_shipping(self):

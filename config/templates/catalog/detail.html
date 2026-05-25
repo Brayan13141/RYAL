@@ -20,7 +20,7 @@
 
       <div class="pd-main-img" id="mainImgWrap">
         {% if product.cover_image %}
-        <img src="{{ product.cover_image.image.url }}" alt="{{ product.name }}" id="mainImg">
+        <img src="{{ product.cover_image.image.url }}" alt="{{ product.name }}" id="mainImg" onclick="openLightbox()" style="cursor: zoom-in;">
         {% else %}
         <div class="pd-placeholder" id="mainImg"></div>
         {% endif %}
@@ -291,11 +291,127 @@
 </section>
 {% endif %}
 
+  <!-- Lightbox / Visor de Imagen Fullscreen -->
+  <div id="imageLightbox" class="lightbox" aria-hidden="true">
+    <button class="lightbox-close" onclick="closeLightbox()" aria-label="Cerrar">&times;</button>
+    {% if product.images.count > 1 %}
+    <button class="lightbox-arrow lightbox-arrow--prev" onclick="lightboxPrev(event)" aria-label="Anterior">
+      <i class="bi bi-chevron-left"></i>
+    </button>
+    {% endif %}
+    <img class="lightbox-content" id="lightboxImg" alt="{{ product.name }} ampliada">
+    {% if product.images.count > 1 %}
+    <button class="lightbox-arrow lightbox-arrow--next" onclick="lightboxNext(event)" aria-label="Siguiente">
+      <i class="bi bi-chevron-right"></i>
+    </button>
+    {% endif %}
+  </div>
+
 {% endblock %}
 
 
 {% block extra_css %}
 <style>
+  /* Lightbox / Visor de Imagen Fullscreen */
+  .lightbox {
+    display: none;
+    position: fixed;
+    z-index: 2000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: rgba(8, 8, 8, 0.96);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+  }
+  .lightbox.open {
+    display: flex;
+    opacity: 1;
+  }
+  .lightbox-content {
+    margin: auto;
+    display: block;
+    max-width: 90%;
+    max-height: 85vh;
+    object-fit: contain;
+    border-radius: 12px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.9);
+    transform: scale(0.95);
+    transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    cursor: zoom-out;
+  }
+  .lightbox.open .lightbox-content {
+    transform: scale(1);
+  }
+  .lightbox-close {
+    position: absolute;
+    top: 24px;
+    right: 32px;
+    color: #fff;
+    font-size: 44px;
+    font-weight: 200;
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: color 0.2s, transform 0.2s;
+    line-height: 1;
+    z-index: 2010;
+  }
+  .lightbox-close:hover {
+    color: var(--gold);
+    transform: scale(1.1);
+  }
+  .lightbox-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: #fff;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    transition: all 0.2s ease;
+    z-index: 2010;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+  .lightbox-arrow:hover {
+    background: var(--gold);
+    border-color: var(--gold);
+    color: #080808;
+    transform: translateY(-50%) scale(1.08);
+  }
+  .lightbox-arrow--prev { left: 24px; }
+  .lightbox-arrow--next { right: 24px; }
+
+  @media (max-width: 768px) {
+    .lightbox-content {
+      max-width: 95%;
+      max-height: 75vh;
+    }
+    .lightbox-arrow {
+      width: 44px;
+      height: 44px;
+      font-size: 18px;
+    }
+    .lightbox-arrow--prev { left: 12px; }
+    .lightbox-arrow--next { right: 12px; }
+    .lightbox-close { top: 16px; right: 20px; font-size: 36px; }
+  }
+
   /* ── Tier buttons ─────────────────────────────────────────────────────── */
   .pd-tiers-hint {
     font-size: 10px;
@@ -471,6 +587,76 @@
     document.querySelectorAll('.pd-thumb').forEach(function (btn, i) {
       btn.addEventListener('click', function () { _pdIdx = i; });
     });
+  });
+
+  // ── Lightbox / Visor de Imagen Fullscreen ───────────────────────────────
+  function openLightbox() {
+    const lightbox = document.getElementById('imageLightbox');
+    const lightboxImg = document.getElementById('lightboxImg');
+    if (!lightbox || !lightboxImg) return;
+    
+    const currentUrl = _pdImages[_pdIdx] || document.getElementById('mainImg')?.src;
+    if (!currentUrl) return;
+
+    lightboxImg.src = currentUrl;
+    lightbox.classList.add('open');
+    document.body.style.overflow = 'hidden';
+
+    document.addEventListener('keydown', handleLightboxKeys);
+  }
+
+  function closeLightbox() {
+    const lightbox = document.getElementById('imageLightbox');
+    if (!lightbox) return;
+    lightbox.classList.remove('open');
+    document.body.style.overflow = '';
+    document.removeEventListener('keydown', handleLightboxKeys);
+  }
+
+  function lightboxPrev(e) {
+    if (e) e.stopPropagation();
+    if (_pdImages.length < 2) return;
+    _pdIdx = ((_pdIdx - 1 % _pdImages.length) + _pdImages.length) % _pdImages.length;
+    updateLightboxImg();
+  }
+
+  function lightboxNext(e) {
+    if (e) e.stopPropagation();
+    if (_pdImages.length < 2) return;
+    _pdIdx = (_pdIdx + 1) % _pdImages.length;
+    updateLightboxImg();
+  }
+
+  function updateLightboxImg() {
+    const lightboxImg = document.getElementById('lightboxImg');
+    if (lightboxImg && _pdImages[_pdIdx]) {
+      const thumbs = document.querySelectorAll('.pd-thumb');
+      if (thumbs[_pdIdx]) {
+        swapImage(_pdImages[_pdIdx], thumbs[_pdIdx]);
+      } else {
+        const mainImg = document.getElementById('mainImg');
+        if (mainImg) mainImg.src = _pdImages[_pdIdx];
+      }
+      lightboxImg.src = _pdImages[_pdIdx];
+    }
+  }
+
+  function handleLightboxKeys(e) {
+    if (e.key === 'Escape') closeLightbox();
+    if (e.key === 'ArrowRight') lightboxNext(e);
+    if (e.key === 'ArrowLeft') lightboxPrev(e);
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    const lightbox = document.getElementById('imageLightbox');
+    if (lightbox) {
+      lightbox.addEventListener('click', function (e) {
+        // Cerrar si se hace clic en el fondo o en la imagen misma
+        if (e.target === lightbox || e.target.id === 'lightboxImg') {
+          closeLightbox();
+        }
+      });
+    }
   });
 </script>
 {% endblock %}

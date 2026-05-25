@@ -724,6 +724,42 @@ def category_reorder_bulk(request, parent_pk):
 
 
 @_staff
+def subcategory_products_reorder(request, subcat_pk):
+    subcat = get_object_or_404(Category, pk=subcat_pk, parent__isnull=False)
+    products = list(
+        Product.objects.filter(category=subcat)
+        .prefetch_related('images')
+        .order_by('display_order', '-created_at')
+    )
+    return render(request, 'panel/subcategory_products_reorder.html', {
+        'subcat': subcat,
+        'products': products,
+    })
+
+
+@_staff
+@require_POST
+def subcategory_products_reorder_bulk(request, subcat_pk):
+    subcat = get_object_or_404(Category, pk=subcat_pk)
+    import json
+    try:
+        data = json.loads(request.body)
+        order = [int(pk) for pk in data.get('order', [])]
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return JsonResponse({'ok': False, 'error': 'Datos inválidos'}, status=400)
+    
+    products = {p.pk: p for p in Product.objects.filter(pk__in=order, category=subcat)}
+    to_update = []
+    for i, pk in enumerate(order):
+        if pk in products:
+            products[pk].display_order = i
+            to_update.append(products[pk])
+    if to_update:
+        Product.objects.bulk_update(to_update, ['display_order'])
+    return JsonResponse({'ok': True})
+
+
+@_staff
 @require_POST
 def category_rename(request, cat_pk):
     cat = get_object_or_404(Category, pk=cat_pk)

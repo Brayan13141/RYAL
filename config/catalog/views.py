@@ -176,7 +176,7 @@ def _apply_filters(request, qs):
     elif orden == 'precio_desc':
         qs = qs.order_by('-final_price_calc', 'id')
     else:
-        qs = qs.order_by('-created_at', 'id')
+        qs = qs.order_by('display_order', '-created_at', 'id')
 
     return qs, selected_tags, q
 
@@ -272,7 +272,7 @@ def product_list(request, cat_slug, subcat_slug=None):
                     .filter(is_active=True, category__pk__in=sub_pks)
                     .select_related('category__parent')
                     .prefetch_related('images', 'tags', 'variants')
-                    .order_by('-created_at')
+                    .order_by('display_order', '-created_at')
                 )
                 total = sec_qs.count()
                 if total:
@@ -296,7 +296,7 @@ def product_list(request, cat_slug, subcat_slug=None):
                         .filter(is_active=True, category=sub)
                         .select_related('category__parent')
                         .prefetch_related('images', 'tags', 'variants')
-                        .order_by('-created_at')
+                        .order_by('display_order', '-created_at')
                     )
                     total = sub_qs.count()
                     if total:
