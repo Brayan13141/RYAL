@@ -127,6 +127,11 @@ class Command(BaseCommand):
             help='Re-descargar aunque ya tenga imágenes',
         )
         parser.add_argument(
+            '--fill-gaps', action='store_true',
+            help='También procesar productos que ya tienen algunas imágenes pero menos que el máximo '
+                 '(por defecto solo procesa productos sin ninguna imagen)',
+        )
+        parser.add_argument(
             '--since',
             metavar='YYYY-MM-DD',
             help='Solo productos creados en o después de esta fecha',
@@ -138,6 +143,7 @@ class Command(BaseCommand):
         max_imgs   = options['max_per_product']
         chunk_size = options['chunk_size']
         force      = options['force']
+        fill_gaps  = options['fill_gaps']
         since      = options['since']
 
         # ── Cargar mapa supplier_url → images desde JSON ──────────────────────
@@ -167,13 +173,24 @@ class Command(BaseCommand):
                 Q(category__parent__slug__contains=hint)
             )
         if not force:
-            qs = qs.filter(img_count__lt=max_imgs)
+            if fill_gaps:
+                # Rellena imágenes faltantes para productos que ya tienen algunas
+                qs = qs.filter(img_count__lt=max_imgs)
+            else:
+                # Por defecto: solo productos sin ninguna imagen (no re-procesa existentes)
+                qs = qs.filter(img_count=0)
         if since:
             qs = qs.filter(created_at__date__gte=since)
 
         total = qs.count()
+        if force:
+            mode_label = f'(force — todos, hasta {max_imgs} imgs)'
+        elif fill_gaps:
+            mode_label = f'(fill-gaps — con menos de {max_imgs} imgs)'
+        else:
+            mode_label = '(solo sin imágenes)'
         self.stdout.write(
-            f'  {total} productos con menos de {max_imgs} imágenes'
+            f'  {total} productos {mode_label}'
             + (f' en {only}' if only else '')
             + (f' desde {since}' if since else '')
         )

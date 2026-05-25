@@ -148,11 +148,20 @@ class Command(BaseCommand):
             self._fix_modaverse_urls()
             return
 
+        # Pre-cargar todos los supplier_url existentes en un set — 1 query compartida
+        # evita hacer N queries individuales en los loops de carga
+        existing_urls = set(
+            Product.objects.exclude(supplier_url='')
+            .exclude(supplier_url__isnull=True)
+            .values_list('supplier_url', flat=True)
+        )
+        self.stdout.write(f'✓ {len(existing_urls)} productos ya en BD (skip automático)')
+
         if only in ('modaverse', 'all'):
-            self._load_modaverse(tag_nuevo, no_images)
+            self._load_modaverse(tag_nuevo, no_images, existing_urls)
 
         if only in ('calzado', 'all'):
-            self._load_calzado(tag_nuevo, no_images)
+            self._load_calzado(tag_nuevo, no_images, existing_urls)
 
         if options.get('recategorize'):
             self._recategorize_general()
@@ -161,7 +170,7 @@ class Command(BaseCommand):
 
     # ── Modaverse (multi-categoría con jerarquía) ──────────────────────────────
 
-    def _load_modaverse(self, tag_nuevo, no_images):
+    def _load_modaverse(self, tag_nuevo, no_images, existing_urls):
         self.stdout.write('\n── Cargando desde scraped_modaverse.json ──')
         json_path = Path(__file__).resolve().parents[4] / 'scraped_modaverse.json'
 
@@ -251,8 +260,18 @@ class Command(BaseCommand):
 
         # Agrupar por categoría padre para SKU consecutivo
         prefix_counters = {}
+        new_count = skip_count = 0
 
         for p in products:
+            # Skip rápido por supplier_url — evita queries individuales a BD
+            product_id_check = p.get('sku', '')
+            check_url = (
+                f"https://www.modaverse.vip/#/proinfo/{product_id_check}"
+                if product_id_check else p.get('url', '')
+            )
+            if check_url and check_url in existing_urls:
+                skip_count += 1
+                continue
             api_cat_id = p.get('category_id', '') or '__default__'
             cat_obj    = cat_map.get(api_cat_id)
 
@@ -330,11 +349,17 @@ class Command(BaseCommand):
                 no_images=no_images,
             )
             if created:
+                existing_urls.add(supplier_url)
                 prefix_counters[prefix] += 1
+                new_count += 1
+
+        self.stdout.write(
+            self.style.SUCCESS(f'  → {new_count} nuevos · {skip_count} ya existían (omitidos)')
+        )
 
     # ── Calzado (yupoo_pf — por marcas) ───────────────────────────────────────
 
-    def _load_calzado(self, tag_nuevo, no_images):
+    def _load_calzado(self, tag_nuevo, no_images, existing_urls):
         self.stdout.write('\n── Cargando calzado (yupoo_pf) ──')
 
         json_path = Path(__file__).resolve().parents[4] / 'scraped_yupoo_pf.json'
@@ -404,8 +429,12 @@ class Command(BaseCommand):
         # ── Cargar productos ──────────────────────────────────────────────────
         self.stdout.write('\n  Cargando productos...')
         prefix_counters: dict[str, int] = {}
+        new_count = skip_count = 0
 
         for p in products:
+            if p.get('url', '') and p['url'] in existing_urls:
+                skip_count += 1
+                continue
             sub_id  = p.get('category_id', '')
             cat_obj = cat_map.get(sub_id)
 
@@ -457,7 +486,13 @@ class Command(BaseCommand):
                 img_referer=BASE_URL,
             )
             if created:
+                existing_urls.add(p.get('url', ''))
                 prefix_counters[prefix] += 1
+                new_count += 1
+
+        self.stdout.write(
+            self.style.SUCCESS(f'  → {new_count} nuevos · {skip_count} ya existían (omitidos)')
+        )
 
     # ── Re-categorizar productos en "General" ──────────────────────────────────
 

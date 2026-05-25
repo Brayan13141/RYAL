@@ -20,6 +20,7 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
       cd /root/app && source venv/bin/activate
       PYTHONUTF8=1 python config/manage.py load_productos --no-images
       PYTHONUTF8=1 python config/manage.py import_images --workers 6
+      # import_images por defecto solo procesa productos sin imágenes (no re-descarga existentes)
 
   ── CALZADO (Nike, Adidas, Air Jordan, etc.) ────────────────────────────────
 
@@ -38,7 +39,7 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
 ══════════════════════════════════════════════════════════════════════════════
 
   Cuando el proveedor saca nuevos productos y no quieres reprocesar todo el
-  catálogo. Usa --since con la fecha en que corriste load_productos.
+  catálogo.
 
   En LOCAL:
       PYTHONUTF8=1 venv/Scripts/python.exe scrape_modaverse_final.py
@@ -46,12 +47,15 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
 
   En SERVIDOR:
       PYTHONUTF8=1 python config/manage.py load_productos --no-images
-      PYTHONUTF8=1 python config/manage.py import_images --since 2026-05-21 --workers 6
-      PYTHONUTF8=1 python config/manage.py download_yupoo_images --since 2026-05-21
+      PYTHONUTF8=1 python config/manage.py import_images --workers 6
 
-  NOTA: load_productos ya deduplica por supplier_url, nunca crea duplicados.
-  El --since solo acelera import_images / download_yupoo_images al ignorar
-  los miles de productos que ya tienen imágenes.
+  NOTAS:
+  - load_productos pre-carga todos los supplier_url existentes en memoria (1 query)
+    y salta automáticamente los que ya están en BD. Nunca crea duplicados.
+    Muestra al final: "X nuevos · Y ya existían (omitidos)".
+  - import_images por defecto procesa solo productos con 0 imágenes.
+    No toca productos que ya tienen imágenes → seguro correr en cualquier momento.
+  - --since sigue siendo útil si quieres combinar con --fill-gaps o --force.
 
 ══════════════════════════════════════════════════════════════════════════════
   SCRAPERS (ejecutar en LOCAL)
@@ -108,24 +112,34 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
 
   load_productos
   ──────────────
-  Lee scraped_*.json y crea/actualiza productos en BD. Deduplica por
-  supplier_url (nunca duplica). Crea categorías si no existen.
+  Lee scraped_*.json y crea productos en BD. Deduplica por supplier_url.
+  Pre-carga todos los URLs existentes en un set Python (1 query) → salta
+  automáticamente los ya importados sin hacer queries individuales por producto.
+  Al terminar informa: "X nuevos · Y ya existían (omitidos)".
 
-      python manage.py load_productos                       # modaverse
-      python manage.py load_productos --only calzado        # calzado yupoo_pf
+      python manage.py load_productos                       # modaverse (solo nuevos)
+      python manage.py load_productos --only calzado        # calzado yupoo_pf (solo nuevos)
       python manage.py load_productos --no-images           # sin descargar imágenes (recomendado)
+      python manage.py load_productos --fix-urls            # actualiza supplier_url → #/proinfo/
 
   import_images
   ─────────────
-  Descarga imágenes modaverse en paralelo para productos que tienen menos
-  de 250 imágenes. Usa chunking de 300 para no saturar RAM.
+  Descarga imágenes modaverse en paralelo. Usa chunking de 300 para no
+  saturar RAM.
 
-      python manage.py import_images                         # todas las categorías
-      python manage.py import_images --only gorras           # solo gorras
-      python manage.py import_images --workers 6             # hilos paralelos (default 3)
-      python manage.py import_images --max-per-product 250   # máx imágenes por producto
-      python manage.py import_images --since 2026-05-21      # solo productos nuevos desde esa fecha
-      python manage.py import_images --force                 # re-descargar aunque ya tenga imágenes
+  Modos (se excluyen entre sí, de menos a más agresivo):
+    DEFAULT    → solo productos con 0 imágenes (no toca existentes)
+    --fill-gaps → productos con < max_imgs imágenes (rellena huecos)
+    --force    → todos los productos (re-descarga aunque ya tengan imágenes)
+
+      python manage.py import_images                              # solo sin imágenes (default)
+      python manage.py import_images --fill-gaps                  # rellena imágenes faltantes
+      python manage.py import_images --only gorras                # limitar a una categoría
+      python manage.py import_images --workers 6                  # hilos paralelos (default 3)
+      python manage.py import_images --max-per-product 250        # máx imágenes por producto
+      python manage.py import_images --since 2026-05-21           # filtrar por fecha de creación
+      python manage.py import_images --fill-gaps --since 2026-05-21  # combinar
+      python manage.py import_images --force                      # re-descargar todo
 
   download_yupoo_images
   ──────────────────────
@@ -154,11 +168,16 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
 
   repair_images
   ─────────────
-  Detecta y corrige imágenes con paths incorrectos en BD. Bug antiguo
-  (paths con barras). Rara vez necesario.
+  Detecta y corrige imágenes con nombres incorrectos en BD/disco.
+  Cubre dos casos:
+    1. Path anidado por bug antiguo (ej. products/api.modaverse.vip/...)
+    2. Extensión con sufijo extra (ej. XT_0102836.jpg_1774322093986)
+       → detecta la extensión real (.jpg) y renombra a {SKU}_{orden}.jpg
+       → borra el archivo original después de copiar
 
-      python manage.py repair_images
-      python manage.py repair_images --dry-run
+      python manage.py repair_images              # ejecutar reparación
+      python manage.py repair_images --dry-run    # solo mostrar qué haría (sin cambios)
+      python manage.py repair_images --redownload-missing  # también re-descarga sin imagen
 
 ══════════════════════════════════════════════════════════════════════════════
   UTILIDADES LOCALES
