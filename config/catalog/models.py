@@ -24,6 +24,10 @@ class Category(models.Model):
         'SizeGroup', null=True, blank=True,
         on_delete=models.SET_NULL, related_name='categories',
     )
+    has_color_variants = models.BooleanField(
+        default=False,
+        help_text='Las imágenes del producto representan variantes de color distintas (ej. calzado por colorway)',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -70,6 +74,17 @@ class Product(models.Model):
     # Minimum units per order (e.g. some suppliers require 3+)
     min_order_qty = models.PositiveIntegerField(default=1)
 
+    # Per-product overrides — take precedence over subcategory settings
+    has_color_variants = models.BooleanField(
+        default=False,
+        help_text='Las imágenes representan colores/variantes distintas (sobreescribe el de la subcategoría)',
+    )
+    size_group = models.ForeignKey(
+        'SizeGroup', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='products',
+        help_text='Grupo de tallas personalizado (sobreescribe el de la subcategoría)',
+    )
+
     # Override category shipping for specific products (null = use category default)
     shipping_override = models.DecimalField(
         max_digits=8, decimal_places=2, null=True, blank=True,
@@ -109,6 +124,24 @@ class Product(models.Model):
         return bp + self.effective_shipping + self.category.profit_margin
 
     @property
+    def effective_size_group(self):
+        """Cascade: product > subcategoría > categoría padre."""
+        cat  = self.category
+        root = cat.parent if cat.parent_id else cat
+        return self.size_group or cat.size_group or root.size_group
+
+    @property
+    def effective_has_colorway(self):
+        """True si el colorway está activo en cualquier nivel de la jerarquía."""
+        cat  = self.category
+        root = cat.parent if cat.parent_id else cat
+        return (
+            self.has_color_variants
+            or cat.has_color_variants
+            or root.has_color_variants
+        )
+
+    @property
     def effective_min_qty(self):
         cat = self.category
         root = cat.parent if cat.parent_id else cat
@@ -136,6 +169,10 @@ class ProductImage(models.Model):
     image = models.ImageField(upload_to='products/')
     is_cover = models.BooleanField(default=False)
     display_order = models.PositiveIntegerField(default=0)
+    color_label = models.CharField(
+        max_length=60, blank=True,
+        help_text='Nombre visible del color en el carrito (ej. "Blanco", "Negro/Rojo"). Solo relevante en modo colorway.',
+    )
 
     class Meta:
         verbose_name = 'Imagen de producto'
@@ -309,3 +346,28 @@ class Section(models.Model):
 
     def __str__(self):
         return f'{self.parent.name} / {self.name}'
+
+
+class SubcategorySection(models.Model):
+    """Agrupa productos dentro de una subcategoría para organizar la lista del catálogo."""
+    name = models.CharField(max_length=100)
+    subcategory = models.ForeignKey(
+        Category,
+        on_delete=models.CASCADE,
+        related_name='product_sections',
+        limit_choices_to={'parent__isnull': False},
+    )
+    products = models.ManyToManyField(
+        Product, related_name='in_subsections', blank=True,
+    )
+    display_order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['display_order', 'name']
+        verbose_name = 'Sección de subcategoría'
+        verbose_name_plural = 'Secciones de subcategoría'
+
+    def __str__(self):
+        return f'{self.subcategory.name} / {self.name}'

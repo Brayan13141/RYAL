@@ -1,0 +1,173 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Secciones de {{ subcat.name }} — Panel RYAL{% endblock %}
+{% block page_title %}Secciones de {{ subcat.parent.name }} › {{ subcat.name }}{% endblock %}
+
+{% block content %}
+
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap;">
+  <a href="{% url 'panel:catalog_config' %}"
+     style="display:inline-flex;align-items:center;gap:5px;color:#555;text-decoration:none;
+            font-size:12px;transition:color .12s;"
+     onmouseover="this.style.color='var(--pg)'" onmouseout="this.style.color='#555'">
+    <i class="bi bi-arrow-left"></i> Volver al catálogo
+  </a>
+  <span style="color:#333;">·</span>
+  <span style="color:#444;font-size:12px;">
+    Organiza los productos de <strong style="color:#888;">{{ subcat.name }}</strong> en secciones temáticas.
+  </span>
+</div>
+
+{% if not all_products %}
+<div class="p-card">
+  <div class="p-card-body" style="text-align:center;padding:40px;">
+    <i class="bi bi-box-seam" style="font-size:32px;color:#333;display:block;margin-bottom:12px;"></i>
+    <p style="color:#555;">Esta subcategoría no tiene productos activos.</p>
+    <p style="color:#444;font-size:12px;margin-top:6px;">
+      Activa o crea productos en <a href="{% url 'panel:products_list' %}?cat={{ subcat.slug }}"
+      style="color:var(--pg);text-decoration:none;">la lista de productos</a>.
+    </p>
+  </div>
+</div>
+{% else %}
+
+{# ── Secciones existentes ── #}
+{% for item in sections_data %}
+{% with sec=item.sec available=item.available %}
+<div class="p-card" style="margin-bottom:14px;">
+  <div class="p-card-body">
+
+    {# Cabecera: nombre + acciones #}
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+
+      <form method="post" action="{% url 'panel:subsection_rename' sec.pk %}"
+            style="display:flex;gap:6px;flex:1;min-width:180px;">
+        {% csrf_token %}
+        <input name="name" value="{{ sec.name }}"
+               style="flex:1;background:#111;border:1px solid #222;color:#e0e0e0;
+                      padding:6px 10px;border-radius:5px;font-size:13px;outline:none;min-width:0;"
+               onfocus="this.style.borderColor='var(--pg)'"
+               onblur="this.style.borderColor='#222'">
+        <button type="submit" class="btn-o btn-sm">Guardar</button>
+      </form>
+
+      {# Reordenar #}
+      <div style="display:flex;gap:4px;">
+        <form method="post" action="{% url 'panel:subsection_reorder' sec.pk %}" style="margin:0;">
+          {% csrf_token %}
+          <button name="direction" value="up" class="btn-o btn-sm" title="Subir sección"
+                  style="padding:4px 9px !important;">
+            <i class="bi bi-arrow-up"></i>
+          </button>
+        </form>
+        <form method="post" action="{% url 'panel:subsection_reorder' sec.pk %}" style="margin:0;">
+          {% csrf_token %}
+          <button name="direction" value="down" class="btn-o btn-sm" title="Bajar sección"
+                  style="padding:4px 9px !important;">
+            <i class="bi bi-arrow-down"></i>
+          </button>
+        </form>
+      </div>
+
+      {# Eliminar #}
+      <form method="post" action="{% url 'panel:subsection_delete' sec.pk %}" style="margin:0;">
+        {% csrf_token %}
+        <button type="button" class="btn-r btn-sm" title="Eliminar sección"
+                onclick="ryalConfirm({title:'Eliminar sección',msg:'¿Eliminar la sección \'{{ sec.name|escapejs }}\'? Los productos no se borrarán, solo se desagruparán.',okLabel:'Eliminar'}).then(function(ok){if(ok)this.closest('form').submit();}.bind(this))">
+          <i class="bi bi-trash"></i>
+        </button>
+      </form>
+    </div>
+
+    {# Productos en esta sección #}
+    <div style="margin-bottom:12px;">
+      <div style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;
+                  color:#444;margin-bottom:8px;font-weight:600;">
+        Productos en esta sección ({{ sec.products.count }})
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;min-height:26px;">
+        {% for prod in sec.products.all %}
+        <span style="display:inline-flex;align-items:center;gap:6px;
+                     background:rgba(212,175,55,.08);border:1px solid rgba(212,175,55,.2);
+                     color:#d4af37;padding:3px 4px 3px 10px;border-radius:20px;font-size:12px;
+                     max-width:280px;">
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ prod.sku }} — {{ prod.name }}">
+            {{ prod.name|truncatechars:30 }}
+          </span>
+          <form method="post" action="{% url 'panel:subsection_remove_product' sec.pk prod.pk %}"
+                style="display:inline;margin:0;">
+            {% csrf_token %}
+            <button type="submit"
+                    style="background:none;border:none;color:#666;cursor:pointer;
+                           padding:1px 5px;line-height:1;font-size:14px;border-radius:50%;
+                           transition:color .12s;"
+                    title="Quitar {{ prod.name }}"
+                    onmouseenter="this.style.color='#ff6060'"
+                    onmouseleave="this.style.color='#666'">×</button>
+          </form>
+        </span>
+        {% empty %}
+        <span style="color:#444;font-size:12px;font-style:italic;">
+          Sin productos — agrega uno abajo
+        </span>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# Agregar producto #}
+    {% if available %}
+    <form method="post" action="{% url 'panel:subsection_add_product' sec.pk %}"
+          style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      {% csrf_token %}
+      <select name="prod_id"
+              style="flex:1;min-width:200px;background:#111;border:1px solid #222;
+                     color:#ccc;padding:6px 10px;border-radius:5px;font-size:13px;outline:none;">
+        <option value="">— Agregar producto —</option>
+        {% for prod in available %}
+        <option value="{{ prod.pk }}">{{ prod.name|truncatechars:50 }}{% if prod.sku %} ({{ prod.sku }}){% endif %}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn-g btn-sm">
+        <i class="bi bi-plus"></i> Agregar
+      </button>
+    </form>
+    {% else %}
+    <p style="font-size:12px;color:#444;font-style:italic;">
+      Todos los productos ya están asignados a alguna sección.
+    </p>
+    {% endif %}
+
+  </div>
+</div>
+{% endwith %}
+{% empty %}
+<div class="p-card" style="margin-bottom:14px;">
+  <div class="p-card-body" style="text-align:center;padding:30px;">
+    <i class="bi bi-grid-3x3-gap" style="font-size:28px;color:#333;display:block;margin-bottom:10px;"></i>
+    <p style="color:#555;font-size:13px;">No hay secciones aún. Crea la primera abajo.</p>
+  </div>
+</div>
+{% endfor %}
+
+{# ── Nueva sección ── #}
+<div class="p-card">
+  <div class="p-card-body">
+    <p style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;
+              color:#444;margin-bottom:10px;font-weight:600;">Nueva sección</p>
+    <form method="post" action="{% url 'panel:subsection_create' subcat.pk %}"
+          style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      {% csrf_token %}
+      <input name="name" placeholder="Nombre (ej: Edición Limitada, New Era, Premium…)" required
+             style="flex:1;min-width:200px;background:#111;border:1px solid #222;color:#e0e0e0;
+                    padding:7px 12px;border-radius:5px;font-size:13px;outline:none;"
+             onfocus="this.style.borderColor='var(--pg)'"
+             onblur="this.style.borderColor='#222'">
+      <button type="submit" class="btn-g">
+        <i class="bi bi-plus-circle"></i> Crear sección
+      </button>
+    </form>
+  </div>
+</div>
+
+{% endif %}
+
+{% endblock %}

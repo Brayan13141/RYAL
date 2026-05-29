@@ -18,7 +18,7 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from catalog.models import Category, HeroSlide, Product, ProductImage, Section, SiteConfig, SizeGroup, VolumeTier
+from catalog.models import Category, HeroSlide, Product, ProductImage, Section, SiteConfig, SizeGroup, SubcategorySection, VolumeTier
 from orders.models import Order, OrderItem, SupplierOrder, SupplierOrderItem
 
 _LOGIN = '/accounts/login/'
@@ -387,7 +387,12 @@ def products_list(request):
     no_image = request.GET.get('no_image', '')
 
     qs = _apply_product_filters(
-        Product.objects.select_related('category').prefetch_related('images'),
+        Product.objects.select_related(
+            'category__parent',
+            'category__size_group',
+            'category__parent__size_group',
+            'size_group',
+        ).prefetch_related('images'),
         q=q, cat=cat, active=active, no_image=no_image,
     )
 
@@ -481,17 +486,20 @@ def product_toggle(request, pk):
 def _save_product(data, product=None):
     """Valida y guarda un producto. Retorna (product, errors)."""
     errors = []
-    sku          = data.get('sku', '').strip()
-    name         = data.get('name', '').strip()
-    base_price   = data.get('base_price', '').strip()
-    category_id  = data.get('category', '').strip()
-    status       = data.get('status', 'available')
-    description  = data.get('description', '').strip()
-    supplier_url = data.get('supplier_url', '').strip()
-    min_qty      = data.get('min_order_qty', '1').strip() or '1'
-    ship_ov      = data.get('shipping_override', '').strip()
-    price_ov     = data.get('price_override', '').strip()
-    is_active    = data.get('is_active') == 'on'
+    sku               = data.get('sku', '').strip()
+    name              = data.get('name', '').strip()
+    base_price        = data.get('base_price', '').strip()
+    category_id       = data.get('category', '').strip()
+    status            = data.get('status', 'available')
+    description       = data.get('description', '').strip()
+    supplier_url      = data.get('supplier_url', '').strip()
+    min_qty           = data.get('min_order_qty', '1').strip() or '1'
+    ship_ov           = data.get('shipping_override', '').strip()
+    price_ov          = data.get('price_override', '').strip()
+    is_active         = data.get('is_active') == 'on'
+    has_color_variants = data.get('has_color_variants') == 'on'
+    size_group_raw    = data.get('size_group', '').strip()
+    size_group_id     = int(size_group_raw) if size_group_raw else None
 
     if not name:         errors.append('El nombre es requerido.')
     if not base_price:   errors.append('El precio base es requerido.')
@@ -517,6 +525,8 @@ def _save_product(data, product=None):
             shipping_override=float(ship_ov) if ship_ov else None,
             price_override=float(price_ov) if price_ov else None,
             is_active=is_active,
+            has_color_variants=has_color_variants,
+            size_group_id=size_group_id,
         )
         if product is None:
             kwargs['sku'] = sku
@@ -541,6 +551,7 @@ def product_create(request):
 
     return render(request, 'panel/product_form.html', {
         'categories':     Category.objects.filter(is_active=True),
+        'size_groups':    SizeGroup.objects.order_by('name'),
         'status_choices': Product.STATUS_CHOICES,
         'errors':         errors,
         'is_edit':        False,
@@ -548,7 +559,7 @@ def product_create(request):
             name='', description='', supplier_url='',
             base_price='', shipping_override='', min_order_qty=1,
             is_active=True, status='available', category_id=None,
-            price_override=None,
+            price_override=None, has_color_variants=False, size_group_id=None,
         ),
         'data':           request.POST if request.method == 'POST' else {},
     })
@@ -566,6 +577,7 @@ def product_edit(request, pk):
     return render(request, 'panel/product_form.html', {
         'product':        product,
         'categories':     Category.objects.filter(is_active=True),
+        'size_groups':    SizeGroup.objects.order_by('name'),
         'status_choices': Product.STATUS_CHOICES,
         'errors':         errors,
         'is_edit':        True,
@@ -600,7 +612,7 @@ def product_image_upload(request, pk):
         img = ProductImage.objects.create(product=product, image=f, is_cover=is_cover)
         if is_cover:
             has_cover = True
-        created.append({'pk': img.pk, 'url': img.image.url, 'is_cover': img.is_cover})
+        created.append({'pk': img.pk, 'url': img.image.url, 'is_cover': img.is_cover, 'color_label': img.color_label})
     return JsonResponse({'ok': True, 'images': created})
 
 
@@ -620,6 +632,20 @@ def product_image_set_cover(request, img_pk):
     img.is_cover = True
     img.save()
     return JsonResponse({'ok': True})
+
+
+@_staff
+@require_POST
+def product_image_label(request, img_pk):
+    """Guarda el nombre de color de una imagen (modo colorway)."""
+    img = get_object_or_404(ProductImage, pk=img_pk)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'ok': False, 'error': 'Datos inválidos'}, status=400)
+    img.color_label = data.get('label', '').strip()[:60]
+    img.save(update_fields=['color_label'])
+    return JsonResponse({'ok': True, 'label': img.color_label})
 
 
 # ─── Catalog config (category images + subcategory order) ────────────────────
@@ -645,6 +671,15 @@ def category_toggle_active(request, cat_pk):
     cat.is_active = not cat.is_active
     cat.save(update_fields=['is_active'])
     return JsonResponse({'ok': True, 'is_active': cat.is_active})
+
+
+@_staff
+@require_POST
+def category_toggle_color_variants(request, cat_pk):
+    cat = get_object_or_404(Category, pk=cat_pk)
+    cat.has_color_variants = not cat.has_color_variants
+    cat.save(update_fields=['has_color_variants'])
+    return JsonResponse({'ok': True, 'has_color_variants': cat.has_color_variants})
 
 
 @_staff
@@ -1065,6 +1100,117 @@ def section_remove_cat(request, sec_pk, cat_pk):
     return redirect('panel:sections_config')
 
 
+# ─── SubcategorySection (secciones dentro de subcategorías) ──────────────────
+
+@_staff
+def subsection_config(request, subcat_pk):
+    subcat = get_object_or_404(Category, pk=subcat_pk, parent__isnull=False)
+    sections_qs = (
+        SubcategorySection.objects
+        .filter(subcategory=subcat)
+        .prefetch_related('products__images')
+        .order_by('display_order', 'name')
+    )
+    all_secs = list(sections_qs)
+    used_pks = set()
+    for sec in all_secs:
+        used_pks.update(sec.products.values_list('pk', flat=True))
+
+    all_products = list(
+        Product.objects
+        .filter(category=subcat, is_active=True)
+        .prefetch_related('images')
+        .order_by('display_order', 'name')
+    )
+    sections_data = [
+        {
+            'sec': sec,
+            'available': [p for p in all_products if p.pk not in used_pks],
+        }
+        for sec in all_secs
+    ]
+    return render(request, 'panel/subsection_config.html', {
+        'subcat':        subcat,
+        'sections_data': sections_data,
+        'all_products':  all_products,
+    })
+
+
+@_staff
+@require_POST
+def subsection_create(request, subcat_pk):
+    subcat = get_object_or_404(Category, pk=subcat_pk, parent__isnull=False)
+    name = request.POST.get('name', '').strip()
+    if name:
+        order = SubcategorySection.objects.filter(subcategory=subcat).count()
+        SubcategorySection.objects.create(name=name, subcategory=subcat, display_order=order)
+    return redirect('panel:subsection_config', subcat_pk=subcat_pk)
+
+
+@_staff
+@require_POST
+def subsection_delete(request, pk):
+    sec = get_object_or_404(SubcategorySection, pk=pk)
+    subcat_pk = sec.subcategory_id
+    sec.delete()
+    return redirect('panel:subsection_config', subcat_pk=subcat_pk)
+
+
+@_staff
+@require_POST
+def subsection_rename(request, pk):
+    sec = get_object_or_404(SubcategorySection, pk=pk)
+    name = request.POST.get('name', '').strip()
+    if name:
+        sec.name = name
+        sec.save(update_fields=['name'])
+    return redirect('panel:subsection_config', subcat_pk=sec.subcategory_id)
+
+
+@_staff
+@require_POST
+def subsection_reorder(request, pk):
+    sec = get_object_or_404(SubcategorySection, pk=pk)
+    direction = request.POST.get('direction')
+    if direction not in ('up', 'down'):
+        return JsonResponse({'ok': False}, status=400)
+    siblings = list(
+        SubcategorySection.objects
+        .filter(subcategory=sec.subcategory)
+        .order_by('display_order', 'name')
+    )
+    idx = next((i for i, s in enumerate(siblings) if s.pk == sec.pk), None)
+    if idx is None:
+        return JsonResponse({'ok': False}, status=404)
+    if direction == 'up' and idx > 0:
+        siblings[idx], siblings[idx - 1] = siblings[idx - 1], siblings[idx]
+    elif direction == 'down' and idx < len(siblings) - 1:
+        siblings[idx], siblings[idx + 1] = siblings[idx + 1], siblings[idx]
+    for i, s in enumerate(siblings):
+        s.display_order = i
+    SubcategorySection.objects.bulk_update(siblings, ['display_order'])
+    return redirect('panel:subsection_config', subcat_pk=sec.subcategory_id)
+
+
+@_staff
+@require_POST
+def subsection_add_product(request, pk):
+    sec = get_object_or_404(SubcategorySection, pk=pk)
+    prod_id = request.POST.get('prod_id', '')
+    if prod_id.isdigit():
+        product = get_object_or_404(Product, pk=int(prod_id), category=sec.subcategory)
+        sec.products.add(product)
+    return redirect('panel:subsection_config', subcat_pk=sec.subcategory_id)
+
+
+@_staff
+@require_POST
+def subsection_remove_product(request, sec_pk, prod_pk):
+    sec = get_object_or_404(SubcategorySection, pk=sec_pk)
+    sec.products.remove(prod_pk)
+    return redirect('panel:subsection_config', subcat_pk=sec.subcategory_id)
+
+
 # ─── Hero slides ─────────────────────────────────────────────────────────────
 
 _VIDEO_EXTS = {'.mp4', '.webm', '.mov', '.avi', '.mkv'}
@@ -1161,7 +1307,8 @@ def size_group_create(request):
         sizes_raw = request.POST.get('sizes_json', '[]')
         conv_raw = request.POST.get('conversion_json', '').strip()
         try:
-            sizes = [s.strip() for s in json.loads(sizes_raw) if str(s).strip()]
+            _raw = [s.strip() for s in json.loads(sizes_raw) if str(s).strip()]
+            sizes = list(dict.fromkeys(_raw))  # dedup preservando orden
         except (json.JSONDecodeError, ValueError):
             sizes = []
         if not name or not sizes:
@@ -1191,7 +1338,8 @@ def size_group_edit(request, pk):
         sizes_raw = request.POST.get('sizes_json', '[]')
         conv_raw = request.POST.get('conversion_json', '').strip()
         try:
-            sizes = [s.strip() for s in json.loads(sizes_raw) if str(s).strip()]
+            _raw = [s.strip() for s in json.loads(sizes_raw) if str(s).strip()]
+            sizes = list(dict.fromkeys(_raw))  # dedup preservando orden
         except (json.JSONDecodeError, ValueError):
             sizes = []
         if not name or not sizes:

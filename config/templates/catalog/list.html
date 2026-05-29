@@ -42,13 +42,20 @@
 
     <div class="d-flex align-items-end justify-content-between gap-3 flex-wrap">
       <h1 class="font-heading fw-normal mb-0 lh-1" style="font-size: clamp(2rem, 5vw, 3.2rem);">
-        {% if subcat %}{{ subcat.name }}
+        {% if active_subsection %}{{ active_subsection.name }}
+        {% elif subcat %}{{ subcat.name }}
         {% elif parent %}{{ parent.name }}
         {% elif q %}<em class="fst-italic text-white-50" style="font-size: 0.6em;">"{{ q }}"</em>
         {% else %}Todo el catálogo
         {% endif %}
       </h1>
-      {% if parent and subcat %}
+      {% if active_subsection %}
+        <a href="{% url 'catalog:product_list' parent.slug subcat.slug %}"
+           class="text-gold text-decoration-none d-flex align-items-center gap-1"
+           style="font-size: 0.72rem; font-family: var(--font-display); letter-spacing: 0.16em; text-transform: uppercase; white-space: nowrap;">
+          <i class="bi bi-arrow-left"></i> {{ subcat.name }}
+        </a>
+      {% elif parent and subcat %}
         <a href="{% url 'catalog:category' parent.slug %}"
            class="text-gold text-decoration-none d-flex align-items-center gap-1"
            style="font-size: 0.72rem; font-family: var(--font-display); letter-spacing: 0.16em; text-transform: uppercase; white-space: nowrap;">

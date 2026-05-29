@@ -45,10 +45,13 @@
               data-product-name="{{ product.name }}"
               data-product-price="{{ product.final_price }}"
               data-has-variants="{% if product.variants.exists %}true{% else %}false{% endif %}"
-              data-has-sizes="{% if product.category.size_group_id %}true{% else %}false{% endif %}"
+              data-has-sizes="{% if product.effective_size_group %}true{% else %}false{% endif %}"
+              data-has-colorway="{% if product.effective_has_colorway %}true{% else %}false{% endif %}"
               data-min-qty="{{ product.effective_min_qty }}"
               onclick="cardQuickAdd(this)">
-        {% if product.category.size_group_id %}+ Elegir tallas{% else %}+ Agregar al carrito{% endif %}
+        {% if product.effective_size_group %}+ Elegir tallas
+        {% elif product.effective_has_colorway %}+ Elegir variante
+        {% else %}+ Agregar al carrito{% endif %}
       </button>
     {% elif product.status == 'sold_out' %}
       <span class="card-reveal-btn" style="opacity:.5;cursor:default;background:var(--bg-2);color:var(--ink-2);">Agotado</span>

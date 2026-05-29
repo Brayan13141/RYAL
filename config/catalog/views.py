@@ -8,7 +8,16 @@ from django.core.paginator import Paginator
 
 from django.urls import reverse
 
-from .models import Category, HeroSlide, Product, ProductImage, Section, Tag
+from .models import Category, HeroSlide, Product, ProductImage, Section, SubcategorySection, Tag
+
+# select_related mínimo para que los productos funcionen correctamente en las tarjetas
+# (cascade de size_group y has_color_variants requieren relaciones precargadas)
+_CARD_SELECT = (
+    'category__parent',
+    'category__size_group',
+    'category__parent__size_group',
+    'size_group',
+)
 
 
 def _category_cover(cat):
@@ -24,7 +33,7 @@ def home(request):
     featured = list(
         Product.objects
         .filter(is_active=True, is_featured=True, images__isnull=False)
-        .select_related('category__parent')
+        .select_related(*_CARD_SELECT)
         .prefetch_related('images', 'tags')
         .distinct()
     )
@@ -34,7 +43,7 @@ def home(request):
             Product.objects
             .filter(is_active=True, images__isnull=False)
             .exclude(pk__in=excluded)
-            .select_related('category__parent')
+            .select_related(*_CARD_SELECT)
             .prefetch_related('images', 'tags')
             .order_by('-created_at')
             .distinct()[:8 - len(featured)]
@@ -235,10 +244,19 @@ def product_list(request, cat_slug, subcat_slug=None):
     parent = get_object_or_404(Category, slug=cat_slug, parent=None, is_active=True)
     subcat = None
     active_section = None
+    active_subsection = None
 
     if subcat_slug:
         subcat = get_object_or_404(Category, slug=subcat_slug, parent=parent, is_active=True)
-        qs = Product.objects.filter(is_active=True, category=subcat)
+        if request.GET.get('subseccion', '').isdigit():
+            active_subsection = get_object_or_404(
+                SubcategorySection, pk=int(request.GET['subseccion']),
+                subcategory=subcat, is_active=True,
+            )
+            prod_pks = active_subsection.products.values_list('pk', flat=True)
+            qs = Product.objects.filter(is_active=True, pk__in=prod_pks, category=subcat)
+        else:
+            qs = Product.objects.filter(is_active=True, category=subcat)
     elif request.GET.get('seccion', '').isdigit():
         active_section = get_object_or_404(
             Section, pk=int(request.GET['seccion']), parent=parent, is_active=True
@@ -250,13 +268,63 @@ def product_list(request, cat_slug, subcat_slug=None):
             Q(category=parent) | Q(category__parent=parent), is_active=True
         ).distinct()
 
-    qs = qs.select_related('category__parent').prefetch_related('images', 'tags', 'variants')
+    qs = qs.select_related(*_CARD_SELECT).prefetch_related('images', 'tags', 'variants')
     qs = _annotate_final(qs)
     qs, selected_tags, q = _apply_filters(request, qs)
 
     # Vista por secciones: categoría padre sin filtros y sin subcat/seccion activa
     sections = None
-    if not subcat and not active_section and not _has_active_filters(request, selected_tags):
+    if subcat and not active_subsection and not _has_active_filters(request, selected_tags):
+        subsections_qs = (
+            SubcategorySection.objects
+            .filter(subcategory=subcat, is_active=True)
+            .prefetch_related('products')
+            .order_by('display_order', 'name')
+        )
+        if subsections_qs.exists():
+            sections = []
+            assigned_pks = set()
+            for subsec in subsections_qs:
+                sec_prods = list(
+                    subsec.products
+                    .filter(is_active=True)
+                    .select_related(*_CARD_SELECT)
+                    .prefetch_related('images', 'tags', 'variants')
+                    .order_by('display_order', '-created_at')
+                )
+                if not sec_prods:
+                    continue
+                assigned_pks.update(p.pk for p in sec_prods)
+                total = len(sec_prods)
+                ver_url = (
+                    reverse('catalog:product_list', args=[cat_slug, subcat_slug])
+                    + f'?subseccion={subsec.pk}'
+                    if total > 8 else None
+                )
+                sections.append({
+                    'label':    subsec.name,
+                    'ver_url':  ver_url,
+                    'products': sec_prods[:8],
+                    'total':    total,
+                })
+            unassigned = list(
+                Product.objects
+                .filter(is_active=True, category=subcat)
+                .exclude(pk__in=assigned_pks)
+                .select_related(*_CARD_SELECT)
+                .prefetch_related('images', 'tags', 'variants')
+                .order_by('display_order', '-created_at')
+            )
+            if unassigned:
+                sections.append({
+                    'label':    'Otros',
+                    'ver_url':  None,
+                    'products': unassigned[:8],
+                    'total':    len(unassigned),
+                })
+            if not sections:
+                sections = None
+    elif not subcat and not active_section and not _has_active_filters(request, selected_tags):
         cat_sections = (Section.objects
                         .filter(parent=parent, is_active=True)
                         .prefetch_related('categories')
@@ -270,7 +338,7 @@ def product_list(request, cat_slug, subcat_slug=None):
                 sec_qs = (
                     Product.objects
                     .filter(is_active=True, category__pk__in=sub_pks)
-                    .select_related('category__parent')
+                    .select_related(*_CARD_SELECT)
                     .prefetch_related('images', 'tags', 'variants')
                     .order_by('display_order', '-created_at')
                 )
@@ -294,7 +362,7 @@ def product_list(request, cat_slug, subcat_slug=None):
                     sub_qs = (
                         Product.objects
                         .filter(is_active=True, category=sub)
-                        .select_related('category__parent')
+                        .select_related(*_CARD_SELECT)
                         .prefetch_related('images', 'tags', 'variants')
                         .order_by('display_order', '-created_at')
                     )
@@ -318,19 +386,20 @@ def product_list(request, cat_slug, subcat_slug=None):
         flat_products = page_obj.object_list
 
     return render(request, 'catalog/list.html', {
-        'products':        flat_products,
-        'page_obj':        page_obj,
-        'paginator':       paginator,
-        'page_range':      page_range,
-        'parent':          parent,
-        'subcat':          subcat,
-        'active_section':  active_section,
-        'sections':        sections,
-        'all_tags':        Tag.objects.all(),
-        'selected_tags':   selected_tags,
-        'q':               q,
-        'per_page':        per_page,
-        'price_ranges':    _PRICE_RANGES,
+        'products':           flat_products,
+        'page_obj':           page_obj,
+        'paginator':          paginator,
+        'page_range':         page_range,
+        'parent':             parent,
+        'subcat':             subcat,
+        'active_section':     active_section,
+        'active_subsection':  active_subsection,
+        'sections':           sections,
+        'all_tags':           Tag.objects.all(),
+        'selected_tags':      selected_tags,
+        'q':                  q,
+        'per_page':           per_page,
+        'price_ranges':       _PRICE_RANGES,
     })
 
 
@@ -338,7 +407,7 @@ def search_results(request):
     qs = (
         Product.objects
         .filter(is_active=True)
-        .select_related('category__parent')
+        .select_related(*_CARD_SELECT)
         .prefetch_related('images', 'tags', 'variants')
     )
     qs = _annotate_final(qs)
@@ -363,7 +432,12 @@ def search_results(request):
 def product_detail(request, pk):
     product = get_object_or_404(
         Product.objects
-        .select_related('category__parent', 'category__size_group')
+        .select_related(
+            'category__parent',
+            'category__size_group',
+            'category__parent__size_group',
+            'size_group',           # per-product override
+        )
         .prefetch_related('images', 'tags', 'variants'),
         pk=pk, is_active=True
     )
@@ -396,21 +470,54 @@ def product_detail(request, pk):
     ]
     qty_step = int(root.min_qty_per_item) if root.min_qty_per_item > 0 else 1
 
-    size_group = product.category.size_group
-    sizes_json = json.dumps(size_group.sizes) if size_group else 'null'
-    conv_json  = json.dumps(size_group.conversion_table) if (size_group and size_group.conversion_table) else 'null'
+    # Size group: producto > subcategoría > categoría padre (cascade)
+    cat        = product.category
+    size_group = product.size_group or cat.size_group or root.size_group
+
+    # Deduplicar tallas — evita filas duplicadas si el grupo tiene el mismo valor repetido
+    unique_sizes = list(dict.fromkeys(size_group.sizes)) if size_group else []
+    sizes_json   = json.dumps(unique_sizes) if unique_sizes else 'null'
+    conv_json    = json.dumps(size_group.conversion_table) if (size_group and size_group.conversion_table) else 'null'
+
+    # Modo colorway: producto > subcategoría > categoría padre (cualquiera activa el modo)
+    all_images = list(product.images.all())  # usa la caché del prefetch
+
+    # has_colorway: colorway está activo en ALGÚN nivel de la jerarquía
+    has_colorway = (
+        (product.has_color_variants or cat.has_color_variants or root.has_color_variants)
+        and len(all_images) > 1
+    )
+    # color_variant_mode: UI exclusivo de colorway (sin selector de tallas)
+    color_variant_mode = not size_group and has_colorway
+
+    # images_data se pasa siempre que haya colorway activo.
+    # Cuando el producto tiene AMBOS (tallas + colorway), el frontend usa
+    # la imagen seleccionada en el thumbnail para diferenciar items del carrito.
+    images_data = [
+        {
+            'pk':          img.pk,
+            'url':         img.image.url,
+            'is_cover':    img.is_cover,
+            'color_label': img.color_label,
+        }
+        for img in all_images
+    ] if has_colorway else []
 
     return render(request, 'catalog/detail.html', {
-        'product':          product,
-        'related_products': related_products,
-        'variants_json':    json.dumps(variants_data),
-        'tiers':            tiers_data,
-        'tiers_json':       json.dumps(tiers_data),
-        'base_final_price': base_price,
-        'qty_step':         qty_step,
-        'size_group':       size_group,
-        'sizes_json':       sizes_json,
-        'conv_json':        conv_json,
+        'product':             product,
+        'related_products':    related_products,
+        'variants_json':       json.dumps(variants_data),
+        'tiers':               tiers_data,
+        'tiers_json':          json.dumps(tiers_data),
+        'base_final_price':    base_price,
+        'qty_step':            qty_step,
+        'size_group':          size_group,
+        'unique_sizes':        unique_sizes,
+        'sizes_json':          sizes_json,
+        'conv_json':           conv_json,
+        'has_colorway':        has_colorway,
+        'color_variant_mode':  color_variant_mode,
+        'images_json':         json.dumps(images_data),
     })
 
 

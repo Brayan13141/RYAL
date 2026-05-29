@@ -138,8 +138,10 @@ function renderCartItems(items, subtotal, shipping, total, categoryWarnings = []
 
 // ─── Acciones del carrito ───────────────────────────────────────────────────
 
-async function addToCart(productId, variantId, qty = 1) {
+async function addToCart(productId, variantId, qty = 1, imagePk = null) {
   try {
+    const payload = { product_id: productId, variant_id: variantId, qty };
+    if (imagePk) payload.image_pk = imagePk;
     const res = await fetch(URLS.cartAdd, {
       method: 'POST',
       headers: {
@@ -147,7 +149,7 @@ async function addToCart(productId, variantId, qty = 1) {
         'X-CSRFToken': CSRF_TOKEN,
         'X-Requested-With': 'XMLHttpRequest',
       },
-      body: JSON.stringify({ product_id: productId, variant_id: variantId, qty }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (data.ok) {
@@ -209,11 +211,12 @@ async function updateCartItem(key, qty) {
 // ─── Quick add desde tarjeta ────────────────────────────────────────────────
 
 function cardQuickAdd(btn) {
-  const productId   = btn.dataset.productId;
-  const hasVariants = btn.dataset.hasVariants === 'true';
-  const hasSizes    = btn.dataset.hasSizes === 'true';
-  const minQty      = parseInt(btn.dataset.minQty || '1', 10);
-  if (hasVariants || hasSizes || minQty > 1) {
+  const productId    = btn.dataset.productId;
+  const hasVariants  = btn.dataset.hasVariants  === 'true';
+  const hasSizes     = btn.dataset.hasSizes     === 'true';
+  const hasColorway  = btn.dataset.hasColorway  === 'true';
+  const minQty       = parseInt(btn.dataset.minQty || '1', 10);
+  if (hasVariants || hasSizes || hasColorway || minQty > 1) {
     window.location.href = `/catalogo/${productId}/`;
     return;
   }

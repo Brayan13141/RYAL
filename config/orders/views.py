@@ -11,7 +11,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from django_ratelimit.decorators import ratelimit
-from catalog.models import Product, ProductVariant
+from catalog.models import Product, ProductVariant, ProductImage
 from .models import Order, OrderItem, SavedCartItem
 
 
@@ -38,17 +38,25 @@ def _save_cart(request, cart):
     request.session['cart'] = cart
     request.session.modified = True
 
-def _cart_key(product_id, variant_id, size_name=None):
+def _cart_key(product_id, variant_id, size_name=None, image_pk=None):
+    if size_name and image_pk:
+        # Talla + colorway: cada combinación (color, talla) es un ítem distinto
+        return f'{product_id}_img_{image_pk}_size_{size_name}'
     if size_name:
         return f'{product_id}_size_{size_name}'
+    if image_pk:
+        return f'{product_id}_img_{image_pk}'
     return f'{product_id}_{variant_id or "none"}'
 
 
 def _get_category_violations(cart):
     """
     Returns violations in two modes:
-    - Category total: root.min_order_qty > 1 → total pieces from that root category < minimum
-    - Per-item:       root.min_qty_per_item > 0 → individual product qty < minimum (e.g. calzado)
+    - Category total:  root.min_order_qty > 1  → total pieces from that root category < minimum
+    - Per-item calzado: root.min_qty_per_item > 0
+        • _size_ keys: validated on the SUM of all sizes for the same product
+          (e.g. Balenciaga 3: Talla24=5 + Talla25=7 = 12 ✓ — no violation)
+        • _img_ keys / normal: validated individually (each colorway = separate 12-unit requirement)
     """
     if not cart:
         return []
@@ -61,28 +69,70 @@ def _get_category_violations(cart):
 
     violations = []
     cat_totals = {}
+    # Clave: (product_id, image_pk) — image_pk=None para ítems sin colorway
+    # Permite validar mínimo por color de forma independiente en modo tallas+colorway
+    product_size_totals = {}
 
-    for item in cart.values():
+    for key, item in cart.items():
         product = products_by_id.get(item['product_id'])
         if not product:
             continue
         cat = product.category
         root = cat.parent if cat.parent_id else cat
 
-        # Per-item check (e.g. calzado: 12 por modelo)
-        if root.min_qty_per_item > 0 and item['quantity'] < root.min_qty_per_item:
-            violations.append({
-                'name':    product.name,
-                'current': item['quantity'],
-                'min':     root.min_qty_per_item,
-                'missing': root.min_qty_per_item - item['quantity'],
-            })
+        # Per-item check (e.g. calzado: 12 por modelo/color)
+        if root.min_qty_per_item > 0:
+            if '_size_' in key:
+                # Acumular por (producto, color) — el mínimo se valida sobre el total de tallas
+                # del mismo color. Si no hay image_pk, image_pk=None agrupa por producto solo.
+                pid     = item['product_id']
+                img_pk  = item.get('image_pk')      # None para ítems talla pura
+                group   = (pid, img_pk)
+                if group not in product_size_totals:
+                    product_size_totals[group] = {
+                        'name':     product.name,
+                        'image_pk': img_pk,
+                        'qty':      0,
+                        'min':      root.min_qty_per_item,
+                    }
+                product_size_totals[group]['qty'] += item['quantity']
+            else:
+                # Color items (_img_ puro) o ítems regulares: verificar individualmente
+                if item['quantity'] < root.min_qty_per_item:
+                    violations.append({
+                        'name':    product.name,
+                        'current': item['quantity'],
+                        'min':     root.min_qty_per_item,
+                        'missing': root.min_qty_per_item - item['quantity'],
+                    })
 
         # Category-total check (e.g. gorras: 20 en total)
         if root.min_order_qty > 1:
             if root.pk not in cat_totals:
                 cat_totals[root.pk] = {'name': root.name, 'qty': 0, 'min': root.min_order_qty}
             cat_totals[root.pk]['qty'] += item['quantity']
+
+    # Batch-load images para mostrar nombre de color en las violaciones
+    color_img_pks = [v['image_pk'] for v in product_size_totals.values() if v.get('image_pk')]
+    color_imgs_by_pk = (
+        {img.pk: img for img in ProductImage.objects.filter(pk__in=color_img_pks)}
+        if color_img_pks else {}
+    )
+
+    # Validar totales de tallas por modelo/color
+    for v in product_size_totals.values():
+        if v['qty'] < v['min']:
+            display_name = v['name']
+            if v.get('image_pk'):
+                img = color_imgs_by_pk.get(v['image_pk'])
+                color_str = img.color_label if (img and img.color_label) else f"variante"
+                display_name = f"{v['name']} · {color_str}"
+            violations.append({
+                'name':    display_name,
+                'current': v['qty'],
+                'min':     v['min'],
+                'missing': v['min'] - v['qty'],
+            })
 
     violations += [
         {
@@ -122,6 +172,14 @@ def _create_order_safe(**kwargs):
 
 def cart_get(request):
     cart  = _get_cart(request)
+
+    # Batch-load images para ítems con colorway específico (evita N+1)
+    color_pks = [item['image_pk'] for item in cart.values() if item.get('image_pk')]
+    images_by_pk = (
+        {img.pk: img for img in ProductImage.objects.filter(pk__in=color_pks)}
+        if color_pks else {}
+    )
+
     items = []
     for key, item in cart.items():
         try:
@@ -133,11 +191,19 @@ def cart_get(request):
             discount       = round(original_price - price, 2) if original_price - price > 0.01 else 0
             root           = product.category.parent if product.category.parent_id else product.category
             qty_step       = int(root.min_qty_per_item) if root.min_qty_per_item > 0 else 1
+
+            # Imagen específica del colorway si existe, sino la portada
+            img_pk = item.get('image_pk')
+            if img_pk and img_pk in images_by_pk:
+                thumb_url = images_by_pk[img_pk].image.url
+            else:
+                thumb_url = cover.image.url if cover else None
+
             items.append({
                 'key':            key,
                 'name':           product.name,
                 'sku':            product.sku,
-                'image':          cover.image.url if cover else None,
+                'image':          thumb_url,
                 'variant':        item.get('variant_name', ''),
                 'qty':            item['quantity'],
                 'qty_step':       qty_step,
@@ -175,12 +241,21 @@ def cart_add(request):
         product_id = int(body['product_id'])
         variant_id = body.get('variant_id')
         size_name  = body.get('size_name') or None
+        image_pk   = body.get('image_pk') or None   # colorway específico
+        color_num  = body.get('color_num') or None   # número 1-based visible al usuario
+        if image_pk:
+            image_pk = int(image_pk)
         qty        = int(body.get('qty', 1))
     except (KeyError, ValueError, json.JSONDecodeError):
         return JsonResponse({'ok': False, 'error': 'Datos inválidos'}, status=400)
 
     product = get_object_or_404(
-        Product.objects.select_related('category__parent'),
+        Product.objects.select_related(
+            'category__parent',
+            'category__size_group',
+            'category__parent__size_group',
+            'size_group',
+        ),
         pk=product_id, is_active=True, status='available',
     )
     variant = None
@@ -190,19 +265,29 @@ def cart_add(request):
         variant = get_object_or_404(ProductVariant, pk=variant_id, product=product, is_active=True)
         price   = float(variant.final_price)
 
-    cart = _get_cart(request)
-    key  = _cart_key(product_id, variant_id, size_name)
+    # Validar image_pk cuando se envía (modo colorway)
+    img_obj = None
+    if image_pk:
+        try:
+            img_obj = ProductImage.objects.get(pk=image_pk, product=product)
+        except ProductImage.DoesNotExist:
+            image_pk = None  # inválido — caer en flujo normal
 
-    # Productos con grupo de tallas requieren selección explícita de talla.
-    if not size_name and product.category.size_group_id:
+    cart = _get_cart(request)
+    key  = _cart_key(product_id, variant_id, size_name, image_pk)
+
+    # Productos con grupo de tallas (cascade: producto > subcategoría > padre)
+    # requieren selección explícita de talla antes de agregar al carrito.
+    # image_pk no exime de enviar size_name — un ítem sin talla no puede procesarse.
+    if product.effective_size_group and not size_name:
         return JsonResponse(
             {'ok': False, 'error': 'Selecciona las tallas antes de agregar al carrito'},
             status=400,
         )
 
-    # Items de talla se agregan individualmente — el frontend ya validó el total.
+    # Items de talla/colorway: el frontend ya validó el total.
     # Items normales: primer add debe cumplir el mínimo por modelo.
-    if not size_name:
+    if not size_name and not image_pk:
         min_qty = product.effective_min_qty
         if key not in cart and qty < min_qty:
             return JsonResponse(
@@ -217,7 +302,25 @@ def cart_add(request):
     if tier:
         price = max(0.0, float(product.final_price) - float(tier.discount_amount))
 
-    variant_name = f'Talla {size_name}' if size_name else (variant.name if variant else '')
+    # Nombre descriptivo del ítem en el carrito
+    if size_name and img_obj:
+        # Modo combinado: tallas + colorway → "Blanco · Talla 26"
+        color_part = img_obj.color_label or (f'Color {color_num}' if color_num else f'Color {img_obj.display_order + 1}')
+        variant_name = f'{color_part} · Talla {size_name}'
+    elif size_name:
+        variant_name = f'Talla {size_name}'
+    elif img_obj:
+        # Modo colorway puro: solo imagen
+        if img_obj.color_label:
+            variant_name = img_obj.color_label
+        elif color_num:
+            variant_name = f'Color {color_num}'
+        else:
+            variant_name = f'Color {img_obj.display_order + 1}'
+    elif variant:
+        variant_name = variant.name
+    else:
+        variant_name = ''
 
     if key in cart:
         cart[key]['quantity'] += qty
@@ -226,6 +329,7 @@ def cart_add(request):
         cart[key] = {
             'product_id':   product_id,
             'variant_id':   variant_id,
+            'image_pk':     image_pk,    # colorway: pk de la imagen seleccionada
             'variant_name': variant_name,
             'quantity':     qty,
             'price':        price,

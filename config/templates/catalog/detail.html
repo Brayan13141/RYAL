@@ -52,8 +52,11 @@
       {% if product.images.count > 1 %}
       <div class="pd-thumbs" id="thumbsGrid">
         {% for img in product.images.all %}
-        <button class="pd-thumb {% if img.is_cover %}active{% endif %}" onclick="swapImage('{{ img.image.url }}', this)"
-          aria-label="Imagen {{ forloop.counter }}">
+        <button class="pd-thumb {% if img.is_cover %}active{% endif %}"
+          onclick="swapImage('{{ img.image.url }}', this)"
+          data-img-pk="{{ img.pk }}"
+          data-color-label="{{ img.color_label }}"
+          aria-label="{% if img.color_label %}{{ img.color_label }}{% else %}Imagen {{ forloop.counter }}{% endif %}">
           <img src="{{ img.image.url }}" alt="{{ product.name }} {{ forloop.counter }}" loading="lazy">
         </button>
         {% endfor %}
@@ -142,6 +145,22 @@
 
       <!-- ── Grid de tallas ── -->
       {% if product.status == 'available' %}
+
+      {% if has_colorway %}
+      <!-- Indicador de color seleccionado (tallas + colorway simultáneos) -->
+      <div id="colorPickerBar" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:9px 12px;background:#0a0a0a;border:1px solid #1e1e1e;border-radius:6px;">
+        <img id="colorPickerThumb" src="{{ product.cover_image.image.url|default:'' }}" alt=""
+             style="width:36px;height:36px;object-fit:cover;border-radius:4px;border:1px solid #2a2a2a;flex-shrink:0;">
+        <div style="min-width:0;">
+          <div style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.08em;line-height:1;">Color seleccionado</div>
+          <div id="colorPickerName" style="font-size:13px;color:#ccc;font-weight:500;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            {% with product.cover_image as ci %}{% if ci.color_label %}{{ ci.color_label }}{% else %}Variante 1{% endif %}{% endwith %}
+          </div>
+        </div>
+        <span style="margin-left:auto;font-size:10px;color:#444;">← elige en las miniaturas</span>
+      </div>
+      {% endif %}
+
       <div class="pd-size-grid">
         <div class="pd-size-grid-header">
           <span class="pd-qty-label">Selecciona tallas</span>
@@ -150,13 +169,13 @@
           {% endif %}
         </div>
         <div id="sizeRows">
-          {% for s in size_group.sizes %}
+          {% for s in unique_sizes %}
           <div class="size-row-item">
             <span class="size-row-label">{{ s }}</span>
             <div class="qty-control qty-control--sm">
-              <button class="qty-btn" type="button" onclick="changeSizeQty('{{ s|escapejs }}', -1)" aria-label="Reducir">−</button>
+              <button class="qty-btn" type="button" onclick="changeSizeQty('{{ s|escapejs }}', '{{ s|slugify }}', -1)" aria-label="Reducir">−</button>
               <span class="qty-val" id="sqty-{{ s|slugify }}">0</span>
-              <button class="qty-btn" type="button" onclick="changeSizeQty('{{ s|escapejs }}', 1)" aria-label="Aumentar">+</button>
+              <button class="qty-btn" type="button" onclick="changeSizeQty('{{ s|escapejs }}', '{{ s|slugify }}', 1)" aria-label="Aumentar">+</button>
             </div>
           </div>
           {% endfor %}
@@ -165,6 +184,52 @@
           Total: <strong id="sizeTotalVal">0</strong> piezas
         </div>
         <button class="btn-add-cart" id="addSizesBtn" disabled
+                data-product-id="{{ product.pk }}" data-product-name="{{ product.name }}">
+          <i class="bi bi-cart3"></i>
+          Agregar al carrito · $<span id="ctaPrice">{{ product.final_price|floatformat:0 }}</span> MXN
+        </button>
+      </div>
+      {% elif product.status == 'sold_out' %}
+      <button class="btn-add-cart" disabled>Agotado</button>
+      {% else %}
+      <button class="btn-add-cart" disabled>Próximamente</button>
+      {% endif %}
+
+      {% elif color_variant_mode %}
+      <!-- ══ Selector de colores / variantes (calzado) ══════════════════ -->
+      {% if product.status == 'available' %}
+      <div class="pd-color-grid">
+        <div class="pd-color-header">
+          <span class="pd-qty-label">Selecciona colores / variantes</span>
+          {% if product.effective_min_qty > 1 %}
+          <span class="pd-min-badge">Mín. {{ product.effective_min_qty }} pzs por variante</span>
+          {% endif %}
+        </div>
+        <div id="colorRows">
+          {% for img in product.images.all %}
+          <div class="color-row-item">
+            <img src="{{ img.image.url }}"
+                 alt="{% if img.color_label %}{{ img.color_label }}{% else %}Variante {{ forloop.counter }}{% endif %}"
+                 class="color-row-thumb"
+                 data-img-pk="{{ img.pk }}"
+                 onclick="swapImage('{{ img.image.url }}', this)">
+            <span class="color-row-num">{% if img.color_label %}{{ img.color_label }}{% else %}Variante {{ forloop.counter }}{% endif %}</span>
+            <div class="qty-control qty-control--sm">
+              <button class="qty-btn" type="button"
+                      onclick="changeColorQty({{ img.pk }}, -1, {{ forloop.counter }})"
+                      aria-label="Reducir">−</button>
+              <span class="qty-val" id="cqty-{{ img.pk }}">0</span>
+              <button class="qty-btn" type="button"
+                      onclick="changeColorQty({{ img.pk }}, 1, {{ forloop.counter }})"
+                      aria-label="Aumentar">+</button>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="pd-size-total">
+          Total: <strong id="colorTotalVal">0</strong> piezas
+        </div>
+        <button class="btn-add-cart" id="addColorsBtn" disabled
                 data-product-id="{{ product.pk }}" data-product-name="{{ product.name }}">
           <i class="bi bi-cart3"></i>
           Agregar al carrito · $<span id="ctaPrice">{{ product.final_price|floatformat:0 }}</span> MXN
@@ -546,22 +611,64 @@
     color: #888;
   }
   .pd-size-total strong { color: var(--gold); font-size: 1rem; }
+
+  /* ── Selector de colores (calzado) ───────────────────────────────────── */
+  .pd-color-grid { margin: 16px 0; }
+  .pd-color-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .color-row-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 9px 0;
+    border-bottom: 1px solid #1a1a1a;
+  }
+  .color-row-item:last-child { border-bottom: none; }
+  .color-row-thumb {
+    width: 58px;
+    height: 58px;
+    object-fit: cover;
+    border-radius: 7px;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: border-color .15s, transform .12s;
+    flex-shrink: 0;
+  }
+  .color-row-thumb:hover  { border-color: rgba(212,175,55,.45); transform: scale(1.04); }
+  .color-row-thumb.active { border-color: var(--gold);          transform: scale(1.04); }
+  .color-row-num {
+    flex: 1;
+    font-size: .82rem;
+    color: #555;
+    font-family: var(--f-mono, monospace);
+    letter-spacing: .04em;
+  }
+  /* Resaltar fila cuando tiene qty > 0 */
+  .color-row-item.has-qty .color-row-num { color: var(--gold); }
+  .color-row-item.has-qty .color-row-thumb { border-color: rgba(212,175,55,.5); }
 </style>
 {% endblock %}
 
 
 {% block extra_js %}
 <script>
-  const PRODUCT_VARIANTS = {{ variants_json| safe }};
-  const PRODUCT_ID = {{ product.pk }};
-  const MIN_QTY = {{ product.effective_min_qty }};
-  const QTY_STEP = {{ qty_step }};
+  const PRODUCT_VARIANTS = {{ variants_json|safe }};
+  const PRODUCT_ID       = {{ product.pk }};
+  const MIN_QTY          = {{ product.effective_min_qty }};
+  const QTY_STEP         = {{ qty_step }};
   const PRODUCT_BASE_PRICE = {{ base_final_price }};
-  const SIZE_NAMES = {{ sizes_json|safe }};
-  const SIZE_MIN_QTY = {{ product.effective_min_qty }};
-  const PRODUCT_TIERS = {{ tiers_json| safe }};
+  const SIZE_NAMES       = {{ sizes_json|safe }};
+  const SIZE_MIN_QTY     = {{ product.effective_min_qty }};
+  const PRODUCT_TIERS    = {{ tiers_json|safe }};
+  const IMAGES_DATA      = {{ images_json|safe }};  /* colorways / también para tallas+colorway */
+  const HAS_COLORWAY     = {{ has_colorway|yesno:"true,false" }};  /* colorway activo en cualquier nivel */
 </script>
-<script src="{% static 'js/product.js' %}?v=2"></script>
+<script src="{% static 'js/product.js' %}?v=4"></script>
 <script>
   function toggleDesc(toggle) {
     toggle.classList.toggle('open');
