@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'orders',
     'core',
     'api',
+    'negocio',
 ]
 
 SITE_ID = 1
@@ -218,3 +219,5 @@ if not DEBUG:
     SECURE_HSTS_PRELOAD             = True
     SECURE_CONTENT_TYPE_NOSNIFF     = True
     X_FRAME_OPTIONS                 = 'DENY'
+
+NEGOCIO_API_KEY = os.environ.get('NEGOCIO_API_KEY', 'dev-negocio-key-insecure')
