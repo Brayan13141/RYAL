@@ -1,7 +1,10 @@
 from django.test import TestCase
 
 from catalog.management.commands.import_images import _pid_from_url
-from catalog.management.commands.load_productos import _category_filter_ids
+from catalog.management.commands.load_productos import (
+    _category_filter_ids,
+    _build_existing_pids,
+)
 
 
 class PidFromUrlTests(TestCase):
@@ -72,3 +75,28 @@ class CategoryFilterIdsTests(TestCase):
 
     def test_keyword_sin_coincidencia_devuelve_set_vacio(self):
         self.assertEqual(_category_filter_ids(self.TREE, ["inexistente"]), set())
+
+
+class BuildExistingPidsTests(TestCase):
+    """El dedup de load_productos debe ser por productId, no por la URL completa:
+    un mismo producto puede estar guardado como #/proinfo/{pid} (formato nuevo) o
+    #/product/{cat}?pid={pid} (formato viejo, lo que hay en el servidor sin --fix-urls).
+    Comparar el string completo no detecta que es el mismo → lo duplica."""
+
+    def test_extrae_pids_de_ambos_formatos(self):
+        urls = [
+            "https://www.modaverse.vip/#/proinfo/PR001",
+            "https://www.modaverse.vip/#/product/CA999?pid=PR002",
+        ]
+        self.assertEqual(_build_existing_pids(urls), {"PR001", "PR002"})
+
+    def test_mismo_pid_en_distinto_formato_colapsa_a_uno(self):
+        urls = [
+            "https://www.modaverse.vip/#/product/CA999?pid=PR777",
+            "https://www.modaverse.vip/#/proinfo/PR777",
+        ]
+        self.assertEqual(_build_existing_pids(urls), {"PR777"})
+
+    def test_ignora_urls_sin_pid(self):
+        urls = ["https://putianshoefactory.x.yupoo.com/albums/123", "", None]
+        self.assertEqual(_build_existing_pids(urls), set())

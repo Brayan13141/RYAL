@@ -15,6 +15,19 @@ from django.utils.text import slugify
 from django.core.management.base import BaseCommand
 
 from catalog.models import Category, Product, ProductImage, Tag
+from catalog.modaverse import pid_from_url
+
+
+def _build_existing_pids(supplier_urls) -> set:
+    """Set de productIds presentes en BD, extraídos de los supplier_url.
+    Deduplica por pid (no por string de URL) para reconciliar los formatos
+    #/proinfo/{pid} y #/product/{cat}?pid={pid} del mismo producto."""
+    pids = set()
+    for url in supplier_urls:
+        pid = pid_from_url(url)
+        if pid:
+            pids.add(pid)
+    return pids
 
 # Pricing por categoría padre (slug → {shipping, margin, order})
 PARENT_PRICING = {
@@ -298,17 +311,21 @@ class Command(BaseCommand):
         prefix_counters = {}
         new_count = skip_count = 0
 
+        # Dedup por productId (estable entre formatos #/proinfo y #/product?pid=)
+        existing_pids = _build_existing_pids(existing_urls)
+
         for p in products:
             # Filtro por categoría (--category): omitir productos fuera del set
             if filter_ids is not None and p.get('category_id', '') not in filter_ids:
                 continue
-            # Skip rápido por supplier_url — evita queries individuales a BD
-            product_id_check = p.get('sku', '')
-            check_url = (
-                f"https://www.modaverse.vip/#/proinfo/{product_id_check}"
-                if product_id_check else p.get('url', '')
-            )
-            if check_url and check_url in existing_urls:
+            # Skip por productId — robusto al formato de supplier_url en BD
+            pid = p.get('sku', '')
+            if pid:
+                if pid in existing_pids:
+                    skip_count += 1
+                    continue
+            # Sin pid (caso raro): caer al match por URL literal
+            elif p.get('url', '') and p['url'] in existing_urls:
                 skip_count += 1
                 continue
             api_cat_id = p.get('category_id', '') or '__default__'
@@ -389,6 +406,8 @@ class Command(BaseCommand):
             )
             if created:
                 existing_urls.add(supplier_url)
+                if pid:
+                    existing_pids.add(pid)
                 prefix_counters[prefix] += 1
                 new_count += 1
 
