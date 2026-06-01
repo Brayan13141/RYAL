@@ -1,0 +1,43 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Gastos — RYAL{% endblock %}
+{% block page_title %}Gastos{% endblock %}
+{% block content %}
+<div style="display:flex;gap:18px;flex-wrap:wrap;">
+  <div class="p-card" style="flex:2;min-width:300px;">
+    <div class="p-card-head"><h2>Historial de gastos</h2></div>
+    <div style="overflow-x:auto;">
+      <table class="p-table">
+        <thead><tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th>Monto</th></tr></thead>
+        <tbody>
+          {% for g in gastos %}
+          <tr>
+            <td style="color:#888;">{{ g.fecha }}</td>
+            <td>{{ g.descripcion }}</td>
+            <td style="color:#888;">{{ g.get_categoria_display }}</td>
+            <td style="color:#f87171;">${{ g.monto }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="4" style="text-align:center;color:#555;padding:32px;">Sin gastos registrados</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="p-card" style="flex:1;min-width:260px;">
+    <div class="p-card-head"><h2>Registrar gasto</h2></div>
+    <div class="p-card-body">
+      <form method="post">
+        {% csrf_token %}
+        {% for field in form %}
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-size:12px;color:#888;margin-bottom:5px;">{{ field.label }}</label>
+          {{ field }}
+          {% if field.errors %}<div style="color:#f87171;font-size:12px;margin-top:4px;">{{ field.errors.0 }}</div>{% endif %}
+        </div>
+        {% endfor %}
+        <button type="submit" class="btn-g" style="width:100%;justify-content:center;">Registrar</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

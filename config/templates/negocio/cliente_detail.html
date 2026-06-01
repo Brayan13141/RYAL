@@ -1,0 +1,52 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}{{ cliente.nombre }} — RYAL{% endblock %}
+{% block page_title %}Cliente: {{ cliente.nombre }}{% endblock %}
+{% block content %}
+<div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:18px;">
+  <div class="p-card" style="flex:1;min-width:220px;">
+    <div class="p-card-head"><h2>Datos</h2></div>
+    <div class="p-card-body">
+      <p style="color:#888;font-size:13px;">Teléfono: <span style="color:#ddd;">{{ cliente.telefono }}</span></p>
+      <p style="color:#888;font-size:13px;margin-top:8px;">Descuento: <span style="color:#D4AF37;">${{ cliente.descuento }}</span></p>
+      {% if cliente.notas %}<p style="color:#888;font-size:13px;margin-top:8px;">{{ cliente.notas }}</p>{% endif %}
+      <a href="{% url 'negocio:cliente_edit' cliente.pk %}" class="btn-g" style="margin-top:16px;display:inline-flex;">
+        <i class="bi bi-pencil"></i> Editar
+      </a>
+    </div>
+  </div>
+  <div class="p-card" style="flex:2;min-width:300px;">
+    <div class="p-card-head">
+      <h2>Pedidos</h2>
+      <a href="{% url 'negocio:pedido_create' %}" style="font-size:12px;color:#D4AF37;">+ Nuevo pedido</a>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="p-table">
+        <thead><tr><th>#</th><th>Fecha</th><th>Descripción</th><th>Total</th><th>Por cobrar</th><th>Estado</th><th></th></tr></thead>
+        <tbody>
+          {% for p in pedidos %}
+          <tr>
+            <td>{{ p.pk }}</td>
+            <td style="color:#888;">{{ p.fecha }}</td>
+            <td>{{ p.descripcion|truncatechars:40 }}</td>
+            <td>${{ p.total_a_cobrar }}</td>
+            <td>
+              {% if p.balance_pendiente > 0 %}
+              <span style="color:#f87171;">${{ p.balance_pendiente }}</span>
+              {% else %}<span style="color:#4ade80;">$0</span>{% endif %}
+            </td>
+            <td>
+              {% if p.estado == 'pagado' %}<span style="color:#4ade80;">Pagado</span>
+              {% elif p.estado == 'cancelado' %}<span style="color:#888;">Cancelado</span>
+              {% else %}<span style="color:#facc15;">Pendiente</span>{% endif %}
+            </td>
+            <td><a href="{% url 'negocio:pedido_detail' p.pk %}" style="font-size:12px;color:#888;">Ver</a></td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="7" style="text-align:center;color:#555;padding:24px;">Sin pedidos</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

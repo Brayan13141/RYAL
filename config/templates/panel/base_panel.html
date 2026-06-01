@@ -366,6 +366,32 @@
         <span class="nav-label">Pedidos</span>
       </a>
 
+      <div class="p-nav-sec">Negocio</div>
+      <a href="{% url 'negocio:resumen' %}"
+         title="Resumen"
+         class="{% if request.resolver_match.url_name == 'resumen' %}on{% endif %}">
+        <i class="bi bi-wallet2"></i>
+        <span class="nav-label">Resumen</span>
+      </a>
+      <a href="{% url 'negocio:clientes_list' %}"
+         title="Clientes"
+         class="{% if request.resolver_match.url_name == 'clientes_list' or request.resolver_match.url_name == 'cliente_detail' or request.resolver_match.url_name == 'cliente_create' or request.resolver_match.url_name == 'cliente_edit' %}on{% endif %}">
+        <i class="bi bi-people"></i>
+        <span class="nav-label">Clientes</span>
+      </a>
+      <a href="{% url 'negocio:pedidos_list' %}"
+         title="Pedidos negocio"
+         class="{% if request.resolver_match.url_name == 'pedidos_list' or request.resolver_match.url_name == 'pedido_detail' or request.resolver_match.url_name == 'pedido_create' %}on{% endif %}">
+        <i class="bi bi-bag"></i>
+        <span class="nav-label">Pedidos</span>
+      </a>
+      <a href="{% url 'negocio:gastos_list' %}"
+         title="Gastos"
+         class="{% if request.resolver_match.url_name == 'gastos_list' %}on{% endif %}">
+        <i class="bi bi-cash-stack"></i>
+        <span class="nav-label">Gastos</span>
+      </a>
+
       <div class="p-nav-sec">Catálogo</div>
 
       {% with un=request.resolver_match.url_name %}

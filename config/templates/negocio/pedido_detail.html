@@ -1,0 +1,96 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Pedido #{{ pedido.pk }} — RYAL{% endblock %}
+{% block page_title %}Pedido #{{ pedido.pk }}{% endblock %}
+{% block content %}
+<div style="display:flex;gap:18px;flex-wrap:wrap;">
+
+  <!-- Info pedido -->
+  <div class="p-card" style="flex:2;min-width:280px;">
+    <div class="p-card-head"><h2>Detalle</h2></div>
+    <div class="p-card-body" style="font-size:13px;color:#888;line-height:1.8;">
+      <p>Cliente: <a href="{% url 'negocio:cliente_detail' pedido.cliente.pk %}" style="color:#ddd;">{{ pedido.cliente.nombre }}</a></p>
+      <p>Fecha: <span style="color:#ddd;">{{ pedido.fecha }}</span></p>
+      <p>Descripción: <span style="color:#ddd;">{{ pedido.descripcion }}</span></p>
+      <hr style="border-color:#1a1a1a;margin:12px 0;">
+      <p>Costo producto: <span style="color:#ddd;">${{ pedido.costo_producto }}</span></p>
+      <p>Precio venta: <span style="color:#ddd;">${{ pedido.precio_venta }}</span></p>
+      <p>Envío: <span style="color:#ddd;">${{ pedido.envio }}</span></p>
+      <p>Total a cobrar: <span style="color:#D4AF37;font-weight:600;">${{ pedido.total_a_cobrar }}</span></p>
+      <p>Ganancia: <span style="color:#4ade80;">${{ pedido.ganancia }}</span></p>
+      <p>Estado:
+        {% if pedido.estado == 'pagado' %}<span style="color:#4ade80;">Pagado</span>
+        {% elif pedido.estado == 'cancelado' %}<span style="color:#555;">Cancelado</span>
+        {% else %}<span style="color:#facc15;" id="estado-badge">Pendiente</span>{% endif %}
+      </p>
+    </div>
+  </div>
+
+  <!-- Pagos -->
+  <div style="flex:1;min-width:260px;display:flex;flex-direction:column;gap:16px;">
+    <div class="p-card">
+      <div class="p-card-head"><h2>Pagos recibidos</h2></div>
+      <div style="overflow-x:auto;">
+        <table class="p-table">
+          <thead><tr><th>Fecha</th><th>Monto</th><th>Notas</th></tr></thead>
+          <tbody>
+            {% for pago in pedido.pagos.all %}
+            <tr>
+              <td>{{ pago.fecha }}</td>
+              <td style="color:#4ade80;">${{ pago.monto }}</td>
+              <td style="color:#888;">{{ pago.notas|default:"—" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="3" style="text-align:center;color:#555;padding:16px;">Sin pagos</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div style="padding:12px 18px;border-top:1px solid #1a1a1a;font-size:13px;color:#888;">
+        Por cobrar: <span style="color:#f87171;font-weight:600;" id="balance-pendiente">${{ pedido.balance_pendiente }}</span>
+      </div>
+    </div>
+
+    {% if pedido.estado == 'pendiente' %}
+    <div class="p-card">
+      <div class="p-card-head"><h2>Registrar pago</h2></div>
+      <div class="p-card-body">
+        <form id="pago-form">
+          {% csrf_token %}
+          {% for field in pago_form %}
+          <div style="margin-bottom:12px;">
+            <label style="display:block;font-size:11px;color:#888;margin-bottom:4px;">{{ field.label }}</label>
+            {{ field }}
+          </div>
+          {% endfor %}
+          <button type="submit" class="btn-g" style="width:100%;justify-content:center;">Registrar</button>
+        </form>
+        <div id="pago-msg" style="margin-top:10px;font-size:13px;display:none;"></div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+document.getElementById('pago-form')?.addEventListener('submit', function(e) {
+  e.preventDefault()
+  const data = new URLSearchParams(new FormData(this))
+  fetch('{% url "negocio:pedido_pago_add" pedido.pk %}', {
+    method: 'POST', body: data,
+    headers: {'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/x-www-form-urlencoded'}
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) {
+      document.getElementById('balance-pendiente').textContent = '$' + d.balance_pendiente
+      const msg = document.getElementById('pago-msg')
+      msg.style.display = 'block'
+      msg.style.color = '#4ade80'
+      msg.textContent = 'Pago registrado ✓'
+      this.reset()
+      if (d.estado === 'pagado') location.reload()
+    }
+  })
+})
+</script>
+{% endblock %}
