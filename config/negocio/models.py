@@ -1,3 +1,4 @@
+import datetime
 from decimal import Decimal
 from django.db import models
 
@@ -27,7 +28,7 @@ class Pedido(models.Model):
     ]
 
     cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name='pedidos')
-    fecha = models.DateField(auto_now_add=True)
+    fecha = models.DateField(default=datetime.date.today)
     descripcion = models.TextField()
     costo_producto = models.DecimalField(max_digits=10, decimal_places=2)
     precio_venta = models.DecimalField(max_digits=10, decimal_places=2)
