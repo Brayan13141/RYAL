@@ -112,6 +112,27 @@ def _next_sku_index(prefix: str) -> int:
     return (max(nums) + 1) if nums else 1
 
 
+def _category_filter_ids(categories_tree, keywords) -> set:
+    """IDs de categoría (padre + subs) que coinciden con alguna keyword.
+    Match en el padre incluye todas sus subs; match en una sub incluye su padre.
+    Sin distinción de mayúsculas. Mismo criterio que el scraper --category."""
+    kws = [k.lower() for k in keywords]
+    ids = set()
+    for cat in categories_tree:
+        name = (cat.get('name_es') or cat.get('name_zh') or '').lower()
+        if any(kw in name for kw in kws):
+            ids.add(cat['id'])
+            for sub in cat.get('subcategories', []):
+                ids.add(sub['id'])
+        else:
+            for sub in cat.get('subcategories', []):
+                sname = (sub.get('name_es') or sub.get('name_zh') or '').lower()
+                if any(kw in sname for kw in kws):
+                    ids.add(sub['id'])
+                    ids.add(cat['id'])
+    return ids
+
+
 def _clean_name(raw) -> str:
     if not raw:
         return ''
@@ -130,6 +151,9 @@ class Command(BaseCommand):
                             help='Omitir descarga de imágenes')
         parser.add_argument('--only', choices=['modaverse', 'calzado', 'all'],
                             default='modaverse')
+        parser.add_argument('--category', nargs='+', metavar='KEYWORD',
+                            help='Cargar solo categorías modaverse que coincidan '
+                                 '(parcial, sin distinción de mayúsculas). Ej: --category "van cleef"')
         parser.add_argument('--recategorize', action='store_true',
                             help='Re-categoriza productos actualmente en categoría General usando el JSON')
         parser.add_argument('--fix-urls', '--fix-proinfo-urls', action='store_true',
@@ -138,6 +162,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         no_images = options['no_images']
         only      = options['only']
+        category  = options.get('category')
 
         tag_nuevo, _ = Tag.objects.get_or_create(
             name='Nuevo', defaults={'color_hex': '#C9A84C'}
@@ -158,7 +183,7 @@ class Command(BaseCommand):
         self.stdout.write(f'✓ {len(existing_urls)} productos ya en BD (skip automático)')
 
         if only in ('modaverse', 'all'):
-            self._load_modaverse(tag_nuevo, no_images, existing_urls)
+            self._load_modaverse(tag_nuevo, no_images, existing_urls, category)
 
         if only in ('calzado', 'all'):
             self._load_calzado(tag_nuevo, no_images, existing_urls)
@@ -170,7 +195,7 @@ class Command(BaseCommand):
 
     # ── Modaverse (multi-categoría con jerarquía) ──────────────────────────────
 
-    def _load_modaverse(self, tag_nuevo, no_images, existing_urls):
+    def _load_modaverse(self, tag_nuevo, no_images, existing_urls, category=None):
         self.stdout.write('\n── Cargando desde scraped_modaverse.json ──')
         json_path = Path(__file__).resolve().parents[4] / 'scraped_modaverse.json'
 
@@ -189,6 +214,17 @@ class Command(BaseCommand):
             return
 
         self.stdout.write(f'  {len(products)} productos · {len(categories_tree)} categorías padre en JSON')
+
+        # ── Filtro opcional por categoría (--category) ────────────────────────
+        filter_ids = None
+        if category:
+            filter_ids = _category_filter_ids(categories_tree, category)
+            if not filter_ids:
+                self.stdout.write(self.style.WARNING(
+                    f'  ⚠ Ninguna categoría coincide con: {category} — nada que cargar'
+                ))
+                return
+            self.stdout.write(f'  Filtrando a {len(filter_ids)} categorías/subcategorías por {category}')
 
         # ── 1. Crear jerarquía de categorías ──────────────────────────────────
         # Mapa: category_id_api → Django Category object
@@ -263,6 +299,9 @@ class Command(BaseCommand):
         new_count = skip_count = 0
 
         for p in products:
+            # Filtro por categoría (--category): omitir productos fuera del set
+            if filter_ids is not None and p.get('category_id', '') not in filter_ids:
+                continue
             # Skip rápido por supplier_url — evita queries individuales a BD
             product_id_check = p.get('sku', '')
             check_url = (

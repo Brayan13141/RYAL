@@ -1,0 +1,41 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Pedidos — RYAL{% endblock %}
+{% block page_title %}Pedidos{% endblock %}
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+  <h1 style="font-size:20px;font-weight:700;color:#ddd;">Pedidos</h1>
+  <a href="{% url 'negocio:pedido_create' %}" class="btn-g"><i class="bi bi-plus-lg"></i> Nuevo pedido</a>
+</div>
+<div class="p-card">
+  <div style="overflow-x:auto;">
+    <table class="p-table">
+      <thead>
+        <tr><th>#</th><th>Cliente</th><th>Descripción</th><th>Total</th><th>Por cobrar</th><th>Ganancia</th><th>Estado</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for p in pedidos %}
+        <tr>
+          <td>{{ p.pk }}</td>
+          <td><a href="{% url 'negocio:cliente_detail' p.cliente.pk %}">{{ p.cliente.nombre }}</a></td>
+          <td>{{ p.descripcion|truncatechars:35 }}</td>
+          <td>${{ p.total_a_cobrar }}</td>
+          <td>
+            {% if p.balance_pendiente > 0 %}<span style="color:#f87171;">${{ p.balance_pendiente }}</span>
+            {% else %}<span style="color:#4ade80;">$0</span>{% endif %}
+          </td>
+          <td style="color:#D4AF37;">${{ p.ganancia }}</td>
+          <td>
+            {% if p.estado == 'pagado' %}<span style="color:#4ade80;">Pagado</span>
+            {% elif p.estado == 'cancelado' %}<span style="color:#555;">Cancelado</span>
+            {% else %}<span style="color:#facc15;">Pendiente</span>{% endif %}
+          </td>
+          <td><a href="{% url 'negocio:pedido_detail' p.pk %}" style="font-size:12px;color:#888;">Ver</a></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8" style="text-align:center;color:#555;padding:32px;">No hay pedidos</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

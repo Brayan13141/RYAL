@@ -33,6 +33,8 @@ _sitemaps = {
 urlpatterns = [
     path('admin/',            admin.site.urls),
     path('panel/',            include('panel.urls')),
+    path('panel/negocio/',   include('negocio.urls')),
+    path('api/negocio/',     include('negocio.api_urls')),
     path('api/',              include('api.urls')),
     # Rate-limited auth views — must precede allauth.urls (first-match routing)
     path('accounts/login/',   RateLimitedLoginView.as_view(),  name='account_login'),

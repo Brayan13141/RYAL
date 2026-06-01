@@ -1,0 +1,39 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Clientes — RYAL{% endblock %}
+{% block page_title %}Clientes{% endblock %}
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+  <h1 style="font-size:20px;font-weight:700;color:#ddd;">Clientes</h1>
+  <a href="{% url 'negocio:cliente_create' %}" class="btn-g">
+    <i class="bi bi-person-plus"></i> Nuevo cliente
+  </a>
+</div>
+<div class="p-card">
+  <div style="overflow-x:auto;">
+    <table class="p-table">
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Teléfono</th>
+          <th>Descuento</th>
+          <th>Por cobrar</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in clientes %}
+        <tr>
+          <td><a href="{% url 'negocio:cliente_detail' c.pk %}">{{ c.nombre }}</a></td>
+          <td style="color:#888;">{{ c.telefono }}</td>
+          <td>{% if c.descuento %}<span style="color:#D4AF37;">${{ c.descuento }}</span>{% else %}—{% endif %}</td>
+          <td>{% if c.balance_total %}<span style="color:#f87171;">${{ c.balance_total }}</span>{% else %}<span style="color:#4ade80;">$0</span>{% endif %}</td>
+          <td><a href="{% url 'negocio:cliente_edit' c.pk %}" style="font-size:12px;color:#888;">Editar</a></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" style="text-align:center;color:#555;padding:32px;">No hay clientes registrados</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

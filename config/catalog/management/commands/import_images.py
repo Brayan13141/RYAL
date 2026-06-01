@@ -12,6 +12,7 @@ Uso:
     python manage.py import_images --since 2026-05-21   # solo productos creados desde esa fecha
 """
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -21,6 +22,18 @@ from django.core.management.base import BaseCommand
 from django.db.models import Count, Q
 
 from catalog.models import Product, ProductImage
+
+# El JSON trae la URL como #/product/{cat}?pid={pid} pero load_productos guarda
+# supplier_url como #/proinfo/{pid}. Mapear por productId reconcilia ambos.
+_PID_RE = re.compile(r'/proinfo/(\w+)|[?&]pid=(\w+)')
+
+
+def _pid_from_url(url: str | None) -> str | None:
+    """Extrae el productId de cualquier formato de URL modaverse."""
+    m = _PID_RE.search(url or '')
+    if not m:
+        return None
+    return m.group(1) or m.group(2)
 
 HEADERS = {
     'Referer': 'https://www.modaverse.vip/',
@@ -156,12 +169,13 @@ class Command(BaseCommand):
         with open(json_path, encoding='utf-8') as f:
             data = json.load(f)
 
-        url_to_images = {
-            p['url']: p['images']
+        # Mapear por productId (el JSON lo guarda en 'sku') — robusto al formato de URL
+        pid_to_images = {
+            p['sku']: p['images']
             for p in data.get('products', [])
-            if p.get('url') and p.get('images')
+            if p.get('sku') and p.get('images')
         }
-        self.stdout.write(f'  {len(url_to_images)} productos con imágenes en JSON')
+        self.stdout.write(f'  {len(pid_to_images)} productos con imágenes en JSON')
         del data  # liberar memoria del JSON completo
 
         # ── Construir queryset base (sin cargar en memoria) ───────────────────
@@ -208,7 +222,7 @@ class Command(BaseCommand):
         for chunk in _iter_chunks(qs, chunk_size):
             jobs = []
             for p in chunk:
-                imgs = url_to_images.get(p.supplier_url)
+                imgs = pid_to_images.get(_pid_from_url(p.supplier_url))
                 if imgs:
                     jobs.append((p, imgs))
                 else:

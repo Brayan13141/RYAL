@@ -1,0 +1,5 @@
+node_modules/
+.baileys_auth/
+.env.persona1
+.env.persona2
+.env
