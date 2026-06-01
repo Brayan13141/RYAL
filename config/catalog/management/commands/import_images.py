@@ -12,7 +12,6 @@ Uso:
     python manage.py import_images --since 2026-05-21   # solo productos creados desde esa fecha
 """
 import json
-import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -22,18 +21,9 @@ from django.core.management.base import BaseCommand
 from django.db.models import Count, Q
 
 from catalog.models import Product, ProductImage
-
 # El JSON trae la URL como #/product/{cat}?pid={pid} pero load_productos guarda
 # supplier_url como #/proinfo/{pid}. Mapear por productId reconcilia ambos.
-_PID_RE = re.compile(r'/proinfo/(\w+)|[?&]pid=(\w+)')
-
-
-def _pid_from_url(url: str | None) -> str | None:
-    """Extrae el productId de cualquier formato de URL modaverse."""
-    m = _PID_RE.search(url or '')
-    if not m:
-        return None
-    return m.group(1) or m.group(2)
+from catalog.modaverse import pid_from_url as _pid_from_url
 
 HEADERS = {
     'Referer': 'https://www.modaverse.vip/',
