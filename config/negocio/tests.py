@@ -112,6 +112,37 @@ class ApiClienteTest(TestCase):
         res = self._get('5551111111', key='wrong-key')
         self.assertEqual(res.status_code, 401)
 
+    def test_encuentra_cliente_por_jid_mexicano_521(self):
+        # WhatsApp manda el JID como 521 + 10 dígitos; el cliente se guarda con 10
+        res = self._get('5215551111111')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['descuento'], 50.0)
+
+    def test_encuentra_cliente_por_jid_mexicano_52(self):
+        res = self._get('525551111111')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['descuento'], 50.0)
+
+
+class ClienteFormTest(TestCase):
+    def test_normaliza_telefono_a_10_digitos(self):
+        from negocio.forms import ClienteForm
+        form = ClienteForm(data={
+            'nombre': 'Pedro', 'telefono': '+52 1 (555) 222-3344',
+            'descuento': '0', 'notas': '',
+        })
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data['telefono'], '5552223344')
+
+    def test_rechaza_telefono_con_menos_de_10_digitos(self):
+        from negocio.forms import ClienteForm
+        form = ClienteForm(data={
+            'nombre': 'Corto', 'telefono': '12345',
+            'descuento': '0', 'notas': '',
+        })
+        self.assertFalse(form.is_valid())
+        self.assertIn('telefono', form.errors)
+
 
 class ClientesViewTest(TestCase):
     def setUp(self):

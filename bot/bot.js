@@ -10,7 +10,7 @@ const pino = require('pino')
 const qrcode = require('qrcode-terminal')
 require('dotenv').config()
 
-const { extractPrice, generateMessage } = require('./utils')
+const { extractPrice, generateMessage, computeTotal } = require('./utils')
 
 const MARKUP          = parseInt(process.env.MARKUP || '100')
 const SUPPLIER_GID    = process.env.SUPPLIER_GROUP_ID
@@ -78,7 +78,7 @@ async function handleClientMessage(sock, msg) {
 
     const telefono = msg.key.remoteJid.replace('@s.whatsapp.net', '')
     const descuento = await getDescuento(telefono)
-    const total = price - descuento
+    const total = computeTotal(price, descuento)
 
     await sock.sendMessage(msg.key.remoteJid, {
         text: `Total: $${total} MXN`,

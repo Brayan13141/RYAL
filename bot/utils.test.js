@@ -1,4 +1,4 @@
-const { extractPrice, generateMessage } = require('./utils')
+const { extractPrice, generateMessage, computeTotal } = require('./utils')
 
 describe('extractPrice', () => {
     test('extrae precio con símbolo $', () => {
@@ -22,6 +22,23 @@ describe('extractPrice', () => {
     })
     test('ignora números fuera del rango válido (< 50 o > 9999)', () => {
         expect(extractPrice('Talla 7 disponible')).toBeNull()
+    })
+    test('NO confunde números de modelo de tenis con precio (sin marcador)', () => {
+        expect(extractPrice('New Balance 550 talla 42')).toBeNull()
+        expect(extractPrice('Air Max 270 disponible')).toBeNull()
+        expect(extractPrice('Yeezy 350 últimas piezas')).toBeNull()
+    })
+})
+
+describe('computeTotal', () => {
+    test('resta el descuento del precio', () => {
+        expect(computeTotal(350, 50)).toBe(300)
+    })
+    test('nunca devuelve un total negativo', () => {
+        expect(computeTotal(350, 500)).toBe(0)
+    })
+    test('sin descuento devuelve el precio completo', () => {
+        expect(computeTotal(350, 0)).toBe(350)
     })
 })
 

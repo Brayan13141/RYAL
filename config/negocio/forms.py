@@ -1,6 +1,7 @@
 import datetime
 from django import forms
 from .models import Cliente, Pedido, Pago, Gasto
+from .phone import normalize_telefono
 
 
 class ClienteForm(forms.ModelForm):
@@ -10,6 +11,12 @@ class ClienteForm(forms.ModelForm):
         widgets = {
             'notas': forms.Textarea(attrs={'rows': 3}),
         }
+
+    def clean_telefono(self):
+        telefono = normalize_telefono(self.cleaned_data['telefono'])
+        if len(telefono) != 10:
+            raise forms.ValidationError('El teléfono debe tener al menos 10 dígitos.')
+        return telefono
 
 
 class PedidoForm(forms.ModelForm):

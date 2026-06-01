@@ -6,6 +6,7 @@ from django.views.decorators.http import require_GET
 from django.views.decorators.csrf import csrf_exempt
 
 from .models import Cliente
+from .phone import normalize_telefono
 
 
 def _authorized(request):
@@ -20,7 +21,7 @@ def api_cliente(request, telefono):
     if not _authorized(request):
         return JsonResponse({'error': 'unauthorized'}, status=401)
     try:
-        cliente = Cliente.objects.get(telefono=telefono)
+        cliente = Cliente.objects.get(telefono=normalize_telefono(telefono))
         descuento = float(cliente.descuento)
     except Cliente.DoesNotExist:
         # Cliente no registrado = sin descuento (el bot aplica precio base)

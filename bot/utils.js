@@ -1,9 +1,11 @@
-// Patrones en orden de especificidad — el primero que coincida gana
+// Patrones en orden de especificidad — el primero que coincida gana.
+// Todos exigen un marcador de moneda ("precio", "$", "pesos"): un número
+// desnudo NO se considera precio para no confundir modelos de tenis
+// (New Balance 550, Air Max 270, Yeezy 350...) con un precio real.
 const PRICE_PATTERNS = [
     /precio[:\s]+\$?\s*(\d+(?:\.\d{1,2})?)/i,   // "Precio: $350" o "precio 350"
     /\$\s*(\d{2,4}(?:\.\d{1,2})?)/,              // "$350"
     /(\d{2,4}(?:\.\d{1,2})?)\s*pesos?/i,         // "350 pesos"
-    /(\d{3,4}(?:\.\d{1,2})?)/,                   // fallback: 3-4 dígitos
 ]
 
 const MIN_PRICE = 50
@@ -47,4 +49,12 @@ function generateMessage(originalText, originalPrice, newPrice) {
     return result
 }
 
-module.exports = { extractPrice, generateMessage }
+/**
+ * Calcula el total a cobrar al cliente: precio menos descuento, con piso en 0
+ * (un descuento mayor que el precio nunca produce un total negativo).
+ */
+function computeTotal(price, descuento) {
+    return Math.max(0, price - (descuento || 0))
+}
+
+module.exports = { extractPrice, generateMessage, computeTotal }
