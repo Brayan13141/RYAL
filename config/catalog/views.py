@@ -141,11 +141,25 @@ def category_hub(request, cat_slug):
 
 
 def _annotate_final(qs):
+    # Debe coincidir con Product.final_price:
+    #  - price_override fijo gana sobre todo (Coalesce externo);
+    #  - margen y envío se toman de la categoría RAÍZ (category__parent); si el
+    #    producto cuelga directo de una raíz, parent es NULL → cae a la propia.
     return qs.annotate(
         final_price_calc=ExpressionWrapper(
-            F('base_price')
-            + Coalesce(F('shipping_override'), F('category__shipping_cost'))
-            + F('category__profit_margin'),
+            Coalesce(
+                F('price_override'),
+                F('base_price')
+                + Coalesce(
+                    F('shipping_override'),
+                    F('category__parent__shipping_cost'),
+                    F('category__shipping_cost'),
+                )
+                + Coalesce(
+                    F('category__parent__profit_margin'),
+                    F('category__profit_margin'),
+                ),
+            ),
             output_field=DecimalField(max_digits=10, decimal_places=2),
         )
     )

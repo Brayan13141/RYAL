@@ -4,6 +4,9 @@ const qrcode = require('qrcode-terminal')
 require('dotenv').config()
 
 const { extractPrice, buildRyalForward, computeTotal } = require('./utils')
+const { acquireAuthLock } = require('./lock')
+
+const AUTH_DIR = '.baileys_auth'
 
 // Baileys es ESM-only (>=6.7.x) → se carga con import() dinámico desde este
 // módulo CommonJS; se asignan en main() antes de connect().
@@ -91,7 +94,7 @@ async function handleClientMessage(sock, msg) {
 
 
 async function connect() {
-    const { state, saveCreds } = await useMultiFileAuthState('.baileys_auth')
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR)
 
     const sock = makeWASocket({
         auth:    state,
@@ -152,6 +155,10 @@ process.on('unhandledRejection', (err) => {
 })
 
 async function main() {
+    // Toma el lock de la sesion ANTES de conectar: si otro proceso ya usa este
+    // .baileys_auth (p.ej. el servicio systemd), aborta en vez de invalidar el login.
+    acquireAuthLock(AUTH_DIR)
+
     const baileys = await import('@whiskeysockets/baileys')
     makeWASocket          = baileys.default
     useMultiFileAuthState = baileys.useMultiFileAuthState
