@@ -1,16 +1,14 @@
-const {
-    default: makeWASocket,
-    useMultiFileAuthState,
-    DisconnectReason,
-    downloadMediaMessage,
-} = require('@whiskeysockets/baileys')
-const { Boom } = require('@hapi/boom')
 const axios = require('axios')
 const pino = require('pino')
 const qrcode = require('qrcode-terminal')
 require('dotenv').config()
 
-const { extractPrice, generateMessage, computeTotal } = require('./utils')
+const { extractPrice, buildRyalForward, computeTotal } = require('./utils')
+
+// Baileys es ESM-only (>=6.7.x) → se carga con import() dinámico desde este
+// módulo CommonJS; se asignan en main() antes de connect().
+let makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage
+let waVersion   // versión de WA Web (sin esto WhatsApp rechaza y cae en loop)
 
 const MARKUP          = parseInt(process.env.MARKUP || '100')
 const SUPPLIER_GID    = process.env.SUPPLIER_GROUP_ID
@@ -50,10 +48,14 @@ async function handleSupplierMessage(sock, msg) {
         return
     }
 
-    const newPrice  = origPrice + MARKUP
-    const newCaption = generateMessage(caption, origPrice, newPrice)
+    // Marca TODOS los precios (+MARKUP), limpia el mensaje y le pone el pie de Ryal
+    const newCaption = buildRyalForward(caption, MARKUP)
 
-    const buffer = await downloadMediaMessage(msg, 'buffer', {})
+    // reuploadRequest permite recuperar media cuyo cifrado expiró (mensajes no tan frescos)
+    const buffer = await downloadMediaMessage(
+        msg, 'buffer', {},
+        { logger, reuploadRequest: sock.updateMediaMessage }
+    )
 
     await sock.sendMessage(RYAL_GID, {
         image:    buffer,
@@ -61,7 +63,7 @@ async function handleSupplierMessage(sock, msg) {
         mimetype: image.mimetype || 'image/jpeg',
     })
 
-    logger.info({ origPrice, newPrice }, 'Reenviado al Grupo Ryal')
+    logger.info({ origPrice, newPrice: origPrice + MARKUP }, 'Reenviado al Grupo Ryal')
 }
 
 
@@ -92,8 +94,9 @@ async function connect() {
     const { state, saveCreds } = await useMultiFileAuthState('.baileys_auth')
 
     const sock = makeWASocket({
-        auth:   state,
-        logger: pino({ level: 'warn' }),
+        auth:    state,
+        version: waVersion,
+        logger:  pino({ level: 'warn' }),
     })
 
     sock.ev.on('creds.update', saveCreds)
@@ -105,15 +108,16 @@ async function connect() {
             logger.info('Escanear el QR con WhatsApp → Dispositivos vinculados → Vincular dispositivo')
         }
         if (connection === 'close') {
-            const code = (lastDisconnect?.error instanceof Boom)
-                ? lastDisconnect.error.output.statusCode
-                : 0
+            const code = lastDisconnect?.error?.output?.statusCode
             if (code !== DisconnectReason.loggedOut) {
-                logger.info('Desconectado — reconectando en 5s...')
+                logger.info({ code, motivo: lastDisconnect?.error?.message }, 'Desconectado — reconectando en 5s...')
                 setTimeout(connect, 5000)
             } else {
-                logger.error('Sesión cerrada. Borrar .baileys_auth/ y re-escanear QR.')
-                process.exit(1)
+                // loggedOut: la sesión murió. Salir con 0 para que systemd
+                // (Restart=on-failure) NO reinicie en bucle generando QR en los logs.
+                // Requiere re-login manual: borrar .baileys_auth/ y re-escanear QR.
+                logger.error('Sesión cerrada (loggedOut). Borra .baileys_auth/ y re-escanea el QR. El servicio NO se reinicia solo.')
+                process.exit(0)
             }
         } else if (connection === 'open') {
             logger.info('Bot conectado ✓')
@@ -142,4 +146,24 @@ async function connect() {
     })
 }
 
-connect()
+// No tumbar el proceso por una promesa sin manejar; dejar registro y seguir vivo
+process.on('unhandledRejection', (err) => {
+    logger.error({ err: err?.message || String(err) }, 'unhandledRejection')
+})
+
+async function main() {
+    const baileys = await import('@whiskeysockets/baileys')
+    makeWASocket          = baileys.default
+    useMultiFileAuthState = baileys.useMultiFileAuthState
+    DisconnectReason      = baileys.DisconnectReason
+    downloadMediaMessage  = baileys.downloadMediaMessage
+    try {
+        waVersion = (await baileys.fetchLatestBaileysVersion()).version
+        logger.info({ waVersion: waVersion.join('.') }, 'Versión de WA Web')
+    } catch (e) {
+        logger.warn({ err: e.message }, 'No se pudo obtener la versión de WA — uso la default')
+    }
+    await connect()
+}
+
+main()

@@ -106,30 +106,20 @@ MARKUP=100
 
 ## Fase 4 — Obtener los JIDs de los grupos (en el servidor)
 
+> **Nota:** Baileys es ESM-only (>=6.7.x); `bot.js` y `get-jids.js` lo cargan con
+> `import()` dinámico. NO usar snippets con `require('@whiskeysockets/baileys')` → fallan
+> con `ERR_REQUIRE_ESM`. Usa el helper `get-jids.js` (ya viene en `bot/`).
+
 ```bash
 cd /root/app/bot
-node -e "
-const { default: makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys')
-const qrcode = require('qrcode-terminal')
-const pino = require('pino')
-async function run() {
-  const { state, saveCreds } = await useMultiFileAuthState('.baileys_auth_temp')
-  const sock = makeWASocket({ auth: state, logger: pino({level:'silent'}) })
-  sock.ev.on('creds.update', saveCreds)
-  sock.ev.on('connection.update', ({qr}) => { if (qr) qrcode.generate(qr, {small:true}) })
-  sock.ev.on('messages.upsert', ({ messages }) => {
-    for (const m of messages)
-      if (m.key.remoteJid?.endsWith('@g.us')) console.log('GROUP JID:', m.key.remoteJid)
-  })
-}
-run()
-"
+node get-jids.js
 ```
 
-1. Escanear el QR con un celular.
+1. Escanear el QR con el celular de **persona 1** (`get-jids.js` reusa `.baileys_auth`,
+   así que en la Fase 5 persona 1 ya NO tendrá que re-escanear).
 2. Enviar un mensaje en el **grupo del proveedor** → copiar su `GROUP JID`.
 3. Enviar un mensaje en el **Grupo Ryal** → copiar su `GROUP JID`.
-4. `Ctrl+C` y limpiar: `rm -rf .baileys_auth_temp`
+4. `Ctrl+C`.
 5. Pegar los JIDs en `.env.persona1` y `.env.persona2` (Fase 3).
 
 ---
@@ -141,7 +131,8 @@ run()
 ```bash
 cd /root/app/bot
 node -e "require('dotenv').config({path:'.env.persona1'}); require('./bot.js')"
-# → escanear QR con el celular de PERSONA 1 → esperar "Bot conectado ✓" → Ctrl+C
+# Si hiciste la Fase 4 con el celular de PERSONA 1, NO pedirá QR (reusa .baileys_auth)
+# y mostrará "Bot conectado ✓" directo. Si no, escanea el QR ahora. → Ctrl+C
 # La sesión queda en /root/app/bot/.baileys_auth/
 ```
 

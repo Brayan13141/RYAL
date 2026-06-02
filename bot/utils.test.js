@@ -1,4 +1,36 @@
-const { extractPrice, generateMessage, computeTotal } = require('./utils')
+const { extractPrice, computeTotal, markupCaption, cleanCaption, buildRyalForward } = require('./utils')
+
+// Mensajes reales del proveedor (capturados 2026-06-01)
+const MSG_PUMA = `⚜️ *PUMA SUEDE XL*⚜️
+ℂ𝔸𝕃𝕀𝔻𝔸𝔻 ℙℝ𝔼𝕄𝕀𝕌𝕄
+▪️#2 al 5
+▪️ *$320 Mayoreo*
+▪️Caja de su marca
+▪️Dama & Juvenil
+👁️ Ojo: *A partir de una media corrida el precio es de $270 c/p*
+Ejemplo como viene la media corrida
+1pz del 3
+2pz del 4
+2pz del 5
+1pz del 6`
+
+const MSG_GUESS = `✨𝕊𝕒𝕟𝕕𝕒𝕝𝕚𝕒✨
+        GUESS
+Mod-calcetín
+▪️#3 al 6
+▪️ 250 Mayoreo
+▪️Dama & Juvenil 👩🏻
+👁️ Ojo: A partir de una media corrida el precio es de $200 c/p`
+
+const MSG_MK = `✨MICHAEL KORS ✨
+▪️#3 al 6
+💲 Mayoreo general: $250
+👁️ Ojo: A partir de una media corrida el precio es de $200 c/p`
+
+const MSG_HUGO = `💎BOTAS HUGO💎
+▪️#6 al 9
+▪️ $550 Mayoreo
+👁️ Ojo: A partir de una media corrida el precio es de $500c/p`
 
 describe('extractPrice', () => {
     test('extrae precio con símbolo $', () => {
@@ -12,6 +44,12 @@ describe('extractPrice', () => {
     })
     test('extrae precio de 3 dígitos sin símbolo', () => {
         expect(extractPrice('Sudadera G5 ✅ talla M/L precio 320')).toBe(320)
+    })
+    test('reconoce "Mayoreo" sin símbolo $', () => {
+        expect(extractPrice('▪️ 250 Mayoreo')).toBe(250)
+    })
+    test('en multi-precio devuelve el primero (mayoreo)', () => {
+        expect(extractPrice(MSG_PUMA)).toBe(320)
     })
     test('retorna null si no hay número de precio válido', () => {
         expect(extractPrice('Hola cómo estás, me confirmás?')).toBeNull()
@@ -42,24 +80,67 @@ describe('computeTotal', () => {
     })
 })
 
-describe('generateMessage', () => {
-    test('reemplaza precio con símbolo $', () => {
-        const result = generateMessage('Nike Air Max 🔥 $350 disponible', 350, 450)
-        expect(result).toBe('Nike Air Max 🔥 $450 disponible')
+describe('markupCaption', () => {
+    test('marca TODOS los precios del mensaje (+100)', () => {
+        const out = markupCaption(MSG_PUMA, 100)
+        expect(out).toContain('$420')   // mayoreo 320 -> 420
+        expect(out).toContain('$370')   // media corrida 270 -> 370
+        expect(out).not.toContain('$320')
+        expect(out).not.toContain('$270')
     })
-    test('reemplaza precio con "pesos"', () => {
-        const result = generateMessage('Jordan 1 - 450 pesos ✅ stock', 450, 550)
-        expect(result).toBe('Jordan 1 - 550 pesos ✅ stock')
+    test('marca precio "Mayoreo" sin símbolo $', () => {
+        expect(markupCaption('▪️ 250 Mayoreo', 100)).toContain('350 Mayoreo')
     })
-    test('conserva emojis y resto del texto', () => {
-        const original = 'Yeezy 350 🔥🔥 talla 40-44 $280 últimas piezas ✅'
-        const result = generateMessage(original, 280, 380)
-        expect(result).toContain('🔥🔥')
-        expect(result).toContain('$380')
-        expect(result).not.toContain('$280')
+    test('marca "Mayoreo general: $250"', () => {
+        expect(markupCaption(MSG_MK, 100)).toContain('$350')
     })
-    test('agrega precio al final si no puede reemplazar', () => {
-        const result = generateMessage('Producto sin precio visible en texto', 300, 400)
-        expect(result).toContain('$400')
+    test('marca "$500c/p" sin espacio', () => {
+        const out = markupCaption(MSG_HUGO, 100)
+        expect(out).toContain('$650')     // 550 -> 650
+        expect(out).toContain('$600c/p')  // 500 -> 600
+    })
+    test('NO toca tallas ni números de modelo', () => {
+        const out = markupCaption(MSG_PUMA, 100)
+        expect(out).toContain('#2 al 5')
+        expect(out).toContain('1pz del 3')
+        expect(out).toContain('2pz del 4')
+    })
+    test('NO toca "Modelo-013" ni "Mod-01"', () => {
+        expect(markupCaption('Modelo-013\nMod-01', 100)).toBe('Modelo-013\nMod-01')
+    })
+})
+
+describe('cleanCaption', () => {
+    test('quita emojis pictográficos', () => {
+        const out = cleanCaption(MSG_PUMA)
+        expect(out).not.toContain('⚜')
+        expect(out).not.toContain('👁')
+    })
+    test('conserva las viñetas ▪️', () => {
+        expect(cleanCaption(MSG_PUMA)).toContain('▪')
+    })
+    test('normaliza la fuente decorativa a ASCII', () => {
+        const out = cleanCaption(MSG_PUMA)
+        expect(out).toContain('CALIDAD PREMIUM')
+        expect(out).not.toContain('ℂ𝔸𝕃𝕀𝔻𝔸𝔻')
+    })
+})
+
+describe('buildRyalForward', () => {
+    test('pipeline completo: markup + limpieza + pie Ryal', () => {
+        const out = buildRyalForward(MSG_PUMA, 100)
+        // precios marcados
+        expect(out).toContain('$420')
+        expect(out).toContain('$370')
+        // limpieza
+        expect(out).not.toContain('⚜')
+        expect(out).toContain('CALIDAD PREMIUM')
+        // viñetas conservadas
+        expect(out).toContain('▪')
+        // tallas intactas
+        expect(out).toContain('#2 al 5')
+        // pie de Ryal con sus 2 emojis
+        expect(out).toContain('↪️ Reenvía esta imagen con las tallas que quieres para tu pedido.')
+        expect(out).toContain('🌐 ryalsneackers.com')
     })
 })

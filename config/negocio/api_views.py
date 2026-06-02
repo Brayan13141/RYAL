@@ -3,7 +3,6 @@ import hmac
 from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
-from django.views.decorators.csrf import csrf_exempt
 
 from .models import Cliente
 from .phone import normalize_telefono
@@ -27,10 +26,3 @@ def api_cliente(request, telefono):
         # Cliente no registrado = sin descuento (el bot aplica precio base)
         descuento = 0.0
     return JsonResponse({'descuento': descuento})
-
-
-@csrf_exempt
-def api_log(request):
-    if not _authorized(request):
-        return JsonResponse({'error': 'unauthorized'}, status=401)
-    return JsonResponse({'ok': True})
