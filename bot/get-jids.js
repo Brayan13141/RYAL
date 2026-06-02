@@ -9,11 +9,14 @@
 //   5) Ctrl+C. Luego `node bot.js` ya NO pedirá QR (reusa la sesión).
 const qrcode = require('qrcode-terminal')
 const pino = require('pino')
+const { acquireAuthLock } = require('./lock')
+
+const AUTH_DIR = '.baileys_auth'
 
 let makeWASocket, useMultiFileAuthState, DisconnectReason, version
 
 async function connect() {
-    const { state, saveCreds } = await useMultiFileAuthState('.baileys_auth')
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR)
     const sock = makeWASocket({ auth: state, logger: pino({ level: 'warn' }), version })
 
     sock.ev.on('creds.update', saveCreds)
@@ -61,6 +64,9 @@ async function connect() {
 }
 
 async function main() {
+    // Mismo lock que bot.js: evita correr get-jids.js mientras el servicio esta activo.
+    acquireAuthLock(AUTH_DIR)
+
     const baileys = await import('@whiskeysockets/baileys')   // Baileys es ESM-only
     makeWASocket = baileys.default
     useMultiFileAuthState = baileys.useMultiFileAuthState

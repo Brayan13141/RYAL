@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.test import TestCase
 
 from catalog.management.commands.import_images import _pid_from_url
@@ -5,6 +7,8 @@ from catalog.management.commands.load_productos import (
     _category_filter_ids,
     _build_existing_pids,
 )
+from catalog.models import Category, Product
+from catalog.views import _annotate_final
 
 
 class PidFromUrlTests(TestCase):
@@ -100,3 +104,80 @@ class BuildExistingPidsTests(TestCase):
     def test_ignora_urls_sin_pid(self):
         urls = ["https://putianshoefactory.x.yupoo.com/albums/123", "", None]
         self.assertEqual(_build_existing_pids(urls), set())
+
+
+class FinalPriceCascadeTests(TestCase):
+    """El precio (margen + envío) debe resolverse desde la categoría RAÍZ, no
+    desde la subcategoría directa del producto. La mayoría de los productos viven
+    en subcategorías; editar la ganancia/envío de la categoría padre debe
+    reflejarse en sus precios. Consistente con effective_min_qty/size_group."""
+
+    def setUp(self):
+        # Raíz: margen 100, envío 0. Subcategoría con valores DISTINTOS (deben ignorarse).
+        self.root = Category.objects.create(
+            name='Gorra', shipping_cost=Decimal('0'), profit_margin=Decimal('100'),
+        )
+        self.sub = Category.objects.create(
+            name='Gorro pescador', parent=self.root,
+            shipping_cost=Decimal('555'), profit_margin=Decimal('999'),
+        )
+        self.prod = Product.objects.create(
+            sku='RYL-TEST-1', name='Test', category=self.sub,
+            base_price=Decimal('200'),
+        )
+
+    def test_final_price_usa_margen_de_la_raiz_no_de_la_subcategoria(self):
+        # 200 base + 0 envío_raíz + 100 margen_raíz = 300 (NO 200+555+999)
+        self.assertEqual(self.prod.final_price, Decimal('300'))
+
+    def test_effective_shipping_usa_envio_de_la_raiz(self):
+        self.root.shipping_cost = Decimal('280')
+        self.root.save()
+        self.prod.refresh_from_db()
+        self.assertEqual(self.prod.effective_shipping, Decimal('280'))
+        # 200 + 280 + 100 = 580
+        self.assertEqual(self.prod.final_price, Decimal('580'))
+
+    def test_cambiar_margen_de_raiz_actualiza_final_price(self):
+        self.root.profit_margin = Decimal('150')
+        self.root.save()
+        self.prod.refresh_from_db()
+        self.assertEqual(self.prod.final_price, Decimal('350'))  # 200+0+150
+
+    def test_producto_en_categoria_raiz_directa(self):
+        prod_raiz = Product.objects.create(
+            sku='RYL-TEST-2', name='Directo', category=self.root,
+            base_price=Decimal('200'),
+        )
+        self.assertEqual(prod_raiz.final_price, Decimal('300'))  # 200+0+100
+
+    def test_price_override_sigue_ganando(self):
+        self.prod.price_override = Decimal('111')
+        self.prod.save()
+        self.assertEqual(self.prod.final_price, Decimal('111'))
+
+    def test_shipping_override_sigue_ganando(self):
+        self.prod.shipping_override = Decimal('50')
+        self.prod.save()
+        self.assertEqual(self.prod.effective_shipping, Decimal('50'))
+        self.assertEqual(self.prod.final_price, Decimal('350'))  # 200+50+100
+
+    def test_annotate_final_coincide_con_la_propiedad_y_usa_raiz(self):
+        qs = _annotate_final(Product.objects.filter(pk=self.prod.pk))
+        annotated = qs.first().final_price_calc
+        self.assertEqual(annotated, Decimal('300'))
+        self.assertEqual(annotated, self.prod.final_price)
+
+    def test_annotate_final_envio_override_y_raiz(self):
+        self.prod.shipping_override = Decimal('50')
+        self.prod.save()
+        qs = _annotate_final(Product.objects.filter(pk=self.prod.pk))
+        self.assertEqual(qs.first().final_price_calc, Decimal('350'))
+
+    def test_annotate_final_respeta_price_override(self):
+        # La anotación del listado debe coincidir con la propiedad cuando hay override
+        self.prod.price_override = Decimal('111')
+        self.prod.save()
+        qs = _annotate_final(Product.objects.filter(pk=self.prod.pk))
+        self.assertEqual(qs.first().final_price_calc, Decimal('111'))
+        self.assertEqual(qs.first().final_price_calc, self.prod.final_price)

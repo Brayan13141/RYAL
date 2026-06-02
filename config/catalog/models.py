@@ -111,17 +111,25 @@ class Product(models.Model):
         ordering = ['display_order', '-created_at']
 
     @property
+    def _root_category(self):
+        """Categoría raíz: la jerarquía es de 2 niveles (padre → subcategoría).
+        Margen y envío viven en la raíz; las subcategorías no los definen."""
+        cat = self.category
+        return cat.parent if cat.parent_id else cat
+
+    @property
     def effective_shipping(self):
         if self.shipping_override is not None:
             return self.shipping_override
-        return self.category.shipping_cost
+        return self._root_category.shipping_cost
 
     @property
     def final_price(self):
         if self.price_override is not None:
             return self.price_override
         bp = self.base_price if isinstance(self.base_price, Decimal) else Decimal(str(self.base_price))
-        return bp + self.effective_shipping + self.category.profit_margin
+        # Margen desde la raíz (no la subcategoría directa); envío ya cascadea en effective_shipping
+        return bp + self.effective_shipping + self._root_category.profit_margin
 
     @property
     def effective_size_group(self):
