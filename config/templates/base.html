@@ -938,6 +938,21 @@
     })();
   </script>
 
+  <!-- Restore scroll position on form submit -->
+  <script>
+    document.addEventListener('submit', function() {
+      sessionStorage.setItem('scrollPosition', window.scrollY);
+    });
+
+    document.addEventListener('DOMContentLoaded', function() {
+      var scrollPos = sessionStorage.getItem('scrollPosition');
+      if (scrollPos) {
+        window.scrollTo(0, parseInt(scrollPos, 10));
+        sessionStorage.removeItem('scrollPosition');
+      }
+    });
+  </script>
+
 {% block extra_js %}{% endblock %}
 
 </body>
