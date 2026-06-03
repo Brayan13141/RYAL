@@ -239,3 +239,21 @@ class ParseSpecificationsTests(TestCase):
             {"foreignLanguageName1": "Color", "foreignLanguageName2": "Rojo", "specificationsValue": "Rojo"},
         ]
         self.assertEqual(parse_specifications(specs), {"sizes": ["S"], "colors": ["Rojo"]})
+
+
+class VariantColorsFieldTests(TestCase):
+    """Product.variant_colors: lista JSON, default []."""
+
+    def test_default_es_lista_vacia(self):
+        cat = Category.objects.create(name="Ropa", slug="ropa")
+        p = Product.objects.create(sku="RYL-T-1", name="Camiseta", category=cat, base_price=Decimal("100"))
+        self.assertEqual(p.variant_colors, [])
+
+    def test_guarda_lista_de_colores(self):
+        cat = Category.objects.create(name="Ropa2", slug="ropa2")
+        p = Product.objects.create(
+            sku="RYL-T-2", name="Camiseta", category=cat, base_price=Decimal("100"),
+            variant_colors=["Rojo burdeos", "Negro"],
+        )
+        p.refresh_from_db()
+        self.assertEqual(p.variant_colors, ["Rojo burdeos", "Negro"])
