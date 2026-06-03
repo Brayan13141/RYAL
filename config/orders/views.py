@@ -38,10 +38,15 @@ def _save_cart(request, cart):
     request.session['cart'] = cart
     request.session.modified = True
 
-def _cart_key(product_id, variant_id, size_name=None, image_pk=None):
+def _cart_key(product_id, variant_id, size_name=None, image_pk=None, color=None):
+    # color (variant_colors, texto) es ortogonal al colorway por imagen (image_pk)
+    if size_name and color:
+        return f'{product_id}_size_{size_name}_color_{color}'
     if size_name and image_pk:
-        # Talla + colorway: cada combinación (color, talla) es un ítem distinto
+        # Talla + colorway: cada combinación (color-imagen, talla) es un ítem distinto
         return f'{product_id}_img_{image_pk}_size_{size_name}'
+    if color:
+        return f'{product_id}_color_{color}'
     if size_name:
         return f'{product_id}_size_{size_name}'
     if image_pk:
@@ -243,6 +248,7 @@ def cart_add(request):
         size_name  = body.get('size_name') or None
         image_pk   = body.get('image_pk') or None   # colorway específico
         color_num  = body.get('color_num') or None   # número 1-based visible al usuario
+        color      = (body.get('color') or '').strip() or None   # variant_colors (texto)
         if image_pk:
             image_pk = int(image_pk)
         qty        = int(body.get('qty', 1))
@@ -274,7 +280,7 @@ def cart_add(request):
             image_pk = None  # inválido — caer en flujo normal
 
     cart = _get_cart(request)
-    key  = _cart_key(product_id, variant_id, size_name, image_pk)
+    key  = _cart_key(product_id, variant_id, size_name, image_pk, color)
 
     # Productos con grupo de tallas (cascade: producto > subcategoría > padre)
     # requieren selección explícita de talla antes de agregar al carrito.
@@ -282,6 +288,13 @@ def cart_add(request):
     if product.effective_size_group and not size_name:
         return JsonResponse(
             {'ok': False, 'error': 'Selecciona las tallas antes de agregar al carrito'},
+            status=400,
+        )
+
+    # Productos con colores seleccionables requieren color explícito (espejo del de tallas).
+    if product.variant_colors and not color:
+        return JsonResponse(
+            {'ok': False, 'error': 'Selecciona un color antes de agregar al carrito'},
             status=400,
         )
 
@@ -303,10 +316,14 @@ def cart_add(request):
         price = max(0.0, float(product.final_price) - float(tier.discount_amount))
 
     # Nombre descriptivo del ítem en el carrito
-    if size_name and img_obj:
-        # Modo combinado: tallas + colorway → "Blanco · Talla 26"
+    if size_name and color:
+        variant_name = f'Talla {size_name} / {color}'
+    elif size_name and img_obj:
+        # Modo combinado: tallas + colorway por imagen → "Blanco · Talla 26"
         color_part = img_obj.color_label or (f'Color {color_num}' if color_num else f'Color {img_obj.display_order + 1}')
         variant_name = f'{color_part} · Talla {size_name}'
+    elif color:
+        variant_name = color
     elif size_name:
         variant_name = f'Talla {size_name}'
     elif img_obj:
