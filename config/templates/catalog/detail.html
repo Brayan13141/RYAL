@@ -116,6 +116,18 @@
       </div>
       {% endif %}
 
+      {% if product.variant_colors %}
+      <div class="pd-color-chips" id="pdColorChips">
+        <div class="pd-qty-label" style="margin-bottom:8px;">Color</div>
+        <div class="color-chip-row">
+          {% for color in product.variant_colors %}
+          <button type="button" class="color-chip" data-color="{{ color }}"
+                  onclick="selectColor('{{ color|escapejs }}', this)">{{ color }}</button>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
       {% if size_group %}
       <!-- ── Guía de tallas (conversión) ── -->
       {% if size_group.conversion_table %}
@@ -612,6 +624,17 @@
   }
   .pd-size-total strong { color: var(--gold); font-size: 1rem; }
 
+  /* ── Chips de color (variant_colors) ─────────────────────────────────── */
+  .pd-color-chips { margin: 14px 0 4px; }
+  .color-chip-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .color-chip {
+    padding: 7px 14px; background: #0a0a0a; border: 1px solid #1e1e1e;
+    border-radius: 20px; color: #ccc; font-size: .82rem; cursor: pointer;
+    transition: border-color .15s, background .15s, color .15s;
+  }
+  .color-chip:hover    { border-color: rgba(212,175,55,.45); }
+  .color-chip.selected { border-color: var(--gold); background: rgba(212,175,55,.08); color: #fff; }
+
   /* ── Selector de colores (calzado) ───────────────────────────────────── */
   .pd-color-grid { margin: 16px 0; }
   .pd-color-header {
@@ -667,8 +690,9 @@
   const PRODUCT_TIERS    = {{ tiers_json|safe }};
   const IMAGES_DATA      = {{ images_json|safe }};  /* colorways / también para tallas+colorway */
   const HAS_COLORWAY     = {{ has_colorway|yesno:"true,false" }};  /* colorway activo en cualquier nivel */
+  const VARIANT_COLORS   = {{ variant_colors_json|safe }};  /* [] si el producto no pide color */
 </script>
-<script src="{% static 'js/product.js' %}?v=4"></script>
+<script src="{% static 'js/product.js' %}?v=5"></script>
 <script>
   function toggleDesc(toggle) {
     toggle.classList.toggle('open');

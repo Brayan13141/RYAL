@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.test import TestCase
+from django.urls import reverse
 
 from catalog.management.commands.import_images import _pid_from_url
 from catalog.modaverse import parse_specifications
@@ -405,3 +406,26 @@ class LoadProductosEnriqueceExistentesTests(TestCase):
         product_out.refresh_from_db()
         self.assertIsNone(product_out.size_group)
         self.assertEqual(product_out.variant_colors, [])
+
+
+class ProductDetailColorContextTests(TestCase):
+    """product_detail pasa variant_colors al contexto y pinta los chips."""
+
+    def setUp(self):
+        self.cat = Category.objects.create(name="Calidad 1:1", slug="calidad-11")
+        self.sg = SizeGroup.objects.create(name="Ropa · M·L", sizes=["M", "L"])
+        self.prod = Product.objects.create(
+            sku="RYL-GEN-10", name="Jersey", category=self.cat, base_price=Decimal("250"),
+            size_group=self.sg, variant_colors=["Rojo burdeos", "Negro"], is_active=True,
+        )
+
+    def test_contexto_incluye_variant_colors(self):
+        res = self.client.get(reverse("catalog:detail", args=[self.prod.pk]))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.context["variant_colors"], ["Rojo burdeos", "Negro"])
+
+    def test_render_muestra_chips_de_color(self):
+        res = self.client.get(reverse("catalog:detail", args=[self.prod.pk]))
+        self.assertContains(res, 'class="color-chip"')
+        self.assertContains(res, "Rojo burdeos")
+        self.assertContains(res, "Negro")
