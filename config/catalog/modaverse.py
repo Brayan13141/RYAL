@@ -28,6 +28,8 @@ def parse_specifications(spec_list):
       Otras dimensiones se ignoran.
     - Valor visible = foreignLanguageName2; si vacío, fallback a specificationsValue.
     - Dedup dentro de cada dimensión preservando orden de aparición.
+      El dedup es exact-match / case-sensitive: 'M' y 'm' se consideran
+      valores distintos.
     - Tolera None / lista vacía.
     """
     sizes, colors = [], []

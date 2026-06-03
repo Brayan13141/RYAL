@@ -231,3 +231,11 @@ class ParseSpecificationsTests(TestCase):
             {"foreignLanguageName1": "颜色", "foreignLanguageName2": "Negro", "specificationsValue": "Negro"},
         ]
         self.assertEqual(parse_specifications(specs), {"sizes": ["M"], "colors": ["Negro"]})
+
+    def test_mezcla_dimensiones_conocidas_y_desconocidas(self):
+        specs = [
+            {"foreignLanguageName1": "talla", "foreignLanguageName2": "S", "specificationsValue": "S"},
+            {"foreignLanguageName1": "material", "foreignLanguageName2": "Algodón", "specificationsValue": "Algodón"},
+            {"foreignLanguageName1": "Color", "foreignLanguageName2": "Rojo", "specificationsValue": "Rojo"},
+        ]
+        self.assertEqual(parse_specifications(specs), {"sizes": ["S"], "colors": ["Rojo"]})
