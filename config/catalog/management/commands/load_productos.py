@@ -33,16 +33,18 @@ def _build_existing_pids(supplier_urls) -> set:
 def get_or_create_size_group(sizes) -> 'SizeGroup':
     """Find-or-create de un SizeGroup para un conjunto de tallas de ropa.
 
-    Dedup por el conjunto ordenado (clave canónica = lista en orden de aparición).
-    El nombre codifica las tallas → re-correr no duplica. conversion_table = None
-    (la ropa no usa tabla de conversión EU/MX/US como el calzado)."""
-    canonical = list(dict.fromkeys(sizes))
+    Dedup por el CONTENIDO del conjunto (insensible al orden), pero conserva el
+    orden de aparición en `sizes` para el display (S·M·L·XL, no alfabético). Así,
+    la misma talla-set en distinto orden no crea grupos duplicados.
+    conversion_table = None (la ropa no usa tabla EU/MX/US como el calzado)."""
+    canonical = list(dict.fromkeys(sizes))          # display order preservado
+    target = set(canonical)
+    for sg in SizeGroup.objects.filter(name__startswith='Ropa · '):
+        if set(sg.sizes) == target:
+            return sg
     name = ('Ropa · ' + '·'.join(canonical))[:100]
-    sg, _ = SizeGroup.objects.get_or_create(
-        name=name,
-        defaults={'sizes': canonical, 'conversion_table': None},
-    )
-    return sg
+    return SizeGroup.objects.create(name=name, sizes=canonical, conversion_table=None)
+
 
 # Pricing por categoría padre (slug → {shipping, margin, order})
 PARENT_PRICING = {

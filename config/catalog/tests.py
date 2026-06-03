@@ -352,3 +352,56 @@ class LoadProductosEnriqueceExistentesTests(TestCase):
         self.assertIsNotNone(product.size_group)
         self.assertEqual(product.size_group.sizes, ["M", "L"])
         self.assertEqual(product.variant_colors, ["Rojo burdeos"])
+
+    def test_no_enriquece_productos_fuera_del_category(self):
+        """Productos en categorías fuera del filtro --category no deben ser tocados."""
+        # In-scope: Calidad 1:1
+        cat_scope = Category.objects.create(name="Calidad 1:1", slug="calidad-11")
+        product_scope = Product.objects.create(
+            sku="RYL-C11-001", name="Jersey viejo", category=cat_scope,
+            base_price=Decimal("250"),
+            supplier_url="https://www.modaverse.vip/#/proinfo/PR123",
+        )
+        # Out-of-scope: Gorra
+        cat_out = Category.objects.create(name="Gorra", slug="gorra")
+        product_out = Product.objects.create(
+            sku="RYL-CAP-001", name="Gorra exclusiva", category=cat_out,
+            base_price=Decimal("150"),
+            supplier_url="https://www.modaverse.vip/#/proinfo/PR999",
+        )
+        self.assertIsNone(product_out.size_group)
+        self.assertEqual(product_out.variant_colors, [])
+
+        fake_data = {
+            'products': [
+                {
+                    "sku": "PR123", "name": "Jersey viejo", "category_id": "C1",
+                    "category": "Calidad 1:1",
+                    "url": "https://www.modaverse.vip/#/product/C1?pid=PR123",
+                    "images": [], "sizes": ["M", "L"], "colors": ["Rojo burdeos"],
+                },
+                {
+                    "sku": "PR999", "name": "Gorra exclusiva", "category_id": "C2",
+                    "category": "Gorra",
+                    "url": "https://www.modaverse.vip/#/product/C2?pid=PR999",
+                    "images": [], "sizes": ["S", "M", "L"], "colors": ["Negro"],
+                },
+            ],
+            'categories': [
+                {"id": "C1", "name_es": "Calidad 1:1", "subcategories": []},
+                {"id": "C2", "name_es": "Gorra", "subcategories": []},
+            ],
+        }
+        with mock.patch.object(LoadCommand, '_read_modaverse_json', return_value=fake_data):
+            call_command('load_productos', '--category', 'Calidad 1:1', '--no-images')
+
+        # In-scope product must be enriched
+        product_scope.refresh_from_db()
+        self.assertIsNotNone(product_scope.size_group)
+        self.assertEqual(product_scope.size_group.sizes, ["M", "L"])
+        self.assertEqual(product_scope.variant_colors, ["Rojo burdeos"])
+
+        # Out-of-scope product must NOT be touched
+        product_out.refresh_from_db()
+        self.assertIsNone(product_out.size_group)
+        self.assertEqual(product_out.variant_colors, [])
