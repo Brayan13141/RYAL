@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.test import TestCase
 
 from catalog.management.commands.import_images import _pid_from_url
+from catalog.modaverse import parse_specifications
 from catalog.management.commands.load_productos import (
     _category_filter_ids,
     _build_existing_pids,
@@ -181,3 +182,52 @@ class FinalPriceCascadeTests(TestCase):
         qs = _annotate_final(Product.objects.filter(pk=self.prod.pk))
         self.assertEqual(qs.first().final_price_calc, Decimal('111'))
         self.assertEqual(qs.first().final_price_calc, self.prod.final_price)
+
+
+class ParseSpecificationsTests(TestCase):
+    """productSpecificationsList de getUserPage → {'sizes': [...], 'colors': [...]}.
+    Agrupa por foreignLanguageName1; valor visible = foreignLanguageName2
+    (fallback a specificationsValue); dedup preservando orden."""
+
+    def test_agrupa_talla_y_color(self):
+        specs = [
+            {"foreignLanguageName1": "talla", "foreignLanguageName2": "M", "specificationsValue": "M"},
+            {"foreignLanguageName1": "talla", "foreignLanguageName2": "L", "specificationsValue": "L"},
+            {"foreignLanguageName1": "Color", "foreignLanguageName2": "Rojo burdeos", "specificationsValue": "Rojo burdeos"},
+            {"foreignLanguageName1": "Color", "foreignLanguageName2": "Negro", "specificationsValue": "Negro"},
+        ]
+        self.assertEqual(
+            parse_specifications(specs),
+            {"sizes": ["M", "L"], "colors": ["Rojo burdeos", "Negro"]},
+        )
+
+    def test_solo_talla(self):
+        specs = [{"foreignLanguageName1": "talla", "foreignLanguageName2": "XL", "specificationsValue": "XL"}]
+        self.assertEqual(parse_specifications(specs), {"sizes": ["XL"], "colors": []})
+
+    def test_fallback_a_specificationsValue_cuando_foreign_vacio(self):
+        specs = [{"foreignLanguageName1": "Color", "foreignLanguageName2": "", "specificationsValue": "Azul"}]
+        self.assertEqual(parse_specifications(specs), {"sizes": [], "colors": ["Azul"]})
+
+    def test_dedup_preserva_orden(self):
+        specs = [
+            {"foreignLanguageName1": "talla", "foreignLanguageName2": "M", "specificationsValue": "M"},
+            {"foreignLanguageName1": "talla", "foreignLanguageName2": "M", "specificationsValue": "M"},
+            {"foreignLanguageName1": "talla", "foreignLanguageName2": "S", "specificationsValue": "S"},
+        ]
+        self.assertEqual(parse_specifications(specs)["sizes"], ["M", "S"])
+
+    def test_ignora_dimensiones_desconocidas(self):
+        specs = [{"foreignLanguageName1": "material", "foreignLanguageName2": "Algodón", "specificationsValue": "Algodón"}]
+        self.assertEqual(parse_specifications(specs), {"sizes": [], "colors": []})
+
+    def test_null_y_lista_vacia(self):
+        self.assertEqual(parse_specifications(None), {"sizes": [], "colors": []})
+        self.assertEqual(parse_specifications([]), {"sizes": [], "colors": []})
+
+    def test_nombres_chinos_de_dimension(self):
+        specs = [
+            {"foreignLanguageName1": "尺码", "foreignLanguageName2": "M", "specificationsValue": "M"},
+            {"foreignLanguageName1": "颜色", "foreignLanguageName2": "Negro", "specificationsValue": "Negro"},
+        ]
+        self.assertEqual(parse_specifications(specs), {"sizes": ["M"], "colors": ["Negro"]})
