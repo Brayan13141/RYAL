@@ -257,3 +257,98 @@ class VariantColorsFieldTests(TestCase):
         )
         p.refresh_from_db()
         self.assertEqual(p.variant_colors, ["Rojo burdeos", "Negro"])
+
+
+from catalog.management.commands.load_productos import get_or_create_size_group
+from catalog.models import SizeGroup
+
+
+class GetOrCreateSizeGroupTests(TestCase):
+    """Find-or-create de SizeGroup por conjunto de tallas (dedup en re-run)."""
+
+    def test_crea_grupo_nuevo(self):
+        sg = get_or_create_size_group(["M", "L", "XL"])
+        self.assertEqual(sg.sizes, ["M", "L", "XL"])
+        self.assertIsNone(sg.conversion_table)
+
+    def test_re_run_no_duplica(self):
+        a = get_or_create_size_group(["M", "L", "XL"])
+        b = get_or_create_size_group(["M", "L", "XL"])
+        self.assertEqual(a.pk, b.pk)
+        self.assertEqual(SizeGroup.objects.count(), 1)
+
+    def test_conjuntos_distintos_son_grupos_distintos(self):
+        a = get_or_create_size_group(["M", "L"])
+        b = get_or_create_size_group(["S", "M", "L"])
+        self.assertNotEqual(a.pk, b.pk)
+
+    def test_dedup_de_tallas_repetidas(self):
+        sg = get_or_create_size_group(["M", "M", "L"])
+        self.assertEqual(sg.sizes, ["M", "L"])
+
+
+from catalog.management.commands.load_productos import Command as LoadCommand
+
+
+class ApplyVariantsTests(TestCase):
+    """_apply_variants asigna size_group (find-or-create) y variant_colors, idempotente."""
+
+    def setUp(self):
+        self.cat = Category.objects.create(name="Calidad 1:1", slug="calidad-11")
+        self.product = Product.objects.create(
+            sku="RYL-GEN-900", name="Jersey", category=self.cat, base_price=Decimal("250"),
+        )
+
+    def test_asigna_tallas_y_colores(self):
+        LoadCommand()._apply_variants(self.product, ["M", "L", "XL"], ["Rojo", "Negro"])
+        self.product.refresh_from_db()
+        self.assertIsNotNone(self.product.size_group)
+        self.assertEqual(self.product.size_group.sizes, ["M", "L", "XL"])
+        self.assertEqual(self.product.variant_colors, ["Rojo", "Negro"])
+
+    def test_solo_colores_no_toca_size_group(self):
+        LoadCommand()._apply_variants(self.product, [], ["Azul"])
+        self.product.refresh_from_db()
+        self.assertIsNone(self.product.size_group)
+        self.assertEqual(self.product.variant_colors, ["Azul"])
+
+    def test_idempotente_no_duplica_size_group(self):
+        cmd = LoadCommand()
+        cmd._apply_variants(self.product, ["M", "L"], ["Rojo"])
+        cmd._apply_variants(self.product, ["M", "L"], ["Rojo"])
+        self.assertEqual(SizeGroup.objects.count(), 1)
+
+
+from django.core.management import call_command
+from unittest import mock
+
+
+class LoadProductosEnriqueceExistentesTests(TestCase):
+    """Re-run con --category aplica sizes/colors a productos YA existentes (no solo skip)."""
+
+    def test_enriquece_producto_existente_en_scope(self):
+        cat = Category.objects.create(name="Calidad 1:1", slug="calidad-11")
+        product = Product.objects.create(
+            sku="RYL-C11-001", name="Jersey viejo", category=cat,
+            base_price=Decimal("250"),
+            supplier_url="https://www.modaverse.vip/#/proinfo/PR123",
+        )
+        self.assertIsNone(product.size_group)
+        self.assertEqual(product.variant_colors, [])
+
+        fake_data = {
+            'products': [{
+                "sku": "PR123", "name": "Jersey viejo", "category_id": "C1",
+                "category": "Calidad 1:1",
+                "url": "https://www.modaverse.vip/#/product/C1?pid=PR123",
+                "images": [], "sizes": ["M", "L"], "colors": ["Rojo burdeos"],
+            }],
+            'categories': [{"id": "C1", "name_es": "Calidad 1:1", "subcategories": []}],
+        }
+        with mock.patch.object(LoadCommand, '_read_modaverse_json', return_value=fake_data):
+            call_command('load_productos', '--category', 'Calidad 1:1', '--no-images')
+
+        product.refresh_from_db()
+        self.assertIsNotNone(product.size_group)
+        self.assertEqual(product.size_group.sizes, ["M", "L"])
+        self.assertEqual(product.variant_colors, ["Rojo burdeos"])

@@ -14,7 +14,7 @@ from django.core.files.base import ContentFile
 from django.utils.text import slugify
 from django.core.management.base import BaseCommand
 
-from catalog.models import Category, Product, ProductImage, Tag
+from catalog.models import Category, Product, ProductImage, Tag, SizeGroup
 from catalog.modaverse import pid_from_url
 
 
@@ -28,6 +28,21 @@ def _build_existing_pids(supplier_urls) -> set:
         if pid:
             pids.add(pid)
     return pids
+
+
+def get_or_create_size_group(sizes) -> 'SizeGroup':
+    """Find-or-create de un SizeGroup para un conjunto de tallas de ropa.
+
+    Dedup por el conjunto ordenado (clave canónica = lista en orden de aparición).
+    El nombre codifica las tallas → re-correr no duplica. conversion_table = None
+    (la ropa no usa tabla de conversión EU/MX/US como el calzado)."""
+    canonical = list(dict.fromkeys(sizes))
+    name = ('Ropa · ' + '·'.join(canonical))[:100]
+    sg, _ = SizeGroup.objects.get_or_create(
+        name=name,
+        defaults={'sizes': canonical, 'conversion_table': None},
+    )
+    return sg
 
 # Pricing por categoría padre (slug → {shipping, margin, order})
 PARENT_PRICING = {
@@ -208,16 +223,24 @@ class Command(BaseCommand):
 
     # ── Modaverse (multi-categoría con jerarquía) ──────────────────────────────
 
-    def _load_modaverse(self, tag_nuevo, no_images, existing_urls, category=None):
-        self.stdout.write('\n── Cargando desde scraped_modaverse.json ──')
+    def _read_modaverse_json(self):
+        """Lee y parsea scraped_modaverse.json del repo root.
+        Devuelve el dict parseado, o None si el archivo no existe.
+        Aislado en un método para poder mockearlo en tests (sin tocar el
+        JSON real de 24k productos)."""
         json_path = Path(__file__).resolve().parents[4] / 'scraped_modaverse.json'
-
         if not json_path.exists():
             self.stdout.write(self.style.WARNING(f'  ⚠ No se encontró {json_path}'))
-            return
-
+            return None
         with open(json_path, encoding='utf-8') as f:
-            data = json.load(f)
+            return json.load(f)
+
+    def _load_modaverse(self, tag_nuevo, no_images, existing_urls, category=None):
+        self.stdout.write('\n── Cargando desde scraped_modaverse.json ──')
+
+        data = self._read_modaverse_json()
+        if data is None:
+            return
 
         products = data.get('products', [])
         categories_tree = data.get('categories', [])
@@ -314,6 +337,18 @@ class Command(BaseCommand):
         # Dedup por productId (estable entre formatos #/proinfo y #/product?pid=)
         existing_pids = _build_existing_pids(existing_urls)
 
+        # Productos YA en BD dentro del scope de --category, indexados por pid.
+        # Permite enriquecer (size_group + variant_colors) en re-runs sin re-crear.
+        existing_in_scope = {}
+        if filter_ids is not None:
+            django_cats = [cat_map[i] for i in filter_ids if i in cat_map]
+            for prod in Product.objects.filter(
+                category__in=django_cats
+            ).only('pk', 'supplier_url', 'size_group_id', 'variant_colors'):
+                ppid = pid_from_url(prod.supplier_url)
+                if ppid:
+                    existing_in_scope[ppid] = prod
+
         for p in products:
             # Filtro por categoría (--category): omitir productos fuera del set
             if filter_ids is not None and p.get('category_id', '') not in filter_ids:
@@ -323,6 +358,11 @@ class Command(BaseCommand):
             if pid:
                 if pid in existing_pids:
                     skip_count += 1
+                    prod = existing_in_scope.get(pid)
+                    if prod is not None:
+                        self._apply_variants(
+                            prod, p.get('sizes', []), p.get('colors', [])
+                        )
                     continue
             # Sin pid (caso raro): caer al match por URL literal
             elif p.get('url', '') and p['url'] in existing_urls:
@@ -403,6 +443,8 @@ class Command(BaseCommand):
                 images=p.get('images', []),
                 tag=tag_nuevo,
                 no_images=no_images,
+                sizes=p.get('sizes', []),
+                colors=p.get('colors', []),
             )
             if created:
                 existing_urls.add(supplier_url)
@@ -676,8 +718,24 @@ class Command(BaseCommand):
 
     # ── Helper genérico ────────────────────────────────────────────────────────
 
+    def _apply_variants(self, product, sizes, colors):
+        """Asigna size_group (find-or-create) y variant_colors al producto.
+        Idempotente: solo guarda los campos que cambian."""
+        changed = []
+        if sizes:
+            sg = get_or_create_size_group(sizes)
+            if product.size_group_id != sg.pk:
+                product.size_group = sg
+                changed.append('size_group')
+        if colors and product.variant_colors != list(colors):
+            product.variant_colors = list(colors)
+            changed.append('variant_colors')
+        if changed:
+            product.save(update_fields=changed)
+
     def _create_product(self, sku, name, category, base_price, description,
-                        supplier_url, images, tag, no_images, img_referer=None):
+                        supplier_url, images, tag, no_images, img_referer=None,
+                        sizes=None, colors=None):
         if supplier_url and Product.objects.filter(supplier_url=supplier_url).exists():
             return False
         if Product.objects.filter(sku=sku).exists():
@@ -690,6 +748,9 @@ class Command(BaseCommand):
             status='available', is_active=True,
         )
         product.tags.add(tag)
+
+        if sizes or colors:
+            self._apply_variants(product, sizes or [], colors or [])
 
         if not no_images and images:
             for order, img_url in enumerate(images[:250]):
