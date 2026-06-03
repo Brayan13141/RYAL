@@ -11,6 +11,22 @@ let _selectedImagePk = (function () {
   return cover && cover.dataset.imgPk ? parseInt(cover.dataset.imgPk) : null;
 })();
 
+// ─── Color seleccionable (variant_colors) ───────────────────────────────────
+let SELECTED_COLOR = (typeof VARIANT_COLORS !== 'undefined' && VARIANT_COLORS && VARIANT_COLORS.length === 1)
+  ? VARIANT_COLORS[0] : null;
+
+function selectColor(color, btn) {
+  SELECTED_COLOR = color;
+  document.querySelectorAll('.color-chip').forEach(c => c.classList.remove('selected'));
+  if (btn) btn.classList.add('selected');
+  if (typeof _updateSizeTotal === 'function') _updateSizeTotal();
+}
+
+function _colorRequiredAndMissing() {
+  return (typeof VARIANT_COLORS !== 'undefined' && VARIANT_COLORS &&
+          VARIANT_COLORS.length > 0 && !SELECTED_COLOR);
+}
+
 function swapImage(url, btn) {
   const mainImg = document.getElementById('mainImg');
   if (mainImg && mainImg.tagName === 'IMG') {
@@ -193,6 +209,13 @@ document.getElementById('addToCartBtn')?.addEventListener('click', async functio
     return;
   }
 
+  if (_colorRequiredAndMissing()) {
+    showToast('Selecciona un color primero', 'error');
+    return;
+  }
+  const colorForCart = (typeof VARIANT_COLORS !== 'undefined' && VARIANT_COLORS && VARIANT_COLORS.length > 0)
+    ? SELECTED_COLOR : null;
+
   const btn = this;
   const original = btn.innerHTML;
   btn.disabled = true;
@@ -202,7 +225,7 @@ document.getElementById('addToCartBtn')?.addEventListener('click', async functio
   const imagePkForCart = (typeof HAS_COLORWAY !== 'undefined' && HAS_COLORWAY && _selectedImagePk)
     ? _selectedImagePk
     : null;
-  await addToCart(productId, variantId, qty, imagePkForCart);
+  await addToCart(productId, variantId, qty, imagePkForCart, colorForCart);
 
   btn.disabled = false;
   btn.innerHTML = original;
@@ -340,7 +363,7 @@ if (typeof SIZE_NAMES !== 'undefined' && SIZE_NAMES && SIZE_NAMES.length > 0) {
     const btn = document.getElementById('addSizesBtn');
     if (!btn) return;
     const minOk = SIZE_MIN_QTY <= 1 ? total > 0 : total >= SIZE_MIN_QTY;
-    btn.disabled = !minOk;
+    btn.disabled = !minOk || _colorRequiredAndMissing();
   }
 
   function changeSizeQty(sizeName, sizeSlug, delta) {
@@ -375,6 +398,10 @@ if (typeof SIZE_NAMES !== 'undefined' && SIZE_NAMES && SIZE_NAMES.length > 0) {
         const payload = { product_id: PRODUCT_ID, size_name: sizeName, qty };
         if (typeof HAS_COLORWAY !== 'undefined' && HAS_COLORWAY && _selectedImagePk) {
           payload.image_pk = _selectedImagePk;
+        }
+        if (typeof VARIANT_COLORS !== 'undefined' && VARIANT_COLORS && VARIANT_COLORS.length > 0) {
+          if (!SELECTED_COLOR) { showToast('Selecciona un color primero', 'error'); btn.disabled = false; btn.innerHTML = original; return; }
+          payload.color = SELECTED_COLOR;
         }
         const res = await fetch(URLS.cartAdd, {
           method: 'POST',

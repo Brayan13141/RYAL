@@ -47,9 +47,11 @@
               data-has-variants="{% if product.variants.exists %}true{% else %}false{% endif %}"
               data-has-sizes="{% if product.effective_size_group %}true{% else %}false{% endif %}"
               data-has-colorway="{% if product.effective_has_colorway %}true{% else %}false{% endif %}"
+              data-has-colors="{% if product.variant_colors %}true{% else %}false{% endif %}"
               data-min-qty="{{ product.effective_min_qty }}"
               onclick="cardQuickAdd(this)">
         {% if product.effective_size_group %}+ Elegir tallas
+        {% elif product.variant_colors %}+ Elegir color
         {% elif product.effective_has_colorway %}+ Elegir variante
         {% else %}+ Agregar al carrito{% endif %}
       </button>

@@ -517,6 +517,8 @@ def product_detail(request, pk):
         for img in all_images
     ] if has_colorway else []
 
+    variant_colors = product.variant_colors or []
+
     return render(request, 'catalog/detail.html', {
         'product':             product,
         'related_products':    related_products,
@@ -532,6 +534,8 @@ def product_detail(request, pk):
         'has_colorway':        has_colorway,
         'color_variant_mode':  color_variant_mode,
         'images_json':         json.dumps(images_data),
+        'variant_colors':      variant_colors,
+        'variant_colors_json': json.dumps(variant_colors),
     })
 
 

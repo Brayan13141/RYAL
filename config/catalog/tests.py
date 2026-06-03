@@ -1,8 +1,10 @@
 from decimal import Decimal
 
 from django.test import TestCase
+from django.urls import reverse
 
 from catalog.management.commands.import_images import _pid_from_url
+from catalog.modaverse import parse_specifications
 from catalog.management.commands.load_productos import (
     _category_filter_ids,
     _build_existing_pids,
@@ -181,3 +183,249 @@ class FinalPriceCascadeTests(TestCase):
         qs = _annotate_final(Product.objects.filter(pk=self.prod.pk))
         self.assertEqual(qs.first().final_price_calc, Decimal('111'))
         self.assertEqual(qs.first().final_price_calc, self.prod.final_price)
+
+
+class ParseSpecificationsTests(TestCase):
+    """productSpecificationsList de getUserPage → {'sizes': [...], 'colors': [...]}.
+    Agrupa por foreignLanguageName1; valor visible = foreignLanguageName2
+    (fallback a specificationsValue); dedup preservando orden."""
+
+    def test_agrupa_talla_y_color(self):
+        specs = [
+            {"foreignLanguageName1": "talla", "foreignLanguageName2": "M", "specificationsValue": "M"},
+            {"foreignLanguageName1": "talla", "foreignLanguageName2": "L", "specificationsValue": "L"},
+            {"foreignLanguageName1": "Color", "foreignLanguageName2": "Rojo burdeos", "specificationsValue": "Rojo burdeos"},
+            {"foreignLanguageName1": "Color", "foreignLanguageName2": "Negro", "specificationsValue": "Negro"},
+        ]
+        self.assertEqual(
+            parse_specifications(specs),
+            {"sizes": ["M", "L"], "colors": ["Rojo burdeos", "Negro"]},
+        )
+
+    def test_solo_talla(self):
+        specs = [{"foreignLanguageName1": "talla", "foreignLanguageName2": "XL", "specificationsValue": "XL"}]
+        self.assertEqual(parse_specifications(specs), {"sizes": ["XL"], "colors": []})
+
+    def test_fallback_a_specificationsValue_cuando_foreign_vacio(self):
+        specs = [{"foreignLanguageName1": "Color", "foreignLanguageName2": "", "specificationsValue": "Azul"}]
+        self.assertEqual(parse_specifications(specs), {"sizes": [], "colors": ["Azul"]})
+
+    def test_dedup_preserva_orden(self):
+        specs = [
+            {"foreignLanguageName1": "talla", "foreignLanguageName2": "M", "specificationsValue": "M"},
+            {"foreignLanguageName1": "talla", "foreignLanguageName2": "M", "specificationsValue": "M"},
+            {"foreignLanguageName1": "talla", "foreignLanguageName2": "S", "specificationsValue": "S"},
+        ]
+        self.assertEqual(parse_specifications(specs)["sizes"], ["M", "S"])
+
+    def test_ignora_dimensiones_desconocidas(self):
+        specs = [{"foreignLanguageName1": "material", "foreignLanguageName2": "Algodón", "specificationsValue": "Algodón"}]
+        self.assertEqual(parse_specifications(specs), {"sizes": [], "colors": []})
+
+    def test_null_y_lista_vacia(self):
+        self.assertEqual(parse_specifications(None), {"sizes": [], "colors": []})
+        self.assertEqual(parse_specifications([]), {"sizes": [], "colors": []})
+
+    def test_nombres_chinos_de_dimension(self):
+        specs = [
+            {"foreignLanguageName1": "尺码", "foreignLanguageName2": "M", "specificationsValue": "M"},
+            {"foreignLanguageName1": "颜色", "foreignLanguageName2": "Negro", "specificationsValue": "Negro"},
+        ]
+        self.assertEqual(parse_specifications(specs), {"sizes": ["M"], "colors": ["Negro"]})
+
+    def test_mezcla_dimensiones_conocidas_y_desconocidas(self):
+        specs = [
+            {"foreignLanguageName1": "talla", "foreignLanguageName2": "S", "specificationsValue": "S"},
+            {"foreignLanguageName1": "material", "foreignLanguageName2": "Algodón", "specificationsValue": "Algodón"},
+            {"foreignLanguageName1": "Color", "foreignLanguageName2": "Rojo", "specificationsValue": "Rojo"},
+        ]
+        self.assertEqual(parse_specifications(specs), {"sizes": ["S"], "colors": ["Rojo"]})
+
+
+class VariantColorsFieldTests(TestCase):
+    """Product.variant_colors: lista JSON, default []."""
+
+    def test_default_es_lista_vacia(self):
+        cat = Category.objects.create(name="Ropa", slug="ropa")
+        p = Product.objects.create(sku="RYL-T-1", name="Camiseta", category=cat, base_price=Decimal("100"))
+        self.assertEqual(p.variant_colors, [])
+
+    def test_guarda_lista_de_colores(self):
+        cat = Category.objects.create(name="Ropa2", slug="ropa2")
+        p = Product.objects.create(
+            sku="RYL-T-2", name="Camiseta", category=cat, base_price=Decimal("100"),
+            variant_colors=["Rojo burdeos", "Negro"],
+        )
+        p.refresh_from_db()
+        self.assertEqual(p.variant_colors, ["Rojo burdeos", "Negro"])
+
+
+from catalog.management.commands.load_productos import get_or_create_size_group
+from catalog.models import SizeGroup
+
+
+class GetOrCreateSizeGroupTests(TestCase):
+    """Find-or-create de SizeGroup por conjunto de tallas (dedup en re-run)."""
+
+    def test_crea_grupo_nuevo(self):
+        sg = get_or_create_size_group(["M", "L", "XL"])
+        self.assertEqual(sg.sizes, ["M", "L", "XL"])
+        self.assertIsNone(sg.conversion_table)
+
+    def test_re_run_no_duplica(self):
+        a = get_or_create_size_group(["M", "L", "XL"])
+        b = get_or_create_size_group(["M", "L", "XL"])
+        self.assertEqual(a.pk, b.pk)
+        self.assertEqual(SizeGroup.objects.count(), 1)
+
+    def test_conjuntos_distintos_son_grupos_distintos(self):
+        a = get_or_create_size_group(["M", "L"])
+        b = get_or_create_size_group(["S", "M", "L"])
+        self.assertNotEqual(a.pk, b.pk)
+
+    def test_dedup_de_tallas_repetidas(self):
+        sg = get_or_create_size_group(["M", "M", "L"])
+        self.assertEqual(sg.sizes, ["M", "L"])
+
+
+from catalog.management.commands.load_productos import Command as LoadCommand
+
+
+class ApplyVariantsTests(TestCase):
+    """_apply_variants asigna size_group (find-or-create) y variant_colors, idempotente."""
+
+    def setUp(self):
+        self.cat = Category.objects.create(name="Calidad 1:1", slug="calidad-11")
+        self.product = Product.objects.create(
+            sku="RYL-GEN-900", name="Jersey", category=self.cat, base_price=Decimal("250"),
+        )
+
+    def test_asigna_tallas_y_colores(self):
+        LoadCommand()._apply_variants(self.product, ["M", "L", "XL"], ["Rojo", "Negro"])
+        self.product.refresh_from_db()
+        self.assertIsNotNone(self.product.size_group)
+        self.assertEqual(self.product.size_group.sizes, ["M", "L", "XL"])
+        self.assertEqual(self.product.variant_colors, ["Rojo", "Negro"])
+
+    def test_solo_colores_no_toca_size_group(self):
+        LoadCommand()._apply_variants(self.product, [], ["Azul"])
+        self.product.refresh_from_db()
+        self.assertIsNone(self.product.size_group)
+        self.assertEqual(self.product.variant_colors, ["Azul"])
+
+    def test_idempotente_no_duplica_size_group(self):
+        cmd = LoadCommand()
+        cmd._apply_variants(self.product, ["M", "L"], ["Rojo"])
+        cmd._apply_variants(self.product, ["M", "L"], ["Rojo"])
+        self.assertEqual(SizeGroup.objects.count(), 1)
+
+
+from django.core.management import call_command
+from unittest import mock
+
+
+class LoadProductosEnriqueceExistentesTests(TestCase):
+    """Re-run con --category aplica sizes/colors a productos YA existentes (no solo skip)."""
+
+    def test_enriquece_producto_existente_en_scope(self):
+        cat = Category.objects.create(name="Calidad 1:1", slug="calidad-11")
+        product = Product.objects.create(
+            sku="RYL-C11-001", name="Jersey viejo", category=cat,
+            base_price=Decimal("250"),
+            supplier_url="https://www.modaverse.vip/#/proinfo/PR123",
+        )
+        self.assertIsNone(product.size_group)
+        self.assertEqual(product.variant_colors, [])
+
+        fake_data = {
+            'products': [{
+                "sku": "PR123", "name": "Jersey viejo", "category_id": "C1",
+                "category": "Calidad 1:1",
+                "url": "https://www.modaverse.vip/#/product/C1?pid=PR123",
+                "images": [], "sizes": ["M", "L"], "colors": ["Rojo burdeos"],
+            }],
+            'categories': [{"id": "C1", "name_es": "Calidad 1:1", "subcategories": []}],
+        }
+        with mock.patch.object(LoadCommand, '_read_modaverse_json', return_value=fake_data):
+            call_command('load_productos', '--category', 'Calidad 1:1', '--no-images')
+
+        product.refresh_from_db()
+        self.assertIsNotNone(product.size_group)
+        self.assertEqual(product.size_group.sizes, ["M", "L"])
+        self.assertEqual(product.variant_colors, ["Rojo burdeos"])
+
+    def test_no_enriquece_productos_fuera_del_category(self):
+        """Productos en categorías fuera del filtro --category no deben ser tocados."""
+        # In-scope: Calidad 1:1
+        cat_scope = Category.objects.create(name="Calidad 1:1", slug="calidad-11")
+        product_scope = Product.objects.create(
+            sku="RYL-C11-001", name="Jersey viejo", category=cat_scope,
+            base_price=Decimal("250"),
+            supplier_url="https://www.modaverse.vip/#/proinfo/PR123",
+        )
+        # Out-of-scope: Gorra
+        cat_out = Category.objects.create(name="Gorra", slug="gorra")
+        product_out = Product.objects.create(
+            sku="RYL-CAP-001", name="Gorra exclusiva", category=cat_out,
+            base_price=Decimal("150"),
+            supplier_url="https://www.modaverse.vip/#/proinfo/PR999",
+        )
+        self.assertIsNone(product_out.size_group)
+        self.assertEqual(product_out.variant_colors, [])
+
+        fake_data = {
+            'products': [
+                {
+                    "sku": "PR123", "name": "Jersey viejo", "category_id": "C1",
+                    "category": "Calidad 1:1",
+                    "url": "https://www.modaverse.vip/#/product/C1?pid=PR123",
+                    "images": [], "sizes": ["M", "L"], "colors": ["Rojo burdeos"],
+                },
+                {
+                    "sku": "PR999", "name": "Gorra exclusiva", "category_id": "C2",
+                    "category": "Gorra",
+                    "url": "https://www.modaverse.vip/#/product/C2?pid=PR999",
+                    "images": [], "sizes": ["S", "M", "L"], "colors": ["Negro"],
+                },
+            ],
+            'categories': [
+                {"id": "C1", "name_es": "Calidad 1:1", "subcategories": []},
+                {"id": "C2", "name_es": "Gorra", "subcategories": []},
+            ],
+        }
+        with mock.patch.object(LoadCommand, '_read_modaverse_json', return_value=fake_data):
+            call_command('load_productos', '--category', 'Calidad 1:1', '--no-images')
+
+        # In-scope product must be enriched
+        product_scope.refresh_from_db()
+        self.assertIsNotNone(product_scope.size_group)
+        self.assertEqual(product_scope.size_group.sizes, ["M", "L"])
+        self.assertEqual(product_scope.variant_colors, ["Rojo burdeos"])
+
+        # Out-of-scope product must NOT be touched
+        product_out.refresh_from_db()
+        self.assertIsNone(product_out.size_group)
+        self.assertEqual(product_out.variant_colors, [])
+
+
+class ProductDetailColorContextTests(TestCase):
+    """product_detail pasa variant_colors al contexto y pinta los chips."""
+
+    def setUp(self):
+        self.cat = Category.objects.create(name="Calidad 1:1", slug="calidad-11")
+        self.sg = SizeGroup.objects.create(name="Ropa · M·L", sizes=["M", "L"])
+        self.prod = Product.objects.create(
+            sku="RYL-GEN-10", name="Jersey", category=self.cat, base_price=Decimal("250"),
+            size_group=self.sg, variant_colors=["Rojo burdeos", "Negro"], is_active=True,
+        )
+
+    def test_contexto_incluye_variant_colors(self):
+        res = self.client.get(reverse("catalog:detail", args=[self.prod.pk]))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.context["variant_colors"], ["Rojo burdeos", "Negro"])
+
+    def test_render_muestra_chips_de_color(self):
+        res = self.client.get(reverse("catalog:detail", args=[self.prod.pk]))
+        self.assertContains(res, 'class="color-chip"')
+        self.assertContains(res, "Rojo burdeos")
+        self.assertContains(res, "Negro")

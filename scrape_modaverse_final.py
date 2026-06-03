@@ -35,6 +35,9 @@ try:
 except ImportError:
     _HAS_SCRAPLING = False
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / 'config'))
+from catalog.modaverse import parse_specifications  # noqa: E402
+
 # ─── Argumentos ───────────────────────────────────────────────────────────────
 _ap = argparse.ArgumentParser(description='Scraper modaverse.vip')
 _ap.add_argument(
@@ -393,6 +396,7 @@ for item in all_products_raw:
     else:
         status = 'unlaunched'
 
+    specs = parse_specifications(item.get('productSpecificationsList'))
     all_mapped.append({
         "name":         item.get('productName', ''),
         "sku":          pid,
@@ -402,6 +406,8 @@ for item in all_products_raw:
         "currency":     "MXN",
         "images":       images,
         "variants":     {},
+        "sizes":        specs['sizes'],
+        "colors":       specs['colors'],
         "description":  "",
         "status":       status,
         "stock":        stock_num,

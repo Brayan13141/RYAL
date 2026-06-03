@@ -96,6 +96,10 @@ class Product(models.Model):
         help_text='Precio final fijo. Cuando se especifica ignora base_price, envío y margen.'
     )
 
+    # Colores seleccionables (variantes Modaverse) — dimensión independiente de la talla.
+    # Lista de strings, ej. ["Rojo burdeos", "Negro"]. Vacía = el producto no pide color.
+    variant_colors = models.JSONField(default=list, blank=True)
+
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='available')
     tags = models.ManyToManyField(Tag, blank=True)
     supplier_url = models.URLField(blank=True, help_text='URL del producto en el proveedor')
