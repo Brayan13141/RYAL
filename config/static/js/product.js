@@ -370,6 +370,8 @@ if (typeof SIZE_NAMES !== 'undefined' && SIZE_NAMES && SIZE_NAMES.length > 0) {
     _sizeQtys[sizeName] = Math.max(0, (_sizeQtys[sizeName] || 0) + delta);
     const el = document.getElementById('sqty-' + sizeSlug);
     if (el) el.textContent = _sizeQtys[sizeName];
+    const card = document.getElementById('scard-' + sizeSlug);
+    if (card) card.classList.toggle('has-qty', _sizeQtys[sizeName] > 0);
     _updateSizeTotal();
   }
 
@@ -428,6 +430,7 @@ if (typeof SIZE_NAMES !== 'undefined' && SIZE_NAMES && SIZE_NAMES.length > 0) {
       // Resetear cantidades
       SIZE_NAMES.forEach(s => { _sizeQtys[s] = 0; });
       document.querySelectorAll('[id^="sqty-"]').forEach(el => { el.textContent = '0'; });
+      document.querySelectorAll('.size-card').forEach(c => c.classList.remove('has-qty'));
       _updateSizeTotal();
       btn.innerHTML = original;
     });

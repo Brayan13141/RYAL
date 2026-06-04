@@ -11,6 +11,16 @@ import re
 
 _PID_RE = re.compile(r'/proinfo/(\w+)|[?&]pid=(\w+)')
 
+# Elimina desde el primer carácter CJK/ideográfico/fullwidth en adelante.
+# Cubre: CJK Unified (4E00-9FFF), Extension A (3400-4DBF),
+# CJK Symbols & Punctuation (3000-303F), Fullwidth/Halfwidth (FF00-FFEF).
+_CJK_SUFFIX_RE = re.compile(r'\s*[　-〿㐀-䶿一-鿿＀-￯].*$')
+
+
+def _clean_spec_val(s: str) -> str:
+    """Quita sufijos de caracteres CJK/fullwidth y whitespace residual."""
+    return _CJK_SUFFIX_RE.sub('', s).strip()
+
 
 def pid_from_url(url: str | None) -> str | None:
     """Extrae el productId de cualquier formato de URL modaverse, o None."""
@@ -35,8 +45,9 @@ def parse_specifications(spec_list):
     sizes, colors = [], []
     for entry in (spec_list or []):
         dim = (entry.get('foreignLanguageName1') or '').strip().lower()
-        val = (entry.get('foreignLanguageName2') or '').strip() \
+        raw = (entry.get('foreignLanguageName2') or '').strip() \
             or (entry.get('specificationsValue') or '').strip()
+        val = _clean_spec_val(raw)
         if not val:
             continue
         if 'talla' in dim or 'size' in dim or '尺寸' in dim or '尺码' in dim:
