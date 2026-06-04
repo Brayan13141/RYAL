@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ryal Sneakers — Mantenimiento</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --gold: #D4AF37;
+      --gold-light: #F5E7B3;
+      --black: #0a0a0a;
+      --gray: #1C1C1C;
+      --text-muted: #888;
+    }
+
+    body {
+      background: var(--black);
+      color: #F5F5F5;
+      font-family: 'Outfit', system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 2rem;
+    }
+
+    .container {
+      max-width: 480px;
+    }
+
+    .logo {
+      font-family: 'Syne', 'Outfit', sans-serif;
+      font-size: 1.75rem;
+      font-weight: 800;
+      letter-spacing: .12em;
+      color: var(--gold);
+      text-transform: uppercase;
+      margin-bottom: 2.5rem;
+    }
+
+    .icon {
+      font-size: 3rem;
+      margin-bottom: 1.5rem;
+      display: block;
+      opacity: .85;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: .75rem;
+      color: #F5F5F5;
+    }
+
+    p {
+      color: var(--text-muted);
+      line-height: 1.6;
+      font-size: .95rem;
+    }
+
+    .divider {
+      width: 40px;
+      height: 2px;
+      background: var(--gold);
+      margin: 1.75rem auto;
+      border-radius: 2px;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: .5rem;
+      background: var(--gray);
+      border: 1px solid #2A2A2A;
+      border-radius: 999px;
+      padding: .35rem 1rem;
+      font-size: .8rem;
+      color: var(--text-muted);
+      margin-top: 2rem;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--gold);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: .35; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">Ryal Sneakers</div>
+
+    <span class="icon">🔧</span>
+
+    <h1>Estamos en mantenimiento</h1>
+
+    <div class="divider"></div>
+
+    <p>
+      Estamos realizando mejoras en la tienda.<br>
+      Volvemos pronto — gracias por tu paciencia.
+    </p>
+
+    <div class="status">
+      <span class="dot"></span>
+      Trabajando en ello
+    </div>
+  </div>
+</body>
+</html>
