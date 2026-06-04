@@ -49,7 +49,9 @@ class MaintenanceModeMiddleware:
 
     @staticmethod
     def _bypass(request):
-        if getattr(request.user, 'is_staff', False):
+        # AuthenticationMiddleware runs after us, so request.user may not exist yet
+        user = getattr(request, 'user', None)
+        if user is not None and getattr(user, 'is_staff', False):
             return True
         return any(request.path.startswith(prefix) for prefix in _BYPASS_PREFIXES)
 

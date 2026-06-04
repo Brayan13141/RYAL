@@ -111,3 +111,12 @@ class MaintenanceModeMiddlewareTests(TestCase):
         mw = MaintenanceModeMiddleware(_get_response)
         response = mw(request)
         self.assertIn('Retry-After', response)
+
+    def test_flag_returns_503_when_user_not_set(self):
+        # Simulates request arriving before AuthenticationMiddleware sets request.user
+        self.flag_file.touch()
+        request = self.factory.get('/')
+        # request.user deliberately NOT set — should not raise AttributeError
+        mw = MaintenanceModeMiddleware(_get_response)
+        response = mw(request)
+        self.assertEqual(response.status_code, 503)
