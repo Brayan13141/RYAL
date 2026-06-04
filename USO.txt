@@ -120,6 +120,7 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
       python manage.py load_productos                       # modaverse (solo nuevos)
       python manage.py load_productos --only calzado        # calzado yupoo_pf (solo nuevos)
       python manage.py load_productos --no-images           # sin descargar imágenes (recomendado)
+      python manage.py load_productos --category "1:1"      # solo esa categoría (aplica tallas+colores)
       python manage.py load_productos --fix-urls            # actualiza supplier_url → #/proinfo/
 
   import_images

@@ -287,9 +287,14 @@ if filter_ids and not _args.no_merge and Path(OUTPUT_PATH).exists():
         with open(OUTPUT_PATH, encoding='utf-8') as _f:
             _existing = json.load(_f)
         existing_products = _existing.get('products', [])
+        _in_filter = 0
         for _p in existing_products:
-            seen_ids.add(_p.get('sku', ''))  # sku = productId en el esquema de salida
-        log(f"JSON existente cargado: {len(existing_products)} productos previos (serán preservados)")
+            if filter_ids and _p.get('category_id', '') in filter_ids:
+                _in_filter += 1  # no agregar a seen_ids → será re-scrapeado con specs
+            else:
+                seen_ids.add(_p.get('sku', ''))
+        log(f"JSON existente cargado: {len(existing_products)} productos previos "
+            f"({_in_filter} en categoría filtrada serán re-scrapeados con specs)")
     except Exception as _e:
         log(f"⚠ No se pudo cargar JSON existente: {_e} — se creará uno nuevo")
 
@@ -434,9 +439,11 @@ if unknown_cat_ids:
 
 # ─── PASO 6: Guardar JSON ─────────────────────────────────────────────────────
 if filter_ids and not _args.no_merge:
-    # Fusionar: productos existentes + nuevos scrapeados
-    final_products = existing_products + all_mapped
-    log(f"\nFusión: {len(existing_products)} existentes + {len(all_mapped)} nuevos = {len(final_products)} total")
+    # Preservar productos fuera del filtro; los de la categoría filtrada vienen
+    # recién scrapeados en all_mapped (con sizes/colors de parse_specifications)
+    existing_outside = [p for p in existing_products if p.get('category_id', '') not in filter_ids]
+    final_products = existing_outside + all_mapped
+    log(f"\nFusión: {len(existing_outside)} fuera de filtro + {len(all_mapped)} re-scrapeados = {len(final_products)} total")
 else:
     final_products = all_mapped
 
