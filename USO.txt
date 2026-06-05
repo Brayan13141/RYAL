@@ -19,6 +19,7 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
   En SERVIDOR:
       cd /root/app && source venv/bin/activate
       PYTHONUTF8=1 python config/manage.py load_productos --no-images
+      PYTHONUTF8=1 python config/manage.py reconcile_catalog          # desactiva removidos, reactiva reaparecidos
       PYTHONUTF8=1 python config/manage.py import_images --workers 6
       # import_images por defecto solo procesa productos sin imágenes (no re-descarga existentes)
 
@@ -47,6 +48,7 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
 
   En SERVIDOR:
       PYTHONUTF8=1 python config/manage.py load_productos --no-images
+      PYTHONUTF8=1 python config/manage.py reconcile_catalog          # opcional: desactiva fantasmas
       PYTHONUTF8=1 python config/manage.py import_images --workers 6
 
   NOTAS:
@@ -157,6 +159,26 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
 
       python manage.py update_calzado_prices
       python manage.py update_calzado_prices --dry-run
+
+  reconcile_catalog
+  ─────────────────
+  Reconcilia el catálogo local con scraped_modaverse.json:
+    - Soft-delete (is_active=False + auto_deactivated=True) de productos removidos.
+    - Reactivación de los que reaparecen (solo los que este comando desactivó antes).
+    - No toca calzado/yupoo ni productos sin URL modaverse.
+    - Requiere migración 0024 (python manage.py migrate catalog).
+  IMPORTANTE: correr DESPUÉS de load_productos con el mismo JSON actualizado.
+
+      python manage.py reconcile_catalog                           # full (todos modaverse)
+      python manage.py reconcile_catalog --dry-run                 # previsualizar sin escribir
+      python manage.py reconcile_catalog --category "1:1"          # solo esa categoría
+      python manage.py reconcile_catalog --force                   # ignorar guardas de seguridad
+      python manage.py reconcile_catalog --max-deactivate-pct 50  # subir umbral al 50 %
+
+  Guardas de seguridad (evitan borrar de más por scrape fallido):
+    zero-guard  → aborta si el JSON trae 0 productos en el scope
+    umbral 30 % → aborta si las bajas superan el 30 % de los activos en scope
+    Ambas se saltan con --force.
 
   fix_corrupted_images
   ─────────────────────
