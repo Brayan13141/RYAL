@@ -317,16 +317,20 @@ class Command(BaseCommand):
         # Dedup por productId (estable entre formatos #/proinfo y #/product?pid=)
         existing_pids = _build_existing_pids(existing_urls)
 
-        # Productos YA en BD dentro del scope de --category, indexados por pid.
-        # Permite enriquecer (size_group + variant_colors) en re-runs sin re-crear.
+        # Productos YA en BD cuyo pid aparece en el scope JSON del --category.
+        # Se busca en TODAS las categorías Django (no solo las del árbol JSON actual)
+        # para poder mover productos que estaban en otra categoría al scope correcto.
         existing_in_scope = {}
         if filter_ids is not None:
-            django_cats = [cat_map[i] for i in filter_ids if i in cat_map]
+            scope_pids_set = {
+                p['sku'] for p in products
+                if p.get('sku') and p.get('category_id', '') in filter_ids
+            }
             for prod in Product.objects.filter(
-                category__in=django_cats
-            ).only('pk', 'supplier_url', 'size_group_id', 'variant_colors'):
+                supplier_url__icontains='modaverse.vip'
+            ).only('pk', 'supplier_url', 'category_id', 'size_group_id', 'variant_colors'):
                 ppid = pid_from_url(prod.supplier_url)
-                if ppid:
+                if ppid and ppid in scope_pids_set:
                     existing_in_scope[ppid] = prod
 
         for p in products:

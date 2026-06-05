@@ -440,6 +440,39 @@ class LoadProductosEnriqueceExistentesTests(TestCase):
         self.assertEqual(product.category_id, sub2.pk)
         self.assertEqual(Product.objects.filter(supplier_url__icontains='PR001').count(), 1)
 
+    def test_mueve_producto_de_categoria_ajena_al_scope(self):
+        """Con --category gorra, un producto que estaba en otra cat. raíz
+        es movido a la subcat gorras correcta sin crear duplicado."""
+        root = Category.objects.create(name="Gorra", slug="gorra")
+        sub = Category.objects.create(name="Gorras Planas", slug="gorras-planas", parent=root)
+        other_root = Category.objects.create(name="Camisetas", slug="camisetas")
+        other_sub = Category.objects.create(name="Jordan", slug="jordan", parent=other_root)
+        product = Product.objects.create(
+            sku="RYL-GEN-001", name="Gorra NY",
+            category=other_sub,
+            base_price=Decimal("150"),
+            supplier_url="https://www.modaverse.vip/#/proinfo/PR001",
+        )
+        fake_data = {
+            'products': [
+                {"sku": "PR001", "name": "Gorra NY", "category_id": "S1",
+                 "category": "Gorras Planas", "images": [], "sizes": [], "colors": []},
+            ],
+            'categories': [
+                {"id": "CAP", "name_es": "Gorra", "subcategories": [
+                    {"id": "S1", "name_es": "Gorras Planas"},
+                ]},
+                {"id": "CAM", "name_es": "Camisetas", "subcategories": [
+                    {"id": "S2", "name_es": "Jordan"},
+                ]},
+            ],
+        }
+        with mock.patch.object(LoadCommand, '_read_modaverse_json', return_value=fake_data):
+            call_command('load_productos', '--category', 'gorra', '--no-images')
+        product.refresh_from_db()
+        self.assertEqual(product.category_id, sub.pk)
+        self.assertEqual(Product.objects.filter(supplier_url__icontains='PR001').count(), 1)
+
 
 class ProductDetailColorContextTests(TestCase):
     """product_detail pasa variant_colors al contexto y pinta los chips."""
