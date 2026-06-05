@@ -1,5 +1,8 @@
 from decimal import Decimal
+from io import StringIO
+from unittest.mock import patch
 
+from django.core.management import call_command
 from django.test import TestCase
 from django.urls import reverse
 
@@ -407,6 +410,36 @@ class LoadProductosEnriqueceExistentesTests(TestCase):
         self.assertIsNone(product_out.size_group)
         self.assertEqual(product_out.variant_colors, [])
 
+    def test_reclasifica_producto_cuya_subcategoria_cambio_en_json(self):
+        """Con --category, si el JSON movió un producto a otra subcat del mismo scope,
+        load_productos actualiza la categoría Django sin crear un duplicado."""
+        root = Category.objects.create(name="Gorra", slug="gorra")
+        sub1 = Category.objects.create(name="Dandy y Barbas", slug="dandy-y-barbas", parent=root)
+        sub2 = Category.objects.create(name="Sombrero plano", slug="sombrero-plano", parent=root)
+
+        product = Product.objects.create(
+            sku="RYL-CAP-001", name="Cap viejo", category=sub1,
+            base_price=Decimal("150"),
+            supplier_url="https://www.modaverse.vip/#/proinfo/PR001",
+        )
+
+        fake_data = {
+            'products': [
+                {"sku": "PR001", "name": "Cap viejo", "category_id": "S2",
+                 "category": "Sombrero plano", "images": [], "sizes": [], "colors": []},
+            ],
+            'categories': [{"id": "CAP", "name_es": "Gorra", "subcategories": [
+                {"id": "S1", "name_es": "Dandy y Barbas"},
+                {"id": "S2", "name_es": "Sombrero plano"},
+            ]}],
+        }
+        with mock.patch.object(LoadCommand, '_read_modaverse_json', return_value=fake_data):
+            call_command('load_productos', '--category', 'gorra', '--no-images')
+
+        product.refresh_from_db()
+        self.assertEqual(product.category_id, sub2.pk)
+        self.assertEqual(Product.objects.filter(supplier_url__icontains='PR001').count(), 1)
+
 
 class ProductDetailColorContextTests(TestCase):
     """product_detail pasa variant_colors al contexto y pinta los chips."""
@@ -429,3 +462,237 @@ class ProductDetailColorContextTests(TestCase):
         self.assertContains(res, 'class="color-chip"')
         self.assertContains(res, "Rojo burdeos")
         self.assertContains(res, "Negro")
+
+
+# ── reconcile_catalog ────────────────────────────────────────────────────────
+
+class ReconcileCatalogTests(TestCase):
+    """Management command reconcile_catalog.
+
+    JSON inyectado vía mock de read_modaverse_json; nunca toca el JSON real de 24k.
+    Estructura del JSON de prueba:
+      { 'categories': [...], 'products': [{'sku': pid, 'category_id': ..., ...}] }
+    """
+
+    TREE = [
+        {
+            'id': 'CAP',
+            'name_es': 'Gorras',
+            'subcategories': [
+                {'id': 'CAP-1', 'name_es': 'Dandy y Barbas'},
+            ],
+        }
+    ]
+
+    def setUp(self):
+        self.root = Category.objects.create(name='Gorras', slug='gorras')
+        self.sub = Category.objects.create(
+            name='Dandy y Barbas', slug='dandy-y-barbas', parent=self.root
+        )
+
+    def _make_product(self, pid, *, category=None, is_active=True,
+                      auto_deactivated=False, yupoo=False, no_url=False):
+        cat = category or self.sub
+        if no_url:
+            url = ''
+        elif yupoo:
+            url = f'https://putianshoefactory.x.yupoo.com/albums/{pid}'
+        else:
+            url = f'https://www.modaverse.vip/#/proinfo/{pid}'
+        return Product.objects.create(
+            sku=f'RYL-TEST-{pid}',
+            name=f'Product {pid}',
+            category=cat,
+            base_price=Decimal('200'),
+            supplier_url=url,
+            is_active=is_active,
+            auto_deactivated=auto_deactivated,
+        )
+
+    def _json(self, pids, *, cat_id='CAP-1', tree=None):
+        return {
+            'categories': tree or self.TREE,
+            'products': [
+                {'sku': pid, 'category_id': cat_id, 'name_es': f'Product {pid}'}
+                for pid in pids
+            ],
+        }
+
+    def _call(self, *args, json_data=None, **kwargs):
+        stdout, stderr = StringIO(), StringIO()
+        data = json_data if json_data is not None else self._json([])
+        with patch(
+            'catalog.management.commands.reconcile_catalog.read_modaverse_json',
+            return_value=data,
+        ):
+            call_command(
+                'reconcile_catalog', *args,
+                stdout=stdout, stderr=stderr,
+                **kwargs,
+            )
+        return stdout.getvalue(), stderr.getvalue()
+
+    def test_desactiva_producto_cuyo_pid_no_esta_en_json(self):
+        """Producto activo cuyo pid no aparece en el JSON → is_active=False, auto_deactivated=True.
+        3 productos permanecen en JSON → 1/4 = 25 % < 30 % (threshold no dispara)."""
+        p = self._make_product('PID001')
+        for pid in ('PID002', 'PID003', 'PID004'):
+            self._make_product(pid)
+        self._call(json_data=self._json(['PID002', 'PID003', 'PID004']))
+        p.refresh_from_db()
+        self.assertFalse(p.is_active)
+        self.assertTrue(p.auto_deactivated)
+
+    def test_reactiva_producto_auto_deactivated_que_reaparece(self):
+        """Producto con auto_deactivated=True cuyo pid vuelve al JSON → is_active=True, auto_deactivated=False."""
+        p = self._make_product('PID001', is_active=False, auto_deactivated=True)
+        self._call(json_data=self._json(['PID001']))
+        p.refresh_from_db()
+        self.assertTrue(p.is_active)
+        self.assertFalse(p.auto_deactivated)
+
+    def test_no_reactiva_producto_desactivado_manualmente(self):
+        """Producto con is_active=False y auto_deactivated=False (manual) → no se reactiva."""
+        p = self._make_product('PID001', is_active=False, auto_deactivated=False)
+        self._call(json_data=self._json(['PID001']))
+        p.refresh_from_db()
+        self.assertFalse(p.is_active)
+        self.assertFalse(p.auto_deactivated)
+
+    def test_no_desactiva_producto_movido_de_categoria(self):
+        """Producto cuyo pid sigue en el JSON (en otra cat) no se desactiva."""
+        p = self._make_product('PID001')
+        json_data = {
+            'categories': self.TREE + [
+                {'id': 'OTH', 'name_es': 'Otra', 'subcategories': [
+                    {'id': 'OTH-1', 'name_es': 'Sub Otra'}
+                ]}
+            ],
+            'products': [
+                {'sku': 'PID001', 'category_id': 'OTH-1', 'name_es': 'Product PID001'},
+                {'sku': 'PID002', 'category_id': 'CAP-1', 'name_es': 'Product PID002'},
+            ],
+        }
+        self._call(json_data=json_data)
+        p.refresh_from_db()
+        self.assertTrue(p.is_active)
+        self.assertFalse(p.auto_deactivated)
+
+    def test_zero_guard_aborta_cuando_json_scope_es_vacio(self):
+        """JSON con 0 productos → zero-guard aborta, no modifica nada."""
+        p = self._make_product('PID001')
+        _, stderr = self._call(json_data={'categories': self.TREE, 'products': []})
+        p.refresh_from_db()
+        self.assertTrue(p.is_active)
+        self.assertFalse(p.auto_deactivated)
+        self.assertIn('zero', stderr.lower())
+
+    def test_umbral_aborta_cuando_bajas_superan_el_porcentaje(self):
+        """4 activos, 2 removidos = 50 % > 30 % → aborta sin --force."""
+        for i in range(4):
+            self._make_product(f'PID{i:03}')
+        self._call(json_data=self._json(['PID000', 'PID001']))
+        self.assertEqual(
+            Product.objects.filter(is_active=True, sku__startswith='RYL-TEST-').count(), 4
+        )
+
+    def test_force_bypasses_umbral(self):
+        """Con --force las bajas se aplican aunque superen el umbral."""
+        for i in range(4):
+            self._make_product(f'PID{i:03}')
+        self._call('--force', json_data=self._json(['PID000', 'PID001']))
+        self.assertEqual(
+            Product.objects.filter(
+                is_active=False, auto_deactivated=True, sku__startswith='RYL-TEST-'
+            ).count(), 2
+        )
+
+    def test_dry_run_no_escribe_ninguna_baja(self):
+        """--dry-run imprime el plan pero no escribe nada en BD.
+        3 productos permanecen → 1/4 = 25 % < 30 % para que llegue al dry-run."""
+        p = self._make_product('PID001')
+        for pid in ('PID002', 'PID003', 'PID004'):
+            self._make_product(pid)
+        stdout, _ = self._call('--dry-run', json_data=self._json(['PID002', 'PID003', 'PID004']))
+        p.refresh_from_db()
+        self.assertTrue(p.is_active)
+        self.assertFalse(p.auto_deactivated)
+        self.assertIn('dry-run', stdout.lower())
+
+    def test_category_solo_toca_productos_del_scope(self):
+        """--category gorras desactiva en Gorras pero no toca productos de Ropa.
+        3 productos de Gorras permanecen → 1/4 = 25 % < 30 % (threshold no dispara)."""
+        root_ropa = Category.objects.create(name='Ropa', slug='ropa')
+        sub_ropa = Category.objects.create(name='Camisetas', slug='camisetas', parent=root_ropa)
+
+        p_gorras = self._make_product('PID001', category=self.sub)   # en scope, removido
+        for pid in ('PID002', 'PID003', 'PID004'):                    # en scope, permanecen
+            self._make_product(pid, category=self.sub)
+        p_ropa = self._make_product('PID005', category=sub_ropa)      # fuera de scope
+
+        # PID002-PID004 en CAP-1 → zero-guard OK, 1/4 = 25 % < 30 %
+        json_data = self._json(['PID002', 'PID003', 'PID004'])
+        self._call('--category', 'gorras', json_data=json_data)
+
+        p_gorras.refresh_from_db()
+        p_ropa.refresh_from_db()
+        self.assertFalse(p_gorras.is_active)
+        self.assertTrue(p_gorras.auto_deactivated)
+        self.assertTrue(p_ropa.is_active)
+
+    def test_category_scope_incluye_subcats_django_sin_id_en_json_tree(self):
+        """--category scope usa jerarquía Django, no el árbol JSON.
+
+        Sub-categoría Django bajo 'gorras' que no tiene ID en el categories tree
+        del JSON (cat legacy) → sus productos SÍ están en scope y se desactivan
+        si su pid no aparece en el JSON.
+        3 productos sobreviven → 1/4 = 25 % < 30 % (umbral no dispara).
+        """
+        sub_legacy = Category.objects.create(
+            name='gorra normal', slug='gorra-normal', parent=self.root
+        )
+        p_legacy = self._make_product('PID010', category=sub_legacy)
+        for pid in ('PID002', 'PID003', 'PID004'):
+            self._make_product(pid, category=self.sub)
+
+        self._call('--category', 'gorras', json_data=self._json(['PID002', 'PID003', 'PID004']))
+
+        p_legacy.refresh_from_db()
+        self.assertFalse(p_legacy.is_active)
+        self.assertTrue(p_legacy.auto_deactivated)
+
+    def test_prune_elimina_auto_desactivados_en_scope(self):
+        """--prune borra permanentemente los auto_deactivated=True del scope."""
+        p_dead = self._make_product('PID001', is_active=False, auto_deactivated=True)
+        p_alive = self._make_product('PID002')
+        self._call('--prune', json_data=self._json([]))
+        self.assertFalse(Product.objects.filter(pk=p_dead.pk).exists())
+        self.assertTrue(Product.objects.filter(pk=p_alive.pk).exists())
+
+    def test_prune_dry_run_no_borra(self):
+        """--prune --dry-run muestra el plan sin borrar nada."""
+        p_dead = self._make_product('PID001', is_active=False, auto_deactivated=True)
+        stdout, _ = self._call('--prune', '--dry-run', json_data=self._json([]))
+        self.assertTrue(Product.objects.filter(pk=p_dead.pk).exists())
+        self.assertIn('dry-run', stdout.lower())
+
+    def test_prune_category_solo_borra_en_scope(self):
+        """--prune --category gorras no toca productos auto-desactivados de otra categoría."""
+        root_ropa = Category.objects.create(name='Ropa', slug='ropa')
+        sub_ropa = Category.objects.create(name='Camisetas', slug='camisetas', parent=root_ropa)
+        p_gorras_dead = self._make_product('PID001', is_active=False, auto_deactivated=True)
+        p_ropa_dead = self._make_product('PID002', category=sub_ropa,
+                                         is_active=False, auto_deactivated=True)
+        self._call('--prune', '--category', 'gorras', json_data=self._json([]))
+        self.assertFalse(Product.objects.filter(pk=p_gorras_dead.pk).exists())
+        self.assertTrue(Product.objects.filter(pk=p_ropa_dead.pk).exists())
+
+    def test_no_toca_productos_sin_url_modaverse(self):
+        """Productos yupoo y manuales (sin URL modaverse) no son afectados."""
+        p_yupoo = self._make_product('PID001', yupoo=True)
+        p_manual = self._make_product('PID002', no_url=True)
+        self._call(json_data=self._json(['PID003']))
+        p_yupoo.refresh_from_db()
+        p_manual.refresh_from_db()
+        self.assertTrue(p_yupoo.is_active)
+        self.assertTrue(p_manual.is_active)

@@ -15,7 +15,7 @@ from django.utils.text import slugify
 from django.core.management.base import BaseCommand
 
 from catalog.models import Category, Product, ProductImage, Tag, SizeGroup
-from catalog.modaverse import pid_from_url
+from catalog.modaverse import pid_from_url, category_filter_ids, read_modaverse_json
 
 
 def _build_existing_pids(supplier_urls) -> set:
@@ -142,25 +142,8 @@ def _next_sku_index(prefix: str) -> int:
     return (max(nums) + 1) if nums else 1
 
 
-def _category_filter_ids(categories_tree, keywords) -> set:
-    """IDs de categoría (padre + subs) que coinciden con alguna keyword.
-    Match en el padre incluye todas sus subs; match en una sub incluye su padre.
-    Sin distinción de mayúsculas. Mismo criterio que el scraper --category."""
-    kws = [k.lower() for k in keywords]
-    ids = set()
-    for cat in categories_tree:
-        name = (cat.get('name_es') or cat.get('name_zh') or '').lower()
-        if any(kw in name for kw in kws):
-            ids.add(cat['id'])
-            for sub in cat.get('subcategories', []):
-                ids.add(sub['id'])
-        else:
-            for sub in cat.get('subcategories', []):
-                sname = (sub.get('name_es') or sub.get('name_zh') or '').lower()
-                if any(kw in sname for kw in kws):
-                    ids.add(sub['id'])
-                    ids.add(cat['id'])
-    return ids
+# Alias backward-compat — movido a catalog/modaverse.py
+_category_filter_ids = category_filter_ids
 
 
 def _clean_name(raw) -> str:
@@ -226,16 +209,11 @@ class Command(BaseCommand):
     # ── Modaverse (multi-categoría con jerarquía) ──────────────────────────────
 
     def _read_modaverse_json(self):
-        """Lee y parsea scraped_modaverse.json del repo root.
-        Devuelve el dict parseado, o None si el archivo no existe.
-        Aislado en un método para poder mockearlo en tests (sin tocar el
-        JSON real de 24k productos)."""
-        json_path = Path(__file__).resolve().parents[4] / 'scraped_modaverse.json'
-        if not json_path.exists():
-            self.stdout.write(self.style.WARNING(f'  ⚠ No se encontró {json_path}'))
-            return None
-        with open(json_path, encoding='utf-8') as f:
-            return json.load(f)
+        """Lee scraped_modaverse.json. Wrapper con warning de stdout."""
+        data = read_modaverse_json()
+        if data is None:
+            self.stdout.write(self.style.WARNING('  ⚠ No se encontró scraped_modaverse.json'))
+        return data
 
     def _load_modaverse(self, tag_nuevo, no_images, existing_urls, category=None):
         self.stdout.write('\n── Cargando desde scraped_modaverse.json ──')
@@ -334,7 +312,7 @@ class Command(BaseCommand):
 
         # Agrupar por categoría padre para SKU consecutivo
         prefix_counters = {}
-        new_count = skip_count = 0
+        new_count = skip_count = reclassified_count = 0
 
         # Dedup por productId (estable entre formatos #/proinfo y #/product?pid=)
         existing_pids = _build_existing_pids(existing_urls)
@@ -365,6 +343,13 @@ class Command(BaseCommand):
                         self._apply_variants(
                             prod, p.get('sizes', []), p.get('colors', [])
                         )
+                        # Reclasificar si la categoría cambió dentro del mismo scope
+                        if filter_ids is not None:
+                            new_cat = cat_map.get(p.get('category_id', ''))
+                            if new_cat is not None and prod.category_id != new_cat.pk:
+                                prod.category = new_cat
+                                prod.save(update_fields=['category'])
+                                reclassified_count += 1
                     continue
             # Sin pid (caso raro): caer al match por URL literal
             elif p.get('url', '') and p['url'] in existing_urls:
@@ -456,7 +441,10 @@ class Command(BaseCommand):
                 new_count += 1
 
         self.stdout.write(
-            self.style.SUCCESS(f'  → {new_count} nuevos · {skip_count} ya existían (omitidos)')
+            self.style.SUCCESS(
+                f'  → {new_count} nuevos · {skip_count} ya existían (omitidos)'
+                + (f' · {reclassified_count} recategorizados' if reclassified_count else '')
+            )
         )
 
     # ── Calzado (yupoo_pf — por marcas) ───────────────────────────────────────

@@ -145,6 +145,8 @@ class Command(BaseCommand):
                     results.update(group_results)
                     self._debug_cart_size(page, group[0]['sku'])
 
+                self.stdout.write('\n[pre-export] Estado final del carrito:')
+                self._debug_cart_size(page, 'FINAL')
                 cart_script = self._extract_cart_script(page)
                 if cart_script:
                     self.stdout.write(self.style.SUCCESS('Script de carrito generado OK'))
@@ -214,8 +216,12 @@ class Command(BaseCommand):
         # del viewport inicialmente y Playwright's click() ya hace scroll automático.
         if root.locator('button.btn_1').count() > 0:
             try:
+                before = self._cart_len(page)
                 btn_simple.click()
                 page.wait_for_timeout(CART_WAIT)
+                after = self._cart_len(page)
+                grew = '' if after > before else '  <-- NO CRECIO'
+                self.stdout.write(f'  [add btn_1 {sku}] cart {before} -> {after}{grew}')
                 qty = group[0]['quantity']
                 if qty > 1:
                     self._set_last_cart_item_qty(page, qty)
@@ -290,8 +296,14 @@ class Command(BaseCommand):
                     continue
                 all_opts[0].click()
                 page.wait_for_timeout(400)
-                dialog.locator('.btn_box button.btn').first.click()
+                before = self._cart_len(page)
+                add_btns = dialog.locator('.btn_box button.btn')
+                self.stdout.write(f'  [add btn_2 {data["sku"]} (1ra opcion)] botones_agregar={add_btns.count()} cart_antes={before}')
+                add_btns.first.click()
                 page.wait_for_timeout(CART_WAIT)
+                after = self._cart_len(page)
+                grew = '' if after > before else '  <-- NO CRECIO'
+                self.stdout.write(f'  [add btn_2 {data["sku"]} (1ra opcion)] cart {before} -> {after}{grew}')
                 if qty > 1:
                     self._set_last_cart_item_qty(page, qty)
                 label = available[0] if available else '?'
@@ -309,8 +321,14 @@ class Command(BaseCommand):
 
             matched.click()
             page.wait_for_timeout(400)
-            dialog.locator('.btn_box button.btn').first.click()
+            before = self._cart_len(page)
+            add_btns = dialog.locator('.btn_box button.btn')
+            self.stdout.write(f'  [add btn_2 {data["sku"]} talla "{size_value}"] botones_agregar={add_btns.count()} cart_antes={before}')
+            add_btns.first.click()
             page.wait_for_timeout(CART_WAIT)
+            after = self._cart_len(page)
+            grew = '' if after > before else '  <-- NO CRECIO'
+            self.stdout.write(f'  [add btn_2 {data["sku"]} talla "{size_value}"] cart {before} -> {after}{grew}')
             if qty > 1:
                 self._set_last_cart_item_qty(page, qty)
             item_results[item_id] = {'status': 'added', 'notes': ''}
@@ -503,10 +521,10 @@ class Command(BaseCommand):
 
     # ── CARRITO ────────────────────────────────────────────────────────────────
 
-    def _debug_cart_size(self, page, sku: str):
-        """Imprime el tamaño del shopCarList tras cada grupo."""
+    def _cart_len(self, page) -> int:
+        """Devuelve la cantidad de ítems en shopCarList (o -1 si falla la lectura)."""
         try:
-            count = page.evaluate("""
+            return page.evaluate("""
                 () => {
                     try {
                         const u = JSON.parse(localStorage.getItem('user') || '{}');
@@ -514,9 +532,39 @@ class Command(BaseCommand):
                     } catch(e) { return -1; }
                 }
             """)
-            self.stdout.write(f'  [diag tras {sku}] shopCarList={count}')
+        except Exception:
+            return -1
+
+    def _debug_cart_size(self, page, sku: str):
+        """Imprime el contenido completo del shopCarList tras cada grupo."""
+        try:
+            info = page.evaluate("""
+                () => {
+                    try {
+                        const u = JSON.parse(localStorage.getItem('user') || '{}');
+                        const cart = u.shopCarList || [];
+                        return {
+                            count: cart.length,
+                            items: cart.map(function(i) {
+                                return {
+                                    name: (i.productName || i.name || i.productId || '?').slice(0, 40),
+                                    qty:   i.num || i.quantity || 1,
+                                    specs: i.specsValue || ''
+                                };
+                            })
+                        };
+                    } catch(e) { return {count: -1, items: []}; }
+                }
+            """)
+            self.stdout.write(f'  [cart tras {sku}] {info["count"]} ítem(s):')
+            for item in (info.get('items') or []):
+                spec = f' [{item["specs"]}]' if item.get('specs') else ''
+                try:
+                    self.stdout.write(f'    · {item["name"]} ×{item["qty"]}{spec}')
+                except UnicodeEncodeError:
+                    self.stdout.write(f'    · (nombre especial) ×{item["qty"]}{spec}')
         except Exception as exc:
-            self.stdout.write(self.style.WARNING(f'  [diag] Error: {exc}'))
+            self.stdout.write(self.style.WARNING(f'  [cart] Error: {exc}'))
 
     def _set_last_cart_item_qty(self, page, qty: int):
         """
@@ -563,18 +611,32 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING('  shopCarList vacío — el carrito no tiene ítems'))
                 return ''
 
-            self.stdout.write(f'  shopCarList extraído: {len(shop_car_list)} items')
+            self.stdout.write(f'  shopCarList extraído: {len(shop_car_list)} ítem(s)')
+            for entry in shop_car_list:
+                name  = str(entry.get('productName') or entry.get('name') or entry.get('productId') or '?')[:50]
+                qty   = entry.get('num') or entry.get('quantity') or 1
+                specs = entry.get('specsValue', '')
+                spec_str = f' [{specs}]' if specs else ''
+                try:
+                    self.stdout.write(f'    · {name} ×{qty}{spec_str}')
+                except UnicodeEncodeError:
+                    self.stdout.write(f'    · (nombre especial) ×{qty}{spec_str}')
 
             cart_json = json.dumps(shop_car_list, ensure_ascii=False)
-            # Fusiona solo shopCarList en el user existente → preserva userToken/sesión
+            # Fusiona shopCarList en el user existente → preserva userToken/sesión.
+            # location.reload() fuerza recarga completa para que Vue reinicialice
+            # su store desde localStorage; window.location.hash no sirve porque
+            # el router SPA de Vue cambia la ruta sin recargar la página y el
+            # store en memoria no se actualiza.
             return (
                 "(function(){"
                 f"var c={cart_json};"
-                "console.log('[modaverse-script] Items en carrito:', c.length, c.map(function(i){return (i.productName||i.name||i.productId||'?')+'(qty:'+(i.num||i.quantity||i.qty||'?')+')';}));"
+                "console.log('[ryal] Inyectando', c.length, 'ítem(s):', c.map(function(i){return (i.productName||i.name||'?')+'(×'+(i.num||1)+')';}));"
                 "var u=JSON.parse(localStorage.getItem('user')||'{}');"
                 "u.shopCarList=c;"
                 "localStorage.setItem('user',JSON.stringify(u));"
-                "window.location.hash='/cart';"
+                "console.log('[ryal] ✅ Carrito inyectado. Recargando página...');"
+                "location.reload();"
                 "})()"
             )
         except Exception as exc:
@@ -594,7 +656,9 @@ class Command(BaseCommand):
 
         if cart_script:
             self.stdout.write('\n  Para importar el carrito en tu navegador:')
-            self.stdout.write(f'  1. Abre {MODAVERSE_BASE}/#/cart')
-            self.stdout.write('  2. Abre la consola (F12 → Console)')
-            self.stdout.write('  3. Pega el script que aparece en el panel')
+            self.stdout.write(f'  1. Abre {MODAVERSE_BASE} (cualquier página, NO la del carrito)')
+            self.stdout.write('  2. F12 → Console → escribe "allow pasting" → Enter')
+            self.stdout.write('  3. Pega el script del panel → Enter')
+            self.stdout.write('  4. La página se recarga automáticamente con el carrito cargado')
+            self.stdout.write('  5. Navega al carrito desde el ícono en la UI de modaverse')
         self.stdout.write('')

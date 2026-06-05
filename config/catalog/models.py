@@ -104,6 +104,11 @@ class Product(models.Model):
     tags = models.ManyToManyField(Tag, blank=True)
     supplier_url = models.URLField(blank=True, help_text='URL del producto en el proveedor')
     is_active   = models.BooleanField(default=True)
+    auto_deactivated = models.BooleanField(
+        default=False,
+        help_text='Desactivado por reconcile_catalog (removido del proveedor). '
+                  'Distingue de ocultamientos manuales; habilita reactivación segura.',
+    )
     is_featured = models.BooleanField(default=False, help_text='Aparece en "Nuevos ingresos" del inicio')
     display_order = models.PositiveIntegerField(default=0)
     created_at  = models.DateTimeField(auto_now_add=True)

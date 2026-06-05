@@ -7,7 +7,9 @@ El catálogo guarda el supplier_url en dos formatos según cuándo se cargó:
 El productId (pid) es el identificador estable; comparar por pid (no por el
 string completo de la URL) reconcilia ambos formatos y evita duplicados.
 """
+import json as _json
 import re
+from pathlib import Path
 
 _PID_RE = re.compile(r'/proinfo/(\w+)|[?&]pid=(\w+)')
 
@@ -58,3 +60,36 @@ def parse_specifications(spec_list):
                 colors.append(val)
         # otras dimensiones → ignorar silenciosamente
     return {'sizes': sizes, 'colors': colors}
+
+
+def read_modaverse_json(json_path=None):
+    """Lee scraped_modaverse.json del root del repo. Devuelve el dict o None.
+    Parámetro json_path opcional para tests (inyección de fixture)."""
+    if json_path is None:
+        json_path = Path(__file__).resolve().parents[2] / 'scraped_modaverse.json'
+    path = Path(json_path)
+    if not path.exists():
+        return None
+    with open(path, encoding='utf-8') as f:
+        return _json.load(f)
+
+
+def category_filter_ids(categories_tree, keywords) -> set:
+    """IDs de categoría (padre + subs) que coinciden con alguna keyword.
+    Match en el padre incluye todas sus subs; match en una sub incluye su padre.
+    Sin distinción de mayúsculas. Mismo criterio que el scraper --category."""
+    kws = [k.lower() for k in keywords]
+    ids = set()
+    for cat in categories_tree:
+        name = (cat.get('name_es') or cat.get('name_zh') or '').lower()
+        if any(kw in name for kw in kws):
+            ids.add(cat['id'])
+            for sub in cat.get('subcategories', []):
+                ids.add(sub['id'])
+        else:
+            for sub in cat.get('subcategories', []):
+                sname = (sub.get('name_es') or sub.get('name_zh') or '').lower()
+                if any(kw in sname for kw in kws):
+                    ids.add(sub['id'])
+                    ids.add(cat['id'])
+    return ids
