@@ -312,7 +312,7 @@ class Command(BaseCommand):
 
         # Agrupar por categoría padre para SKU consecutivo
         prefix_counters = {}
-        new_count = skip_count = 0
+        new_count = skip_count = reclassified_count = 0
 
         # Dedup por productId (estable entre formatos #/proinfo y #/product?pid=)
         existing_pids = _build_existing_pids(existing_urls)
@@ -343,6 +343,13 @@ class Command(BaseCommand):
                         self._apply_variants(
                             prod, p.get('sizes', []), p.get('colors', [])
                         )
+                        # Reclasificar si la categoría cambió dentro del mismo scope
+                        if filter_ids is not None:
+                            new_cat = cat_map.get(p.get('category_id', ''))
+                            if new_cat is not None and prod.category_id != new_cat.pk:
+                                prod.category = new_cat
+                                prod.save(update_fields=['category'])
+                                reclassified_count += 1
                     continue
             # Sin pid (caso raro): caer al match por URL literal
             elif p.get('url', '') and p['url'] in existing_urls:
@@ -434,7 +441,10 @@ class Command(BaseCommand):
                 new_count += 1
 
         self.stdout.write(
-            self.style.SUCCESS(f'  → {new_count} nuevos · {skip_count} ya existían (omitidos)')
+            self.style.SUCCESS(
+                f'  → {new_count} nuevos · {skip_count} ya existían (omitidos)'
+                + (f' · {reclassified_count} recategorizados' if reclassified_count else '')
+            )
         )
 
     # ── Calzado (yupoo_pf — por marcas) ───────────────────────────────────────

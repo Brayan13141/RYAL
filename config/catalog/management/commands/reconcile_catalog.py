@@ -8,41 +8,9 @@ Solo afecta supplier_url que contenga 'modaverse.vip'.
 Calzado (yupoo) y productos manuales quedan intactos.
 """
 from django.core.management.base import BaseCommand
-from django.utils.text import slugify
 
 from catalog.models import Category, Product
 from catalog.modaverse import pid_from_url, read_modaverse_json, category_filter_ids
-
-
-def _build_cat_map(categories_tree):
-    """Mapea JSON category_id → Django Category (solo get, no crea).
-    Refleja la misma lógica de slugs que load_productos para garantizar que
-    las categorías ya existentes en BD son encontradas."""
-    cat_map = {}
-    for cat_data in categories_tree:
-        parent_name = cat_data.get('name_es') or cat_data.get('name_zh') or ''
-        if not parent_name:
-            continue
-        parent_slug = slugify(parent_name)[:50]
-        parent_obj = Category.objects.filter(slug=parent_slug).first()
-        if not parent_obj:
-            continue
-        cat_map[cat_data['id']] = parent_obj
-        for sub_data in cat_data.get('subcategories', []):
-            sub_name = sub_data.get('name_es') or sub_data.get('name_zh') or ''
-            if not sub_name:
-                continue
-            sub_slug = slugify(sub_name)[:45]
-            # Intenta slug exacto con parent; luego slug con sufijo (mirror de load_productos)
-            sub_obj = (
-                Category.objects.filter(slug=sub_slug, parent=parent_obj).first()
-                or Category.objects.filter(
-                    slug=f'{sub_slug}-{slugify(parent_name)[:8]}'[:50]
-                ).first()
-            )
-            if sub_obj:
-                cat_map[sub_data['id']] = sub_obj
-    return cat_map
 
 
 class Command(BaseCommand):
@@ -69,8 +37,19 @@ class Command(BaseCommand):
             dest='max_deactivate_pct',
             help='Porcentaje máximo de bajas antes de abortar (default 30).',
         )
+        parser.add_argument(
+            '--prune', action='store_true',
+            help='Eliminar permanentemente los productos auto-desactivados en el scope. '
+                 'Usar después de reconcile_catalog (soft-delete ya aplicado). '
+                 'Compatible con --dry-run y --category.',
+        )
 
     def handle(self, *args, **options):
+        # ── Rama --prune (independiente del flujo normal) ─────────────────────
+        if options['prune']:
+            self._prune(options)
+            return
+
         data = read_modaverse_json()
         if data is None:
             self.stderr.write(self.style.ERROR('No se encontró scraped_modaverse.json'))
@@ -89,14 +68,17 @@ class Command(BaseCommand):
                 ))
                 return
 
-        # ── Set vivo: todos los pids del JSON ENTERO ──────────────────────────
-        live_pids = {p['sku'] for p in products if p.get('sku')}
-
-        # ── JSON scope (para zero-guard) ──────────────────────────────────────
+        # ── JSON scope ────────────────────────────────────────────────────────
+        # Con --category: solo productos que están en las categorías actuales del JSON.
+        # Sin --category: todos los productos del JSON.
+        # live_pids se limita al scope para detectar productos que salieron
+        # de una sección aunque sigan en otras categorías del JSON.
         if filter_ids is not None:
             json_scope = [p for p in products if p.get('category_id') in filter_ids]
         else:
             json_scope = products
+
+        live_pids = {p['sku'] for p in json_scope if p.get('sku')}
 
         # ── Guarda 1: zero-guard ─────────────────────────────────────────────
         if not json_scope and not options['force']:
@@ -109,9 +91,16 @@ class Command(BaseCommand):
         # ── DB scope ─────────────────────────────────────────────────────────
         scope_qs = Product.objects.filter(supplier_url__icontains='modaverse.vip')
         if filter_ids is not None:
-            cat_map = _build_cat_map(categories_tree)
-            django_cat_pks = {cat_map[i].pk for i in filter_ids if i in cat_map}
-            scope_qs = scope_qs.filter(category_id__in=django_cat_pks)
+            kws = [k.lower() for k in options['category']]
+            root_pks = {
+                c.pk
+                for c in Category.objects.filter(parent__isnull=True)
+                if any(kw in c.name.lower() or kw in c.slug.lower() for kw in kws)
+            }
+            sub_pks = set(
+                Category.objects.filter(parent_id__in=root_pks).values_list('pk', flat=True)
+            )
+            scope_qs = scope_qs.filter(category_id__in=root_pks | sub_pks)
 
         # ── Candidatos ───────────────────────────────────────────────────────
         to_deactivate_pks = []
@@ -169,3 +158,38 @@ class Command(BaseCommand):
             f'bajas={len(to_deactivate_pks)} · '
             f'reactivaciones={len(to_reactivate_pks)}'
         ))
+
+    def _prune(self, options):
+        """Elimina permanentemente los productos con auto_deactivated=True en el scope."""
+        qs = Product.objects.filter(
+            supplier_url__icontains='modaverse.vip',
+            auto_deactivated=True,
+        )
+        if options['category']:
+            kws = [k.lower() for k in options['category']]
+            root_pks = {
+                c.pk
+                for c in Category.objects.filter(parent__isnull=True)
+                if any(kw in c.name.lower() or kw in c.slug.lower() for kw in kws)
+            }
+            sub_pks = set(
+                Category.objects.filter(parent_id__in=root_pks).values_list('pk', flat=True)
+            )
+            qs = qs.filter(category_id__in=root_pks | sub_pks)
+
+        count = qs.count()
+        if count == 0:
+            self.stdout.write('Nada que limpiar (0 productos auto-desactivados en scope).')
+            return
+
+        if options['dry_run']:
+            examples = list(qs.values_list('sku', 'name')[:10])
+            self.stdout.write(f'[dry-run] prune={count} productos a eliminar permanentemente')
+            for sku, name in examples:
+                self.stdout.write(f'  {sku} — {name}')
+            if count > 10:
+                self.stdout.write(f'  … y {count - 10} más')
+            return
+
+        qs.delete()
+        self.stdout.write(self.style.SUCCESS(f'Eliminados {count} productos permanentemente.'))

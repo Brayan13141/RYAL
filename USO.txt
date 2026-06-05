@@ -23,6 +23,31 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
       PYTHONUTF8=1 python config/manage.py import_images --workers 6
       # import_images por defecto solo procesa productos sin imágenes (no re-descarga existentes)
 
+  ── MODAVERSE — SINCRONIZACIÓN POR CATEGORÍA ────────────────────────────────
+
+  Usar cuando Modaverse reorganizó una sección (gorras, 1:1, etc.) y quieres
+  limpiar solo esa parte sin tocar el resto del catálogo.
+
+  En LOCAL:
+      PYTHONUTF8=1 venv/Scripts/python.exe scrape_modaverse_final.py --category gorra
+      scp scraped_modaverse.json root@5.161.249.245:/root/app/scraped_modaverse.json
+
+  En SERVIDOR:
+      PYTHONUTF8=1 python config/manage.py load_productos --category gorra --no-images
+      # ↑ carga nuevos + reclasifica subcategorías que Modaverse movió (sin crear duplicados)
+
+      PYTHONUTF8=1 python config/manage.py reconcile_catalog --category gorra --dry-run
+      # ↑ previsualizar cuántos se desactivarían
+      # Si bajas > 30 % (Modaverse reorganizó la sección), usar --force:
+      PYTHONUTF8=1 python config/manage.py reconcile_catalog --category gorra --force
+
+      # Borrar permanentemente los que ya no vende el proveedor:
+      PYTHONUTF8=1 python config/manage.py reconcile_catalog --category gorra --prune --dry-run
+      PYTHONUTF8=1 python config/manage.py reconcile_catalog --category gorra --prune
+
+      PYTHONUTF8=1 python config/manage.py import_images --only gorras --workers 6
+      # ↑ descarga imágenes solo para gorras que aún no tienen
+
   ── CALZADO (Nike, Adidas, Air Jordan, etc.) ────────────────────────────────
 
   En LOCAL (scrapear y corregir precios):
@@ -122,7 +147,7 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
       python manage.py load_productos                       # modaverse (solo nuevos)
       python manage.py load_productos --only calzado        # calzado yupoo_pf (solo nuevos)
       python manage.py load_productos --no-images           # sin descargar imágenes (recomendado)
-      python manage.py load_productos --category "1:1"      # solo esa categoría (aplica tallas+colores)
+      python manage.py load_productos --category "1:1"      # solo esa categoría (aplica tallas+colores + reclasifica subcats)
       python manage.py load_productos --fix-urls            # actualiza supplier_url → #/proinfo/
 
   import_images
@@ -169,10 +194,20 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
     - Requiere migración 0024 (python manage.py migrate catalog).
   IMPORTANTE: correr DESPUÉS de load_productos con el mismo JSON actualizado.
 
+  Comportamiento con --category:
+    - Scope DB  = todos los productos Django bajo esa categoría raíz (jerarquía Django completa).
+    - Live pids = solo pids presentes en la sección actual del JSON para esa categoría.
+    → Productos que ya no están en la sección activa de Modaverse quedan desactivados,
+      aunque sigan existiendo en otras secciones del JSON (categorías legacy).
+    → Si Modaverse reorganizó masivamente (>30 % de bajas), usar --force.
+
       python manage.py reconcile_catalog                           # full (todos modaverse)
       python manage.py reconcile_catalog --dry-run                 # previsualizar sin escribir
-      python manage.py reconcile_catalog --category "1:1"          # solo esa categoría
-      python manage.py reconcile_catalog --force                   # ignorar guardas de seguridad
+      python manage.py reconcile_catalog --category gorra          # solo gorras
+      python manage.py reconcile_catalog --category gorra --dry-run --force  # ver plan sin umbral
+      python manage.py reconcile_catalog --category gorra --force  # aplicar aunque >30 % bajas
+      python manage.py reconcile_catalog --category gorra --prune --dry-run  # previsualizar borrado
+      python manage.py reconcile_catalog --category gorra --prune  # borrar permanentemente
       python manage.py reconcile_catalog --max-deactivate-pct 50  # subir umbral al 50 %
 
   Guardas de seguridad (evitan borrar de más por scrape fallido):
