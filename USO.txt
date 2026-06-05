@@ -1,5 +1,5 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                     WEB_RYAL — GUÍA DE SINCRONIZACIÓN                       ║
+║                     WEB_RYAL — GUÍA DE SINCRONIZACIÓN                       								  ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
 Servidor: root@5.161.249.245  /  App: /root/app/
@@ -7,48 +7,130 @@ Local:    C:\Users\Lenovo\Documents\WEB_RYAL
 Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
 
 ══════════════════════════════════════════════════════════════════════════════
-  FLUJO RÁPIDO — ACTUALIZACIÓN COMPLETA DEL CATÁLOGO
+  ¿QUÉ QUIERO HACER? — ELIGE TU FLUJO
 ══════════════════════════════════════════════════════════════════════════════
 
-  ── MODAVERSE (gorras, camisetas, sudaderas) ────────────────────────────────
+  A. Primera importación de una categoría .............. ver sección A
+  B. El proveedor actualizó: hay nuevos y quitó algunos  ver sección B
+  C. Solo agregar productos nuevos, no tocar los viejos . ver sección C
+  D. Actualizar solo una categoría (gorras, 1:1, etc.) .. ver sección D
+  E. Calzado (yupoo) ................................... ver sección E
 
-  En LOCAL:
-      PYTHONUTF8=1 venv/Scripts/python.exe scrape_modaverse_final.py
-      scp scraped_modaverse.json root@5.161.249.245:/root/app/scraped_modaverse.json
+══════════════════════════════════════════════════════════════════════════════
+  A. PRIMERA IMPORTACIÓN (categoría nueva o BD vacía)
+══════════════════════════════════════════════════════════════════════════════
 
-  En SERVIDOR:
-      cd /root/app && source venv/bin/activate
-      PYTHONUTF8=1 python config/manage.py load_productos --no-images
-      PYTHONUTF8=1 python config/manage.py reconcile_catalog          # desactiva removidos, reactiva reaparecidos
-      PYTHONUTF8=1 python config/manage.py import_images --workers 6
-      # import_images por defecto solo procesa productos sin imágenes (no re-descarga existentes)
-
-  ── MODAVERSE — SINCRONIZACIÓN POR CATEGORÍA ────────────────────────────────
-
-  Usar cuando Modaverse reorganizó una sección (gorras, 1:1, etc.) y quieres
-  limpiar solo esa parte sin tocar el resto del catálogo.
+  Usa esto cuando nunca has cargado esta categoría antes o partes de cero.
+  No hace falta reconcile porque no hay nada que desactivar.
 
   En LOCAL:
       PYTHONUTF8=1 venv/Scripts/python.exe scrape_modaverse_final.py --category gorra
       scp scraped_modaverse.json root@5.161.249.245:/root/app/scraped_modaverse.json
 
   En SERVIDOR:
+      cd /root/app && source venv/bin/activate
       PYTHONUTF8=1 python config/manage.py load_productos --category gorra --no-images
-      # ↑ carga nuevos + reclasifica subcategorías que Modaverse movió (sin crear duplicados)
+      PYTHONUTF8=1 python config/manage.py import_images --only gorras --workers 6
 
+══════════════════════════════════════════════════════════════════════════════
+  B. ACTUALIZACIÓN — EL PROVEEDOR QUITÓ Y AGREGÓ PRODUCTOS
+══════════════════════════════════════════════════════════════════════════════
+
+  Usa esto cuando ya tienes productos en BD y Modaverse cambió su catálogo:
+  algunos son nuevos, otros desaparecieron, otros solo cambiaron de subcat.
+
+  PASO 1 — Activa mantenimiento (opcional pero recomendado)
+      touch /root/app/maintenance.flag
+
+  PASO 2 — Scrapear en LOCAL y subir JSON
+      PYTHONUTF8=1 venv/Scripts/python.exe scrape_modaverse_final.py
+      scp scraped_modaverse.json root@5.161.249.245:/root/app/scraped_modaverse.json
+
+  PASO 3 — En SERVIDOR: cargar nuevos y reclasificar movidos
+      PYTHONUTF8=1 python config/manage.py load_productos --no-images
+      # ↑ crea productos nuevos, reclasifica los que Modaverse movió de subcategoría,
+      #   salta los que ya existen. Nunca crea duplicados.
+
+  PASO 4 — Revisar cuántos se desactivarían (dry-run)
+      PYTHONUTF8=1 python config/manage.py reconcile_catalog --dry-run
+      # ↑ muestra "scope=X · bajas=Y · reactivaciones=Z" sin escribir nada.
+      #   Si Y > 30 % de X, el siguiente paso necesita --force.
+
+  PASO 5 — Desactivar los que ya no están en Modaverse
+      PYTHONUTF8=1 python config/manage.py reconcile_catalog
+      # Si Y > 30 %:
+      PYTHONUTF8=1 python config/manage.py reconcile_catalog --force
+
+  PASO 6 — Decidir qué hacer con los desactivados
+      Tienes dos opciones:
+
+      Opción A — Conservar algunos, borrar el resto:
+        1. Abre el panel admin → Productos → filtra is_active=No, auto_deactivated=Sí
+        2. Activa manualmente los que quieras conservar (se les quita auto_deactivated)
+        3. Borra permanentemente el resto:
+           PYTHONUTF8=1 python config/manage.py reconcile_catalog --prune --dry-run
+           PYTHONUTF8=1 python config/manage.py reconcile_catalog --prune
+
+      Opción B — Borrar todos los desactivados sin revisar:
+           PYTHONUTF8=1 python config/manage.py reconcile_catalog --prune
+
+      Opción C — Dejarlos desactivados (ocultos pero en BD):
+        No hacer nada. Seguirán en BD con is_active=False.
+        reconcile_catalog los reactivará automáticamente si el proveedor los repone.
+
+  PASO 7 — Descargar imágenes de los productos nuevos
+      PYTHONUTF8=1 python config/manage.py import_images --workers 6
+
+  PASO 8 — Desactivar mantenimiento
+      rm /root/app/maintenance.flag
+
+══════════════════════════════════════════════════════════════════════════════
+  C. SOLO AGREGAR NUEVOS (el proveedor agregó pero no quitó nada)
+══════════════════════════════════════════════════════════════════════════════
+
+  Usa esto cuando el proveedor amplió su catálogo pero no retiró nada.
+  load_productos salta automáticamente los productos ya existentes.
+
+  En LOCAL:
+      PYTHONUTF8=1 venv/Scripts/python.exe scrape_modaverse_final.py
+      scp scraped_modaverse.json root@5.161.249.245:/root/app/scraped_modaverse.json
+
+  En SERVIDOR:
+      PYTHONUTF8=1 python config/manage.py load_productos --no-images
+      PYTHONUTF8=1 python config/manage.py import_images --workers 6
+
+══════════════════════════════════════════════════════════════════════════════
+  D. ACTUALIZACIÓN POR CATEGORÍA (gorras, 1:1, G5, etc.)
+══════════════════════════════════════════════════════════════════════════════
+
+  Igual que B pero limitado a una categoría. Útil cuando solo quieres
+  sincronizar gorras sin tocar camisetas u otras secciones.
+
+  En LOCAL:
+      PYTHONUTF8=1 venv/Scripts/python.exe scrape_modaverse_final.py --category gorra
+      scp scraped_modaverse.json root@5.161.249.245:/root/app/scraped_modaverse.json
+
+  En SERVIDOR:
+      # Cargar nuevos y reclasificar subcategorías movidas
+      PYTHONUTF8=1 python config/manage.py load_productos --category gorra --no-images
+
+      # Revisar y aplicar bajas
       PYTHONUTF8=1 python config/manage.py reconcile_catalog --category gorra --dry-run
-      # ↑ previsualizar cuántos se desactivarían
-      # Si bajas > 30 % (Modaverse reorganizó la sección), usar --force:
       PYTHONUTF8=1 python config/manage.py reconcile_catalog --category gorra --force
+      # (--force porque Modaverse suele reorganizar gorras masivamente >30 %)
 
-      # Borrar permanentemente los que ya no vende el proveedor:
+      # Conservar algunos antes de borrar: ver Paso 6 Opción A de la sección B
+
+      # Borrar permanentemente los que ya no vende el proveedor
       PYTHONUTF8=1 python config/manage.py reconcile_catalog --category gorra --prune --dry-run
       PYTHONUTF8=1 python config/manage.py reconcile_catalog --category gorra --prune
 
+      # Imágenes
       PYTHONUTF8=1 python config/manage.py import_images --only gorras --workers 6
-      # ↑ descarga imágenes solo para gorras que aún no tienen
 
-  ── CALZADO (Nike, Adidas, Air Jordan, etc.) ────────────────────────────────
+══════════════════════════════════════════════════════════════════════════════
+  E. CALZADO (Nike, Adidas, Air Jordan, etc.)
+══════════════════════════════════════════════════════════════════════════════
 
   En LOCAL (scrapear y corregir precios):
       PYTHONUTF8=1 venv/Scripts/python.exe scrape_yupoo_pf.py --resume --with-detail
@@ -60,29 +142,7 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
       PYTHONUTF8=1 python config/manage.py update_calzado_prices
       PYTHONUTF8=1 python config/manage.py download_yupoo_images
 
-══════════════════════════════════════════════════════════════════════════════
-  FLUJO INCREMENTAL — SOLO PRODUCTOS NUEVOS
-══════════════════════════════════════════════════════════════════════════════
-
-  Cuando el proveedor saca nuevos productos y no quieres reprocesar todo el
-  catálogo.
-
-  En LOCAL:
-      PYTHONUTF8=1 venv/Scripts/python.exe scrape_modaverse_final.py
-      scp scraped_modaverse.json root@5.161.249.245:/root/app/
-
-  En SERVIDOR:
-      PYTHONUTF8=1 python config/manage.py load_productos --no-images
-      PYTHONUTF8=1 python config/manage.py reconcile_catalog          # opcional: desactiva fantasmas
-      PYTHONUTF8=1 python config/manage.py import_images --workers 6
-
-  NOTAS:
-  - load_productos pre-carga todos los supplier_url existentes en memoria (1 query)
-    y salta automáticamente los que ya están en BD. Nunca crea duplicados.
-    Muestra al final: "X nuevos · Y ya existían (omitidos)".
-  - import_images por defecto procesa solo productos con 0 imágenes.
-    No toca productos que ya tienen imágenes → seguro correr en cualquier momento.
-  - --since sigue siendo útil si quieres combinar con --fill-gaps o --force.
+  NOTA: reconcile_catalog no afecta calzado (solo toca URLs de modaverse.vip).
 
 ══════════════════════════════════════════════════════════════════════════════
   SCRAPERS (ejecutar en LOCAL)
@@ -284,6 +344,26 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
         SELECT product_id FROM catalog_productimage WHERE is_cover = true)
       ORDER BY product_id, display_order
     ) sub WHERE pi.id = sub.id;"
+
+══════════════════════════════════════════════════════════════════════════════
+  MODO MANTENIMIENTO
+══════════════════════════════════════════════════════════════════════════════
+
+  Activa una pantalla 503 para visitantes. No requiere reiniciar Gunicorn.
+  El staff (admin) puede seguir entrando al panel con normalidad.
+
+  # Activar (poner cartel de mantenimiento)
+  touch /root/app/maintenance.flag
+  systemctl restart gunicorn
+
+  # Desactivar (volver a producción normal)
+  rm /root/app/maintenance.flag
+  systemctl restart gunicorn
+
+  NOTAS:
+  - El cambio es inmediato (no hace falta restart gunicorn ni nginx).
+  - Bypass automático para: usuarios is_staff=True, /admin/, /accounts/login/.
+  - Útil antes de correr migraciones largas o subir un deploy grande.
 
 ══════════════════════════════════════════════════════════════════════════════
   CONSULTAS ÚTILES EN SERVIDOR
