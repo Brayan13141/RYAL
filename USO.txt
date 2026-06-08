@@ -7,6 +7,31 @@ Local:    C:\Users\Lenovo\Documents\WEB_RYAL
 Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
 
 ══════════════════════════════════════════════════════════════════════════════
+  DEPLOY — SUBIR CÓDIGO NUEVO AL SERVIDOR
+══════════════════════════════════════════════════════════════════════════════
+
+  Hacer esto cada vez que hay commits locales nuevos antes de correr
+  cualquier comando en el servidor.
+
+  En LOCAL:
+      git push origin master
+
+  En SERVIDOR:
+      cd /root/app && source venv/bin/activate
+      git pull
+
+      # Si hay migraciones nuevas (ej. 0024_product_auto_deactivated):
+      PYTHONUTF8=1 python config/manage.py migrate
+
+      systemctl restart gunicorn
+
+  NOTAS:
+  - Verificar que git pull diga "Updating X..Y" y no "Already up to date"
+    cuando se esperan cambios.
+  - Si hay migraciones, el output debe mostrar "Applying catalog.XXXX... OK".
+  - No hace falta collectstatic salvo que hayas cambiado archivos en static/.
+
+══════════════════════════════════════════════════════════════════════════════
   ¿QUÉ QUIERO HACER? — ELIGE TU FLUJO
 ══════════════════════════════════════════════════════════════════════════════
 
@@ -15,6 +40,7 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
   C. Solo agregar productos nuevos, no tocar los viejos . ver sección C
   D. Actualizar solo una categoría (gorras, 1:1, etc.) .. ver sección D
   E. Calzado (yupoo) ................................... ver sección E
+  F. Sincronizar nombres (el proveedor renombró modelos) . ver load_productos --no-images
 
 ══════════════════════════════════════════════════════════════════════════════
   A. PRIMERA IMPORTACIÓN (categoría nueva o BD vacía)
@@ -41,6 +67,7 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
 
   PASO 1 — Activa mantenimiento (opcional pero recomendado)
       touch /root/app/maintenance.flag
+      systemctl restart gunicorn
 
   PASO 2 — Scrapear en LOCAL y subir JSON
       PYTHONUTF8=1 venv/Scripts/python.exe scrape_modaverse_final.py
@@ -200,11 +227,20 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
   load_productos
   ──────────────
   Lee scraped_*.json y crea productos en BD. Deduplica por supplier_url.
-  Pre-carga todos los URLs existentes en un set Python (1 query) → salta
-  automáticamente los ya importados sin hacer queries individuales por producto.
-  Al terminar informa: "X nuevos · Y ya existían (omitidos)".
+  Pre-carga todos los URLs existentes en un set Python (1 query) → sin queries
+  individuales por producto. Al terminar informa: "X nuevos · Y existentes".
 
-      python manage.py load_productos                       # modaverse (solo nuevos)
+  Para productos YA existentes (además de saltarlos):
+    - Actualiza el nombre si el JSON trae uno diferente.
+    - Reclasifica la subcategoría si Modaverse la cambió dentro del mismo scope.
+    - Aplica tallas y colores (variant_colors, size_group) si el JSON los trae.
+
+  Para sincronizar SOLO nombres (sin re-crear ni mover productos):
+      PYTHONUTF8=1 python config/manage.py load_productos --category gorra --no-images
+      # ↑ los productos existentes en el scope reciben el nombre actualizado del JSON.
+      #   Requiere que el JSON sea reciente (correr el scraper antes).
+
+      python manage.py load_productos                       # modaverse (crea nuevos + actualiza nombres)
       python manage.py load_productos --only calzado        # calzado yupoo_pf (solo nuevos)
       python manage.py load_productos --no-images           # sin descargar imágenes (recomendado)
       python manage.py load_productos --category "1:1"      # solo esa categoría (aplica tallas+colores + reclasifica subcats)
