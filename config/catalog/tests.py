@@ -12,7 +12,7 @@ from catalog.management.commands.load_productos import (
     _category_filter_ids,
     _build_existing_pids,
 )
-from catalog.models import Category, Product
+from catalog.models import Category, Product, Tag
 from catalog.views import _annotate_final
 
 
@@ -729,3 +729,132 @@ class ReconcileCatalogTests(TestCase):
         p_manual.refresh_from_db()
         self.assertTrue(p_yupoo.is_active)
         self.assertTrue(p_manual.is_active)
+
+
+# ── Fix C: Product.modaverse_name ────────────────────────────────────────────
+
+from django.core.management import BaseCommand as DjBaseCmd
+from catalog.management.commands.load_productos import Command as LoadCmd, _clean_name
+
+
+class ProductModaverseNameFieldTest(TestCase):
+    """Product.modaverse_name existe, default '', no afecta creación normal."""
+
+    def setUp(self):
+        self.cat = Category.objects.create(name='MvTest', slug='mvtest')
+
+    def test_field_default_empty(self):
+        p = Product.objects.create(
+            sku='RYL-MV-001', name='Test', category=self.cat,
+            base_price=Decimal('100'),
+        )
+        self.assertEqual(p.modaverse_name, '')
+
+    def test_field_persisted(self):
+        p = Product.objects.create(
+            sku='RYL-MV-002', name='Test', category=self.cat,
+            base_price=Decimal('100'), modaverse_name='9026白金',
+        )
+        p.refresh_from_db()
+        self.assertEqual(p.modaverse_name, '9026白金')
+
+
+class CreateProductModaverseNameTest(TestCase):
+    """_create_product guarda modaverse_name (nombre crudo de Modaverse)."""
+
+    def setUp(self):
+        self.cat = Category.objects.create(name='MvTest2', slug='mvtest2')
+        self.tag = Tag.objects.create(name='mvtest-tag')
+        from io import StringIO
+        self.cmd = LoadCmd()
+        self.cmd.stdout = StringIO()
+        self.cmd.style = DjBaseCmd().style
+
+    def test_crea_producto_con_modaverse_name(self):
+        created = self.cmd._create_product(
+            sku='RYL-MV-010',
+            name='9026',
+            category=self.cat,
+            base_price=Decimal('500'),
+            description='',
+            supplier_url='https://www.modaverse.vip/#/proinfo/pid123',
+            images=[],
+            tag=self.tag,
+            no_images=True,
+            modaverse_name='9026白金',
+        )
+        self.assertTrue(created)
+        p = Product.objects.get(sku='RYL-MV-010')
+        self.assertEqual(p.modaverse_name, '9026白金')
+
+    def test_crea_producto_sin_modaverse_name_default_vacio(self):
+        created = self.cmd._create_product(
+            sku='RYL-MV-011',
+            name='Jordan 1',
+            category=self.cat,
+            base_price=Decimal('500'),
+            description='',
+            supplier_url='',
+            images=[],
+            tag=self.tag,
+            no_images=True,
+        )
+        self.assertTrue(created)
+        p = Product.objects.get(sku='RYL-MV-011')
+        self.assertEqual(p.modaverse_name, '')
+
+
+class LoadModaverseRawNameTest(TestCase):
+    """_load_modaverse guarda el nombre crudo (antes de _clean_name) en modaverse_name."""
+
+    CATEGORIES = [{'id': '__default__', 'name_es': 'General', 'subcategories': []}]
+
+    def setUp(self):
+        Category.objects.create(name='General', slug='general')
+        from io import StringIO
+        self.cmd = LoadCmd()
+        self.cmd.stdout = StringIO()
+        self.cmd.style = DjBaseCmd().style
+
+    def _tag(self):
+        return Tag.objects.get_or_create(name='nuevo')[0]
+
+    def _run(self, products):
+        data = {'products': products, 'categories': self.CATEGORIES}
+        with patch.object(self.cmd, '_read_modaverse_json', return_value=data):
+            self.cmd._load_modaverse(
+                tag_nuevo=self._tag(), no_images=True,
+                existing_urls=set(), category=None,
+            )
+
+    def test_nombre_raw_guardado_en_name_y_modaverse_name(self):
+        """Nombre crudo '9026 白金' → name=raw (sin _clean_name), modaverse_name=raw."""
+        raw_name = '9026 白金'
+        # Verificar que antes _clean_name lo modificaría (documenta por qué importa el cambio)
+        self.assertNotEqual(_clean_name(raw_name), raw_name)
+
+        self._run([{
+            'name': raw_name, 'sku': 'MTEST001', 'price_mxn': 500,
+            'category': 'General', 'category_id': '__default__',
+            'images': [], 'sizes': [], 'colors': [],
+        }])
+
+        p = Product.objects.filter(supplier_url__contains='MTEST001').first()
+        self.assertIsNotNone(p, 'Producto no creado por _load_modaverse')
+        self.assertEqual(p.name, raw_name)
+        self.assertEqual(p.modaverse_name, raw_name)
+
+    def test_raw_name_igual_cuando_clean_no_modifica(self):
+        """'HELL3004' no tiene sufijo de precio ni CJK → name=modaverse_name=raw."""
+        raw_name = 'HELL3004'
+        self.assertEqual(_clean_name(raw_name), raw_name)
+
+        self._run([{
+            'name': raw_name, 'sku': 'MTEST002', 'price_mxn': 500,
+            'category': 'General', 'category_id': '__default__',
+            'images': [], 'sizes': [], 'colors': [],
+        }])
+
+        p = Product.objects.filter(supplier_url__contains='MTEST002').first()
+        self.assertIsNotNone(p)
+        self.assertEqual(p.modaverse_name, raw_name)
