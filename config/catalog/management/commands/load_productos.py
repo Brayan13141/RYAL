@@ -347,6 +347,12 @@ class Command(BaseCommand):
                         self._apply_variants(
                             prod, p.get('sizes', []), p.get('colors', [])
                         )
+                        # Actualizar nombre si el JSON trae uno más completo
+                        new_name = _clean_name(p.get('name') or '')
+                        if (new_name and new_name.strip().lower() not in _SKIP_NAMES
+                                and prod.name != new_name):
+                            prod.name = new_name
+                            prod.save(update_fields=['name'])
                         # Reclasificar si la categoría cambió dentro del mismo scope
                         if filter_ids is not None:
                             new_cat = cat_map.get(p.get('category_id', ''))
