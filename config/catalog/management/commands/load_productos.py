@@ -347,12 +347,17 @@ class Command(BaseCommand):
                         self._apply_variants(
                             prod, p.get('sizes', []), p.get('colors', [])
                         )
-                        # Actualizar nombre si el JSON trae uno más completo
-                        new_name = _clean_name(p.get('name') or '')
-                        if (new_name and new_name.strip().lower() not in _SKIP_NAMES
-                                and prod.name != new_name):
-                            prod.name = new_name
-                            prod.save(update_fields=['name'])
+                        # Actualizar nombre exacto de Modaverse
+                        raw_name = (p.get('name') or '').strip()
+                        changed_fields = []
+                        if raw_name and raw_name.lower() not in _SKIP_NAMES and prod.name != raw_name:
+                            prod.name = raw_name
+                            changed_fields.append('name')
+                        if raw_name and prod.modaverse_name != raw_name:
+                            prod.modaverse_name = raw_name
+                            changed_fields.append('modaverse_name')
+                        if changed_fields:
+                            prod.save(update_fields=changed_fields)
                         # Reclasificar si la categoría cambió dentro del mismo scope
                         if filter_ids is not None:
                             new_cat = cat_map.get(p.get('category_id', ''))
@@ -415,10 +420,11 @@ class Command(BaseCommand):
             if prefix not in prefix_counters:
                 prefix_counters[prefix] = _next_sku_index(prefix)
 
-            name = _clean_name(p.get('name') or '')
+            raw_name = (p.get('name') or '').strip()
             # Filtrar entradas informativas que no son productos reales
-            if not name or name.strip().lower() in _SKIP_NAMES:
+            if not raw_name or raw_name.lower() in _SKIP_NAMES:
                 continue
+            name = raw_name   # Guardar nombre exacto de Modaverse
 
             # Precio: usar el de la API; si es 0/None, usar default por categoría padre
             root_slug = slugify((cat_obj.parent or cat_obj).name)
@@ -442,6 +448,7 @@ class Command(BaseCommand):
                 no_images=no_images,
                 sizes=p.get('sizes', []),
                 colors=p.get('colors', []),
+                modaverse_name=raw_name,
             )
             if created:
                 existing_urls.add(supplier_url)
@@ -735,7 +742,7 @@ class Command(BaseCommand):
 
     def _create_product(self, sku, name, category, base_price, description,
                         supplier_url, images, tag, no_images, img_referer=None,
-                        sizes=None, colors=None):
+                        sizes=None, colors=None, modaverse_name=''):
         if supplier_url and Product.objects.filter(supplier_url=supplier_url).exists():
             return False
         if Product.objects.filter(sku=sku).exists():
@@ -745,7 +752,7 @@ class Command(BaseCommand):
         product = Product.objects.create(
             sku=sku, name=name, category=category, base_price=base_price,
             description=description, supplier_url=supplier_url,
-            status='available', is_active=True,
+            status='available', is_active=True, modaverse_name=modaverse_name,
         )
         product.tags.add(tag)
 

@@ -103,6 +103,11 @@ class Product(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='available')
     tags = models.ManyToManyField(Tag, blank=True)
     supplier_url = models.URLField(blank=True, help_text='URL del producto en el proveedor')
+    modaverse_name = models.CharField(
+        max_length=500, blank=True, default='',
+        help_text='Nombre crudo de Modaverse (productName sin _clean_name). '
+                  'Se usa para encontrar el producto en el carrito de Modaverse.',
+    )
     is_active   = models.BooleanField(default=True)
     auto_deactivated = models.BooleanField(
         default=False,

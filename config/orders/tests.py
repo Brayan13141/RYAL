@@ -6,6 +6,101 @@ from django.urls import reverse
 
 from catalog.models import Category, Product, ProductImage, SizeGroup
 from orders.views import _cart_key
+from orders.management.commands.sync_modaverse_order import Command as SyncCmd
+
+
+# ── Fix A: _names_match word-boundary ────────────────────────────────────────
+
+class NamesMatchTests(TestCase):
+    """_names_match NO debe matchear substrings que se extienden sin espacio."""
+
+    def _m(self, a, b):
+        return SyncCmd._names_match(a, b)
+
+    # Casos que DEBEN matchear
+    def test_exact_match(self):
+        self.assertTrue(self._m("9026", "9026"))
+
+    def test_exact_match_mixed_case(self):
+        self.assertTrue(self._m("Air Force 1", "air force 1"))
+
+    def test_longer_description_con_espacio(self):
+        # "Air Force 1" SÍ debe matchear "Air Force 1 Low White"
+        self.assertTrue(self._m("Air Force 1", "Air Force 1 Low White"))
+
+    def test_reverse_longer_with_space(self):
+        # "Jordan 1 Low" contiene "Jordan 1" → match
+        self.assertTrue(self._m("Jordan 1 Low", "Jordan 1"))
+
+    def test_model_code_exact(self):
+        self.assertTrue(self._m("RJ-003", "RJ-003"))
+
+    # Casos que NO deben matchear (root cause de item 1)
+    def test_no_match_cjk_color_suffix(self):
+        # "9026" NO debe matchear "9026白" (variante de color diferente)
+        self.assertFalse(self._m("9026", "9026白"))
+
+    def test_no_match_cjk_color_suffix_2(self):
+        self.assertFalse(self._m("9005", "9005黑"))
+
+    def test_no_match_digit_suffix(self):
+        # "白金-10" NO debe matchear "白金-109" (modelo diferente)
+        self.assertFalse(self._m("白金-10", "白金-109"))
+
+    def test_no_match_digit_suffix_2(self):
+        # "玫瑰金-10" NO debe matchear "玫瑰金-109"
+        self.assertFalse(self._m("玫瑰金-10", "玫瑰金-109"))
+
+    def test_no_match_dash_color_suffix(self):
+        # "RJ-003" NO debe matchear "RJ-003-BLACK"
+        self.assertFalse(self._m("RJ-003", "RJ-003-BLACK"))
+
+    def test_no_match_jordan_1_vs_jordan_10(self):
+        # "Jordan 1" NO debe matchear "Jordan 10"
+        self.assertFalse(self._m("Jordan 1", "Jordan 10"))
+
+    def test_empty_a_no_match(self):
+        self.assertFalse(self._m("", "Air Force 1"))
+
+    def test_empty_b_no_match(self):
+        self.assertFalse(self._m("Air Force 1", ""))
+
+    def test_both_empty_no_match(self):
+        self.assertFalse(self._m("", ""))
+
+
+# ── Fix B: _card_name_ok reemplaza el bypass "if not name" ───────────────────
+
+class CardNameOkTests(TestCase):
+    """
+    _card_name_ok(name, mv_name, card_name) verifica si la tarjeta es la correcta.
+    Sin nombre NI mv_name → confiar solo en PID (retorna True).
+    Con mv_name → DEBE verificar (no bypass por name vacío).
+    """
+
+    def _ok(self, name, mv_name, card_name):
+        return SyncCmd._card_name_ok(name, mv_name, card_name)
+
+    def test_sin_nombre_ni_mv_acepta_cualquier_card(self):
+        # Sin información de nombre, confiamos en el PID — aceptar
+        self.assertTrue(self._ok("", "", "Jordan 1 High"))
+
+    def test_con_mv_name_verifica_aunque_name_vacio(self):
+        # mv_name="9026", card="9026白" → NO debe aceptar (modelo diferente)
+        self.assertFalse(self._ok("", "9026", "9026白"))
+
+    def test_con_mv_name_acepta_match_exacto(self):
+        self.assertTrue(self._ok("", "9026", "9026"))
+
+    def test_name_correcto_acepta(self):
+        self.assertTrue(self._ok("Jordan 1", "", "Jordan 1 High"))
+
+    def test_name_incorrecto_rechaza(self):
+        self.assertFalse(self._ok("Jordan 1", "", "Nike Dunk Low"))
+
+    def test_name_vacio_mv_incorrecto_rechaza(self):
+        # Si mv_name no coincide, debe rechazar aunque name esté vacío
+        self.assertFalse(self._ok("", "Jordan 1", "Nike Dunk Low"))
 
 
 class CartKeyColorTests(TestCase):

@@ -83,13 +83,16 @@ class Command(BaseCommand):
             # sobre el snapshot congelado al crear el pedido
             try:
                 current_name = item.order_item.product.name or ''
+                mv_name = item.order_item.product.modaverse_name or ''
             except Exception:
                 current_name = ''
+                mv_name = ''
             name = current_name or item.order_item.name_snapshot
             items_data.append({
                 'id':           item.id,
                 'sku':          item.order_item.sku_snapshot,
                 'name':         name,
+                'mv_name':      mv_name,
                 'supplier_url': item.supplier_url,
                 'variant':      item.variant_target,
                 'quantity':     item.order_item.quantity,
@@ -719,12 +722,38 @@ class Command(BaseCommand):
 
     @staticmethod
     def _names_match(our_name: str, card_name: str) -> bool:
-        """True si los nombres son suficientemente similares (tolerante a variaciones de modaverse)."""
+        """
+        True si los nombres son suficientemente similares.
+
+        Substring match solo se acepta cuando el match termina en espacio o fin
+        de string — evita que "9026" matchee "9026白" o "白金-10" matchee "白金-109".
+        """
         a = our_name.strip().lower()
         b = card_name.strip().lower()
         if not a or not b:
             return False
-        return a == b or a in b or b in a
+        if a == b:
+            return True
+        for haystack, needle in ((b, a), (a, b)):
+            idx = haystack.find(needle)
+            if idx < 0:
+                continue
+            end = idx + len(needle)
+            after = haystack[end] if end < len(haystack) else ''
+            if not after or after == ' ':
+                return True
+        return False
+
+    @staticmethod
+    def _card_name_ok(name: str, mv_name: str, card_name: str) -> bool:
+        """True si card_name es compatible con name/mv_name.
+        Sin ningún nombre disponible, confiar en PID (retorna True)."""
+        if not name and not mv_name:
+            return True
+        return (
+            (bool(name) and Command._names_match(name, card_name)) or
+            (bool(mv_name) and Command._names_match(mv_name, card_name))
+        )
 
     def _card_name(self, card) -> str:
         """Devuelve el texto del .pro_name de una card, o '' si falla."""
@@ -745,14 +774,16 @@ class Command(BaseCommand):
         4. Nombre parcial (primera palabra significativa) → verificar pid
         5. Única card → solo si nombre coincide
         """
-        pid  = self._extract_pid(data.get('supplier_url', ''))
-        name = (data.get('name') or '').strip()
+        pid     = self._extract_pid(data.get('supplier_url', ''))
+        name    = (data.get('name') or '').strip()
+        db_mv   = (data.get('mv_name') or '').strip()   # Product.modaverse_name
 
         # 1. Pid en XHR → nombre exacto de modaverse → búsqueda en DOM
         if pid and getattr(self, '_page_product_pids', []):
             try:
                 idx = self._page_product_pids.index(pid)
-                mv_name = getattr(self, '_page_pid_names', {}).get(pid, '')
+                # Preferir mv_name del XHR; fallback a mv_name de la BD
+                mv_name = getattr(self, '_page_pid_names', {}).get(pid, '') or db_mv
                 if mv_name:
                     # Buscar por nombre exacto de modaverse (más fiable que índice)
                     card_by_mv = page.locator(
@@ -766,7 +797,7 @@ class Command(BaseCommand):
                 card = page.locator('.product_item').nth(idx)
                 if card.count() > 0:
                     cn = self._card_name(card)
-                    if not name or self._names_match(name, cn) or (mv_name and self._names_match(mv_name, cn)):
+                    if self._card_name_ok(name, mv_name, cn):
                         self.stdout.write(f'  [card] pid@{idx} mv="{mv_name}" cn="{cn}" ✓')
                         return card
                     self.stdout.write(f'  [card] pid@{idx} cn="{cn}" ≠ name="{name}" mv="{mv_name}" — descartado')
@@ -782,19 +813,20 @@ class Command(BaseCommand):
             if idx >= 0:
                 card = page.locator('.product_item').nth(idx)
                 cn = self._card_name(card)
-                if not name or self._names_match(name, cn):
+                if self._card_name_ok(name, db_mv, cn):
                     self.stdout.write(f'  [card] pid-html@{idx} "{cn}" ✓')
                     return card
-                self.stdout.write(f'  [card] pid-html@{idx} nombre="{cn}" ≠ "{name}" — descartado')
+                self.stdout.write(f'  [card] pid-html@{idx} nombre="{cn}" ≠ "{name}" mv="{db_mv}" — descartado')
 
-        # 3. Nombre exacto → confirmar pid en outerHTML si tenemos uno
-        if name:
-            card = page.locator(f'.product_item:has(.pro_name:has-text("{name}"))').first
-            if card.count() > 0:
-                cn = self._card_name(card)
-                if not pid or self._names_match(name, cn):
+        # 3. Nombre exacto → iterar todos los matches y verificar con _names_match
+        # Buscar también por modaverse_name si está disponible
+        search_name = name or db_mv
+        if search_name:
+            for candidate in page.locator(f'.product_item:has(.pro_name:has-text("{search_name}"))').all():
+                cn = self._card_name(candidate)
+                if self._card_name_ok(name, db_mv, cn):
                     self.stdout.write(f'  [card] nombre-exacto "{cn}" ✓')
-                    return card
+                    return candidate
 
         # 4. Primera palabra significativa del nombre (≥4 chars)
         words = [w for w in name.split() if len(w) >= 4]
