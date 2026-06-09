@@ -14,7 +14,7 @@ from django.core.files.base import ContentFile
 from django.utils.text import slugify
 from django.core.management.base import BaseCommand
 
-from catalog.models import Category, Product, ProductImage, Tag, SizeGroup
+from catalog.models import Category, PendingProduct, Product, ProductImage, Tag, SizeGroup
 from catalog.modaverse import pid_from_url, category_filter_ids, read_modaverse_json
 
 
@@ -193,7 +193,11 @@ class Command(BaseCommand):
             .exclude(supplier_url__isnull=True)
             .values_list('supplier_url', flat=True)
         )
-        self.stdout.write(f'✓ {len(existing_urls)} productos ya en BD (skip automático)')
+        # Agregar pendientes para no volverlos a encolar en la misma sesión
+        existing_urls |= set(
+            PendingProduct.objects.values_list('supplier_url', flat=True)
+        )
+        self.stdout.write(f'✓ {len(existing_urls)} productos ya en BD o en cola (skip automático)')
 
         if only in ('modaverse', 'all'):
             self._load_modaverse(tag_nuevo, no_images, existing_urls, category)
@@ -459,7 +463,7 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                f'  → {new_count} nuevos · {skip_count} ya existían (omitidos)'
+                f'  → {new_count} pendientes de aprobación · {skip_count} ya existían (omitidos)'
                 + (f' · {reclassified_count} recategorizados' if reclassified_count else '')
             )
         )
@@ -749,31 +753,27 @@ class Command(BaseCommand):
             self.stdout.write(f'    ↩ {sku} ya existe')
             return False
 
-        product = Product.objects.create(
-            sku=sku, name=name, category=category, base_price=base_price,
-            description=description, supplier_url=supplier_url,
-            status='available', is_active=True, modaverse_name=modaverse_name,
+        # Pre-calcular size_group para que approve() no tenga que reimportar
+        sg = get_or_create_size_group(sizes) if sizes else None
+
+        key = supplier_url or f'pending://{sku}'
+        _, created = PendingProduct.objects.get_or_create(
+            supplier_url=key,
+            defaults={
+                'display_name':   name,
+                'modaverse_name': modaverse_name or name,
+                'category':       category,
+                'base_price':     base_price,
+                'raw_data': {
+                    'sku':            sku,
+                    'size_group_pk':  sg.pk if sg else None,
+                    'variant_colors': list(colors) if colors else [],
+                    'description':    description,
+                },
+            },
         )
-        product.tags.add(tag)
-
-        if sizes or colors:
-            self._apply_variants(product, sizes or [], colors or [])
-
-        if not no_images and images:
-            for order, img_url in enumerate(images[:250]):
-                if not img_url:
-                    continue
-                img_bytes = _download_image(img_url, referer=img_referer)
-                if img_bytes:
-                    ext = _get_ext(img_url)
-                    pi = ProductImage(
-                        product=product,
-                        is_cover=(order == 0),
-                        display_order=order,
-                    )
-                    pi.image.save(f"{sku}_{order}.{ext}", ContentFile(img_bytes), save=True)
-
-        self.stdout.write(
-            f'    ✓ {sku} — {name[:40]} → {category.name} (${base_price:.0f} → ${product.final_price:.0f} MXN)'
-        )
-        return True
+        if created:
+            self.stdout.write(
+                f'    ⏳ {sku} — {name[:40]} → pendiente de aprobación'
+            )
+        return created
