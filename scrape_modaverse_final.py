@@ -54,7 +54,15 @@ _ap.add_argument(
     help='Sobreescribir el JSON completo en lugar de fusionar con el existente '
          '(solo relevante con --category).',
 )
+_ap.add_argument(
+    '--no-browser', action='store_true',
+    help='Forzar modo httpx puro (sin scrapling/Playwright). Útil en servidores sin Chromium.',
+)
 _args = _ap.parse_args()
+
+# --no-browser fuerza el modo httpx aunque scrapling esté instalado
+if _HAS_SCRAPLING and _args.no_browser:
+    _HAS_SCRAPLING = False
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
