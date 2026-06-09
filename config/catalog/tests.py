@@ -3,7 +3,7 @@ from io import StringIO
 from unittest.mock import patch
 
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from catalog.management.commands.import_images import _pid_from_url
@@ -474,6 +474,7 @@ class LoadProductosEnriqueceExistentesTests(TestCase):
         self.assertEqual(Product.objects.filter(supplier_url__icontains='PR001').count(), 1)
 
 
+@override_settings(STATICFILES_STORAGE='django.contrib.staticfiles.storage.StaticFilesStorage')
 class ProductDetailColorContextTests(TestCase):
     """product_detail pasa variant_colors al contexto y pinta los chips."""
 
@@ -760,9 +761,11 @@ class ProductModaverseNameFieldTest(TestCase):
 
 
 class CreateProductModaverseNameTest(TestCase):
-    """_create_product guarda modaverse_name (nombre crudo de Modaverse)."""
+    """_create_product crea PendingProduct con modaverse_name (productos nuevos van a cola de revisión)."""
 
     def setUp(self):
+        from catalog.models import PendingProduct
+        self.PendingProduct = PendingProduct
         self.cat = Category.objects.create(name='MvTest2', slug='mvtest2')
         self.tag = Tag.objects.create(name='mvtest-tag')
         from io import StringIO
@@ -770,7 +773,7 @@ class CreateProductModaverseNameTest(TestCase):
         self.cmd.stdout = StringIO()
         self.cmd.style = DjBaseCmd().style
 
-    def test_crea_producto_con_modaverse_name(self):
+    def test_crea_pendiente_con_modaverse_name(self):
         created = self.cmd._create_product(
             sku='RYL-MV-010',
             name='9026',
@@ -784,32 +787,36 @@ class CreateProductModaverseNameTest(TestCase):
             modaverse_name='9026白金',
         )
         self.assertTrue(created)
-        p = Product.objects.get(sku='RYL-MV-010')
+        p = self.PendingProduct.objects.get(supplier_url__contains='pid123')
         self.assertEqual(p.modaverse_name, '9026白金')
+        self.assertEqual(p.raw_data['sku'], 'RYL-MV-010')
 
-    def test_crea_producto_sin_modaverse_name_default_vacio(self):
+    def test_crea_pendiente_sin_modaverse_name_usa_nombre(self):
+        """Sin modaverse_name explícito, el pending usa 'name' como fallback."""
         created = self.cmd._create_product(
             sku='RYL-MV-011',
             name='Jordan 1',
             category=self.cat,
             base_price=Decimal('500'),
             description='',
-            supplier_url='',
+            supplier_url='https://www.modaverse.vip/#/proinfo/pid124',
             images=[],
             tag=self.tag,
             no_images=True,
         )
         self.assertTrue(created)
-        p = Product.objects.get(sku='RYL-MV-011')
-        self.assertEqual(p.modaverse_name, '')
+        p = self.PendingProduct.objects.get(supplier_url__contains='pid124')
+        self.assertEqual(p.display_name, 'Jordan 1')
 
 
 class LoadModaverseRawNameTest(TestCase):
-    """_load_modaverse guarda el nombre crudo (antes de _clean_name) en modaverse_name."""
+    """_load_modaverse encola productos nuevos como PendingProduct con nombre crudo."""
 
     CATEGORIES = [{'id': '__default__', 'name_es': 'General', 'subcategories': []}]
 
     def setUp(self):
+        from catalog.models import PendingProduct
+        self.PendingProduct = PendingProduct
         Category.objects.create(name='General', slug='general')
         from io import StringIO
         self.cmd = LoadCmd()
@@ -827,10 +834,9 @@ class LoadModaverseRawNameTest(TestCase):
                 existing_urls=set(), category=None,
             )
 
-    def test_nombre_raw_guardado_en_name_y_modaverse_name(self):
-        """Nombre crudo '9026 白金' → name=raw (sin _clean_name), modaverse_name=raw."""
+    def test_nombre_raw_en_pending_name_y_modaverse_name(self):
+        """Nombre crudo '9026 白金' queda en display_name y modaverse_name del PendingProduct."""
         raw_name = '9026 白金'
-        # Verificar que antes _clean_name lo modificaría (documenta por qué importa el cambio)
         self.assertNotEqual(_clean_name(raw_name), raw_name)
 
         self._run([{
@@ -839,13 +845,13 @@ class LoadModaverseRawNameTest(TestCase):
             'images': [], 'sizes': [], 'colors': [],
         }])
 
-        p = Product.objects.filter(supplier_url__contains='MTEST001').first()
-        self.assertIsNotNone(p, 'Producto no creado por _load_modaverse')
-        self.assertEqual(p.name, raw_name)
+        p = self.PendingProduct.objects.filter(supplier_url__contains='MTEST001').first()
+        self.assertIsNotNone(p, 'PendingProduct no creado por _load_modaverse')
+        self.assertEqual(p.display_name,   raw_name)
         self.assertEqual(p.modaverse_name, raw_name)
 
     def test_raw_name_igual_cuando_clean_no_modifica(self):
-        """'HELL3004' no tiene sufijo de precio ni CJK → name=modaverse_name=raw."""
+        """'HELL3004' queda igual en PendingProduct.modaverse_name."""
         raw_name = 'HELL3004'
         self.assertEqual(_clean_name(raw_name), raw_name)
 
@@ -855,6 +861,104 @@ class LoadModaverseRawNameTest(TestCase):
             'images': [], 'sizes': [], 'colors': [],
         }])
 
-        p = Product.objects.filter(supplier_url__contains='MTEST002').first()
+        p = self.PendingProduct.objects.filter(supplier_url__contains='MTEST002').first()
         self.assertIsNotNone(p)
         self.assertEqual(p.modaverse_name, raw_name)
+
+
+class AutoSyncCatalogScheduleTests(TestCase):
+    """Verifica el mapa día→categoría sin tocar BD ni load_productos."""
+
+    def _kw(self, weekday):
+        from catalog.management.commands.auto_sync_catalog import category_for_weekday
+        entry = category_for_weekday(weekday)
+        return entry[0] if entry else None
+
+    def test_todos_los_dias_tienen_entrada(self):
+        from catalog.management.commands.auto_sync_catalog import category_for_weekday
+        for day in range(7):
+            self.assertIsNotNone(category_for_weekday(day), f'Falta día {day}')
+
+    def test_lunes_es_gorra(self):
+        self.assertIn('gorra', self._kw(0))
+
+    def test_martes_es_deportiva(self):
+        self.assertIn('deportiva', self._kw(1))
+
+    def test_miercoles_es_1a1(self):
+        self.assertIn('1:1', self._kw(2))
+
+    def test_jueves_es_g5(self):
+        self.assertIn('g5', self._kw(3))
+
+    def test_viernes_es_calzado(self):
+        self.assertIn('calzado', self._kw(4))
+
+    def test_sabado_es_auricular(self):
+        self.assertIn('auricular', self._kw(5))
+
+    def test_domingo_es_van_cleef(self):
+        self.assertIn('van cleef', self._kw(6))
+
+    def test_dia_invalido_retorna_none(self):
+        from catalog.management.commands.auto_sync_catalog import category_for_weekday
+        self.assertIsNone(category_for_weekday(7))
+
+
+class PendingProductApproveTests(TestCase):
+    def setUp(self):
+        from catalog.models import PendingProduct
+        self.cat = Category.objects.create(
+            name='Cat Prueba', slug='cat-prueba',
+            shipping_cost=50, profit_margin=100,
+        )
+        self.pending = PendingProduct.objects.create(
+            supplier_url='https://modaverse.vip/#/proinfo/TEST001',
+            display_name='Gorra Prueba',
+            modaverse_name='Gorra Prueba Raw',
+            category=self.cat,
+            base_price=200,
+            raw_data={
+                'sku': 'RYL-TST-001',
+                'variant_colors': ['Rojo', 'Azul'],
+                'description': 'Descripción de prueba',
+            },
+        )
+
+    def test_pendiente_por_defecto(self):
+        self.assertEqual(self.pending.status, 'pending')
+
+    def test_approve_crea_producto(self):
+        product = self.pending.approve()
+        self.assertIsNotNone(product)
+        self.assertEqual(product.sku, 'RYL-TST-001')
+        self.assertEqual(product.name, 'Gorra Prueba')
+        self.assertEqual(product.category, self.cat)
+        self.assertEqual(product.supplier_url, 'https://modaverse.vip/#/proinfo/TEST001')
+
+    def test_approve_marca_como_aprobado(self):
+        self.pending.approve()
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, 'approved')
+        self.assertIsNotNone(self.pending.reviewed_at)
+
+    def test_approve_copia_variant_colors(self):
+        product = self.pending.approve()
+        self.assertEqual(product.variant_colors, ['Rojo', 'Azul'])
+
+    def test_approve_idempotente_no_duplica(self):
+        self.pending.approve()
+        self.pending.approve()
+        self.assertEqual(Product.objects.filter(sku='RYL-TST-001').count(), 1)
+
+    def test_reject_marca_como_rechazado(self):
+        self.pending.reject(notes='No aplica por ahora')
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, 'rejected')
+        self.assertEqual(self.pending.notes, 'No aplica por ahora')
+        self.assertIsNotNone(self.pending.reviewed_at)
+
+    def test_reject_sin_notas(self):
+        self.pending.reject()
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, 'rejected')
