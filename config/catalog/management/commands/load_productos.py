@@ -769,6 +769,7 @@ class Command(BaseCommand):
                     'size_group_pk':  sg.pk if sg else None,
                     'variant_colors': list(colors) if colors else [],
                     'description':    description,
+                    'image_url':      images[0] if images else '',
                 },
             },
         )

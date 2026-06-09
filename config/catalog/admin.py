@@ -74,20 +74,29 @@ class ProductAdmin(admin.ModelAdmin):
 
 @admin.register(PendingProduct)
 class PendingProductAdmin(admin.ModelAdmin):
-    list_display       = ['modaverse_name', 'display_name', 'category', 'base_price', 'status', 'link_proveedor', 'created_at']
+    list_display       = ['thumbnail_img', 'modaverse_name', 'display_name', 'category', 'base_price', 'status', 'link_proveedor', 'created_at']
     list_display_links = ['modaverse_name']
     list_editable      = ['display_name', 'base_price', 'category']
     list_filter        = ['status', 'category__parent']
     search_fields      = ['display_name', 'modaverse_name', 'supplier_url']
-    readonly_fields    = ['modaverse_name', 'supplier_url', 'raw_data', 'created_at', 'reviewed_at']
+    readonly_fields    = ['thumbnail_img', 'modaverse_name', 'supplier_url', 'raw_data', 'created_at', 'reviewed_at']
     actions            = ['approve_selected', 'reject_selected']
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        # Mostrar solo pendientes por defecto; el sidebar permite ver los demás
         if not request.GET.get('status__exact'):
             return qs.filter(status='pending')
         return qs
+
+    @admin.display(description='Foto')
+    def thumbnail_img(self, obj):
+        url = (obj.raw_data or {}).get('image_url', '')
+        if url:
+            return format_html(
+                '<img src="{}" style="height:60px;width:60px;object-fit:cover;border-radius:4px;" loading="lazy">',
+                url,
+            )
+        return format_html('<span style="color:#888;font-size:11px;">—</span>')
 
     @admin.display(description='Proveedor')
     def link_proveedor(self, obj):
