@@ -199,12 +199,13 @@ class PendingProduct(models.Model):
         'Category', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='pending_products',
     )
-    base_price  = models.DecimalField(max_digits=8, decimal_places=2, default=0)
-    raw_data    = models.JSONField(default=dict)
-    status      = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending', db_index=True)
-    notes       = models.TextField(blank=True)
-    created_at  = models.DateTimeField(auto_now_add=True)
-    reviewed_at = models.DateTimeField(null=True, blank=True)
+    base_price   = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    raw_data     = models.JSONField(default=dict)
+    cover_image  = models.ImageField(upload_to='pending/', blank=True)
+    status       = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending', db_index=True)
+    notes        = models.TextField(blank=True)
+    created_at   = models.DateTimeField(auto_now_add=True)
+    reviewed_at  = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         verbose_name = 'Producto pendiente'

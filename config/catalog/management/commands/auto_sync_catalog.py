@@ -105,4 +105,9 @@ class Command(BaseCommand):
         # ── Paso 2: load_productos ────────────────────────────────────────────
         self.stdout.write(f'  ► Cargando productos ({label})...')
         call_command('load_productos', category=keywords, verbosity=options['verbosity'])
+
+        # ── Paso 3: imágenes de productos nuevos pendientes ───────────────────
+        self.stdout.write(f'  ► Descargando imágenes de pendientes...')
+        call_command('import_pending_images', workers=4, verbosity=options['verbosity'])
+
         self.stdout.write(self.style.SUCCESS(f'  ✓ {label} sincronizada.'))
