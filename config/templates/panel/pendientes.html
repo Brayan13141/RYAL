@@ -203,14 +203,14 @@
   {% for pp in page_obj %}
   <div class="col-6 col-sm-4 col-md-3 col-xl-2">
     <div class="pcard h-100">
-      {# ── Foto ── #}
-      {% with img=pp.raw_data.image_url %}
-      {% if img %}
-        <img src="{{ img }}" alt="{{ pp.display_name }}" class="pcard-img" loading="lazy">
+      {# ── Foto: primero imagen local, fallback CDN, fallback placeholder ── #}
+      {% if pp.cover_image %}
+        <img src="{{ pp.cover_image.url }}" alt="{{ pp.display_name }}" class="pcard-img" loading="lazy">
+      {% elif pp.raw_data.image_url %}
+        <img src="{{ pp.raw_data.image_url }}" alt="{{ pp.display_name }}" class="pcard-img" loading="lazy">
       {% else %}
         <div class="pcard-img-placeholder"><i class="bi bi-image"></i></div>
       {% endif %}
-      {% endwith %}
 
       {# ── Formulario inline ── #}
       <form method="post"

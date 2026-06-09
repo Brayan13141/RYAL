@@ -90,7 +90,7 @@ class PendingProductAdmin(admin.ModelAdmin):
 
     @admin.display(description='Foto')
     def thumbnail_img(self, obj):
-        url = (obj.raw_data or {}).get('image_url', '')
+        url = obj.cover_image.url if obj.cover_image else (obj.raw_data or {}).get('image_url', '')
         if url:
             return format_html(
                 '<img src="{}" style="height:60px;width:60px;object-fit:cover;border-radius:4px;" loading="lazy">',
