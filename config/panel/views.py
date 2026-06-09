@@ -18,7 +18,7 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from catalog.models import Category, HeroSlide, Product, ProductImage, Section, SiteConfig, SizeGroup, SubcategorySection, VolumeTier
+from catalog.models import Category, HeroSlide, PendingProduct, Product, ProductImage, Section, SiteConfig, SizeGroup, SubcategorySection, VolumeTier
 from orders.models import Order, OrderItem, SupplierOrder, SupplierOrderItem
 
 _LOGIN = '/accounts/login/'
@@ -1528,3 +1528,78 @@ def supplier_order_status(request, pk):
         'cart_script':    supplier_order.cart_script,
         'items':          items,
     })
+
+
+# ── Productos pendientes de aprobación ────────────────────────────────────────
+
+@_staff
+def pendientes_list(request):
+    status_filter = request.GET.get('status', 'pending')
+    if status_filter not in ('pending', 'approved', 'rejected'):
+        status_filter = 'pending'
+
+    qs = (PendingProduct.objects
+          .select_related('category', 'category__parent')
+          .order_by('-created_at'))
+    if status_filter != 'all':
+        qs = qs.filter(status=status_filter)
+
+    counts = {
+        'pending':  PendingProduct.objects.filter(status='pending').count(),
+        'approved': PendingProduct.objects.filter(status='approved').count(),
+        'rejected': PendingProduct.objects.filter(status='rejected').count(),
+    }
+
+    paginator = Paginator(qs, 24)
+    page = paginator.get_page(request.GET.get('page'))
+
+    # Categorías raíz para el selector inline
+    root_cats = (Category.objects
+                 .filter(parent=None, is_active=True)
+                 .prefetch_related('subcategories')
+                 .order_by('name'))
+
+    return render(request, 'panel/pendientes.html', {
+        'page_obj':      page,
+        'status_filter': status_filter,
+        'counts':        counts,
+        'root_cats':     root_cats,
+    })
+
+
+@_staff
+@require_POST
+def pendiente_approve(request, pk):
+    pending = get_object_or_404(PendingProduct, pk=pk, status='pending')
+    name       = request.POST.get('display_name', '').strip()
+    price_raw  = request.POST.get('base_price', '').strip()
+    cat_pk     = request.POST.get('category', '')
+
+    if name:
+        pending.display_name = name
+    if price_raw:
+        try:
+            pending.base_price = Decimal(price_raw)
+        except InvalidOperation:
+            pass
+    if cat_pk:
+        try:
+            pending.category = Category.objects.get(pk=cat_pk)
+        except Category.DoesNotExist:
+            pass
+
+    pending.save(update_fields=['display_name', 'base_price', 'category'])
+    try:
+        pending.approve()
+    except Exception as e:
+        from django.contrib import messages
+        messages.error(request, f'Error al aprobar {pending.display_name}: {e}')
+    return redirect('/panel/pendientes/?status=pending')
+
+
+@_staff
+@require_POST
+def pendiente_reject(request, pk):
+    pending = get_object_or_404(PendingProduct, pk=pk, status='pending')
+    pending.reject(notes=request.POST.get('notes', ''))
+    return redirect('/panel/pendientes/?status=pending')
