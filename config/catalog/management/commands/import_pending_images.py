@@ -6,6 +6,7 @@ Uso:
     python manage.py import_pending_images
     python manage.py import_pending_images --workers 4
     python manage.py import_pending_images --limit 50
+    python manage.py import_pending_images --backfill   # parcha raw_data desde JSON antes de descargar
 """
 import io
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -14,9 +15,11 @@ from urllib.parse import urlparse
 import httpx
 from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand
+from django.db.models import Q
 from PIL import Image, UnidentifiedImageError
 
 from catalog.models import PendingProduct
+from catalog.modaverse import read_modaverse_json, pid_from_url
 
 _ALLOWED_HOSTS = {
     'api.modaverse.vip',
@@ -105,10 +108,51 @@ class Command(BaseCommand):
                             help='Hilos paralelos (default: 4).')
         parser.add_argument('--limit', type=int, default=None,
                             help='Máximo de productos a procesar en esta corrida.')
+        parser.add_argument('--backfill', action='store_true',
+                            help='Lee scraped_modaverse.json y parcha raw_data.image_url '
+                                 'para productos sin URL antes de descargar.')
+
+    def _backfill_from_json(self):
+        """Parcha raw_data['image_url'] usando el JSON scrapeado para productos pre-s8."""
+        data = read_modaverse_json()
+        if not data:
+            self.stdout.write(self.style.WARNING(
+                '  ⚠ scraped_modaverse.json no encontrado — backfill omitido'
+            ))
+            return
+
+        pid_to_img = {
+            p['sku']: p['images'][0]
+            for p in data.get('products', [])
+            if p.get('sku') and p.get('images')
+        }
+        if not pid_to_img:
+            self.stdout.write('  Backfill: JSON sin imágenes, nada que parchar.')
+            return
+
+        qs = PendingProduct.objects.filter(
+            status='pending', cover_image='',
+        ).filter(
+            Q(raw_data__image_url='') | Q(raw_data__image_url__isnull=True)
+        )
+
+        patched = 0
+        for pp in qs:
+            pid = pid_from_url(pp.supplier_url or '')
+            img_url = pid_to_img.get(pid, '')
+            if img_url:
+                pp.raw_data = {**(pp.raw_data or {}), 'image_url': img_url}
+                pp.save(update_fields=['raw_data'])
+                patched += 1
+
+        self.stdout.write(f'  Backfill: {patched} productos actualizados con image_url desde JSON.')
 
     def handle(self, *args, **options):
         workers = options['workers']
         limit   = options['limit']
+
+        if options['backfill']:
+            self._backfill_from_json()
 
         qs = (PendingProduct.objects
               .filter(status='pending', cover_image='')
