@@ -100,6 +100,14 @@ class Command(BaseCommand):
                 'category':     category,
             })
 
+        # qty_map: {pid: desired_qty} para todos los ítems con qty > 1
+        # Se usa al final para corregir todos los qtys de una sola vez
+        qty_map = {
+            self._extract_pid(d['supplier_url']): d['quantity']
+            for d in items_data
+            if d['quantity'] > 1 and self._extract_pid(d['supplier_url'])
+        }
+
         # Agrupar por supplier_url: mismo producto físico va en un solo grupo
         # (preserva el orden de primer aparición)
         item_groups = {}
@@ -154,6 +162,9 @@ class Command(BaseCommand):
                         }
                     results.update(group_results)
                     self._debug_cart_size(page, group[0]['sku'])
+
+                if qty_map:
+                    self._fix_all_qtys(page, qty_map)
 
                 self.stdout.write('\n[pre-export] Estado final del carrito:')
                 self._debug_cart_size(page, 'FINAL')
@@ -962,6 +973,31 @@ class Command(BaseCommand):
                     self.stdout.write(f'    · (nombre especial) ×{item["qty"]}{spec}')
         except Exception as exc:
             self.stdout.write(self.style.WARNING(f'  [cart] Error: {exc}'))
+
+    def _fix_all_qtys(self, page, qty_map: dict):
+        """
+        Corrige num de todos los ítems en shopCarList usando productId como clave.
+        Llamar una sola vez después de que todos los grupos han sido agregados.
+        Necesario porque cada click de btn_2 hace que Vue sobreescriba localStorage
+        desde su estado en memoria (num=1 para todos los ítems previos), revirtiendo
+        los ajustes de _set_last_cart_item_qty de grupos anteriores.
+        """
+        page.evaluate("""
+            (qtyMap) => {
+                try {
+                    const u = JSON.parse(localStorage.getItem('user') || '{}');
+                    if (!u.shopCarList) return;
+                    u.shopCarList.forEach(item => {
+                        const pid = item.productId || '';
+                        if (pid && qtyMap[pid] !== undefined) {
+                            item.num = qtyMap[pid];
+                        }
+                    });
+                    localStorage.setItem('user', JSON.stringify(u));
+                } catch(e) {}
+            }
+        """, qty_map)
+        self.stdout.write('  [fix_qtys] Cantidades corregidas en todos los ítems')
 
     def _set_last_cart_item_qty(self, page, qty: int):
         """
