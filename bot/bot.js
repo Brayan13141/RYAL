@@ -3,7 +3,8 @@ const pino = require('pino')
 const qrcode = require('qrcode-terminal')
 require('dotenv').config()
 
-const { extractPrice, buildRyalForward, computeTotal } = require('./utils')
+const { extractPrice, buildRyalForward, buildImageCaption, markupCaption, cleanCaption, computeTotal } = require('./utils')
+const { createBatchBuffer, MAX_PER_GROUP } = require('./batchBuffer')
 const { acquireAuthLock } = require('./lock')
 
 const AUTH_DIR = '.baileys_auth'
@@ -21,6 +22,7 @@ const DJANGO_URL      = process.env.DJANGO_API_URL || 'http://localhost:8000'
 const DJANGO_KEY      = process.env.DJANGO_API_KEY
 
 const logger = pino({ level: 'info' })
+const batch = createBatchBuffer()
 
 
 async function getDescuento(telefono) {
@@ -37,36 +39,83 @@ async function getDescuento(telefono) {
 }
 
 
+function getText(msg) {
+    return msg.message?.conversation || msg.message?.extendedTextMessage?.text || ''
+}
+
+async function forwardSingleImage(sock, msg, image) {
+    const caption = image.caption || ''
+    const newCaption = buildRyalForward(caption, MARKUP)
+    const buf = await downloadMediaMessage(
+        msg, 'buffer', {},
+        { logger, reuploadRequest: sock.updateMediaMessage }
+    )
+    await sock.sendMessage(RYAL_GID, {
+        image: buf,
+        caption: newCaption,
+        mimetype: image.mimetype || 'image/jpeg',
+    })
+    logger.info('Reenviado al Grupo Ryal (imagen con precio en caption)')
+}
+
+async function flushBatch(sock, text, price) {
+    const finalPrice = price + MARKUP
+    const imageCaption = buildImageCaption(finalPrice)
+    const items = batch.flush(SUPPLIER_GID)
+    logger.info({ count: items.length, finalPrice }, 'Flusheando lote al Grupo Ryal')
+
+    for (const item of items) {
+        try {
+            const img = item.message?.imageMessage
+            const buf = await downloadMediaMessage(
+                item, 'buffer', {},
+                { logger, reuploadRequest: sock.updateMediaMessage }
+            )
+            await sock.sendMessage(RYAL_GID, {
+                image: buf,
+                caption: imageCaption,
+                mimetype: img?.mimetype || 'image/jpeg',
+            })
+        } catch (err) {
+            logger.error({ err: err.message }, 'No se pudo reenviar una imagen del lote — se omite')
+        }
+    }
+
+    const descripcion = cleanCaption(markupCaption(text, MARKUP))
+    await sock.sendMessage(RYAL_GID, { text: descripcion })
+    logger.info('Lote reenviado completo')
+}
+
 async function handleSupplierMessage(sock, msg) {
     if (!FORWARD_TO_RYAL) return
 
     const image = msg.message?.imageMessage
-    if (!image) return
-
-    const caption   = image.caption || ''
-    const origPrice = extractPrice(caption)
-
-    if (!origPrice) {
-        logger.info('Mensaje del proveedor sin precio detectado — no se reenvía')
+    if (image) {
+        const price = extractPrice(image.caption || '')
+        if (price) {
+            // Ruta legacy: imagen con precio en su propio caption → reenvío inmediato.
+            await forwardSingleImage(sock, msg, image)
+            return
+        }
+        // Imagen sin precio → forma parte de un lote; se buffea hasta que llegue el precio.
+        if (batch.size(SUPPLIER_GID) >= MAX_PER_GROUP) {
+            logger.warn('Buffer de lote lleno (>=50) — imagen ignorada')
+            return
+        }
+        batch.addImage(SUPPLIER_GID, msg, Date.now())
+        logger.info({ buffered: batch.size(SUPPLIER_GID) }, 'Imagen de lote buffereada (sin precio)')
         return
     }
 
-    // Marca TODOS los precios (+MARKUP), limpia el mensaje y le pone el pie de Ryal
-    const newCaption = buildRyalForward(caption, MARKUP)
-
-    // reuploadRequest permite recuperar media cuyo cifrado expiró (mensajes no tan frescos)
-    const buffer = await downloadMediaMessage(
-        msg, 'buffer', {},
-        { logger, reuploadRequest: sock.updateMediaMessage }
-    )
-
-    await sock.sendMessage(RYAL_GID, {
-        image:    buffer,
-        caption:  newCaption,
-        mimetype: image.mimetype || 'image/jpeg',
-    })
-
-    logger.info({ origPrice, newPrice: origPrice + MARKUP }, 'Reenviado al Grupo Ryal')
+    // No es imagen → ¿es el mensaje de precio del lote?
+    const text = getText(msg)
+    const price = extractPrice(text)
+    if (!price) return
+    if (batch.size(SUPPLIER_GID) === 0) {
+        logger.info('Precio recibido sin lote pendiente — ignorado')
+        return
+    }
+    await flushBatch(sock, text, price)
 }
 
 
@@ -158,6 +207,12 @@ async function main() {
     // Toma el lock de la sesion ANTES de conectar: si otro proceso ya usa este
     // .baileys_auth (p.ej. el servicio systemd), aborta en vez de invalidar el login.
     acquireAuthLock(AUTH_DIR)
+
+    // Descarta lotes que nunca recibieron precio (TTL 5 min).
+    setInterval(() => {
+        const dropped = batch.purgeExpired(Date.now())
+        if (dropped > 0) logger.warn({ dropped }, 'Lote(s) expirado(s) sin precio — imágenes descartadas')
+    }, 60 * 1000)
 
     const baileys = await import('@whiskeysockets/baileys')
     makeWASocket          = baileys.default
