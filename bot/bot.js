@@ -62,8 +62,9 @@ async function flushBatch(sock, text, price) {
     const finalPrice = price + MARKUP
     const imageCaption = buildImageCaption(finalPrice)
     const items = batch.flush(SUPPLIER_GID)
-    logger.info({ count: items.length, finalPrice }, 'Flusheando lote al Grupo Ryal')
+    logger.info({ count: items.length, finalPrice }, 'Enviando lote al Grupo Ryal')
 
+    let sentCount = 0
     for (const item of items) {
         try {
             const img = item.message?.imageMessage
@@ -76,14 +77,24 @@ async function flushBatch(sock, text, price) {
                 caption: imageCaption,
                 mimetype: img?.mimetype || 'image/jpeg',
             })
+            sentCount++
         } catch (err) {
             logger.error({ err: err.message }, 'No se pudo reenviar una imagen del lote — se omite')
         }
     }
 
-    const descripcion = cleanCaption(markupCaption(text, MARKUP))
-    await sock.sendMessage(RYAL_GID, { text: descripcion })
-    logger.info('Lote reenviado completo')
+    if (sentCount === 0) {
+        logger.warn({ count: items.length }, 'Ninguna imagen del lote se pudo reenviar — no se envía la descripción')
+        return
+    }
+
+    try {
+        const descripcion = cleanCaption(markupCaption(text, MARKUP))
+        await sock.sendMessage(RYAL_GID, { text: descripcion })
+    } catch (err) {
+        logger.error({ err: err.message }, 'No se pudo enviar la descripción del lote')
+    }
+    logger.info({ sentCount }, 'Lote reenviado completo')
 }
 
 async function handleSupplierMessage(sock, msg) {
@@ -209,10 +220,11 @@ async function main() {
     acquireAuthLock(AUTH_DIR)
 
     // Descarta lotes que nunca recibieron precio (TTL 5 min).
-    setInterval(() => {
+    const sweeper = setInterval(() => {
         const dropped = batch.purgeExpired(Date.now())
         if (dropped > 0) logger.warn({ dropped }, 'Lote(s) expirado(s) sin precio — imágenes descartadas')
     }, 60 * 1000)
+    sweeper.unref()
 
     const baileys = await import('@whiskeysockets/baileys')
     makeWASocket          = baileys.default
