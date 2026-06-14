@@ -1,4 +1,4 @@
-const { extractPrice, computeTotal, markupCaption, cleanCaption, buildRyalForward } = require('./utils')
+const { extractPrice, computeTotal, markupCaption, cleanCaption, buildRyalForward, buildImageCaption } = require('./utils')
 
 // Mensajes reales del proveedor (capturados 2026-06-01)
 const MSG_PUMA = `⚜️ *PUMA SUEDE XL*⚜️
@@ -142,5 +142,17 @@ describe('buildRyalForward', () => {
         // pie de Ryal con sus 2 emojis
         expect(out).toContain('↪️ Reenvía esta imagen con las tallas que quieres para tu pedido.')
         expect(out).toContain('🌐 ryalsneackers.com')
+    })
+})
+
+describe('buildImageCaption', () => {
+    test('incluye el precio con $ y el pie de Ryal', () => {
+        const cap = buildImageCaption(400)
+        expect(cap).toContain('$400')
+        expect(cap).toContain('ryalsneackers.com')
+    })
+
+    test('round-trip: extractPrice lee el precio del caption generado', () => {
+        expect(extractPrice(buildImageCaption(450))).toBe(450)
     })
 })
