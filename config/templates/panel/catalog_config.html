@@ -349,6 +349,16 @@
   .sub-sortable-ghost {
     opacity: .35 !important;
   }
+
+  /* ── cat body responsive grid ── */
+  .cc-body-grid {
+    grid-template-columns: 200px 1fr;
+    gap: 24px;
+    align-items: start;
+  }
+  @media (max-width: 768px) {
+    .cc-body-grid { grid-template-columns: 1fr; }
+  }
 </style>
 {% endblock %}
 
@@ -425,8 +435,8 @@
   </div>
 
   <!-- ── Body ── -->
-  <div id="cat-body-{{ cat.pk }}" class="p-card-body"
-    style="display:none;grid-template-columns:200px 1fr;gap:24px;align-items:start;">
+  <div id="cat-body-{{ cat.pk }}" class="p-card-body cc-body-grid"
+    style="display:none;">
 
     <!-- ── Columna izquierda: Portada + Mensaje ── -->
     <div>

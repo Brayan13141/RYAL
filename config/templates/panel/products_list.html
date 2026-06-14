@@ -13,7 +13,7 @@
 
 <!-- ═══ FILTROS ═══════════════════════════════════════════════════════════════ -->
 <form method="get" id="filterForm" class="fbar" style="margin-bottom:10px;flex-wrap:wrap;gap:6px;">
-  <input type="text" name="q" value="{{ q }}" placeholder="Nombre o SKU…" style="width:200px;">
+  <input type="text" name="q" value="{{ q }}" placeholder="Nombre o SKU…" style="flex:1;min-width:140px;max-width:240px;">
   <select name="cat" style="min-width:170px;">
     <option value="">Todas las categorías</option>
     {% for parent in parent_cats %}
