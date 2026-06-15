@@ -300,3 +300,25 @@ class ResumenViewTest(TestCase):
         res = self.client.get('/panel/negocio/')
         self.assertContains(res, '100')  # ganancia bruta
         self.assertContains(res, '50')   # ganancia neta (100 - 50 gastos)
+
+
+class PagoMetodoTest(TestCase):
+    def setUp(self):
+        self.cliente = Cliente.objects.create(nombre='Pos', telefono='5559990000')
+        self.pedido = Pedido.objects.create(
+            cliente=self.cliente, descripcion='x',
+            costo_producto=Decimal('100'), precio_venta=Decimal('200'),
+        )
+
+    def test_metodo_pago_default_efectivo(self):
+        pago = Pago.objects.create(
+            pedido=self.pedido, fecha=datetime.date.today(), monto=Decimal('200'),
+        )
+        self.assertEqual(pago.metodo_pago, 'efectivo')
+
+    def test_metodo_pago_transferencia(self):
+        pago = Pago.objects.create(
+            pedido=self.pedido, fecha=datetime.date.today(),
+            monto=Decimal('200'), metodo_pago='transferencia',
+        )
+        self.assertEqual(pago.metodo_pago, 'transferencia')

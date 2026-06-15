@@ -57,9 +57,21 @@ class Pedido(models.Model):
 
 
 class Pago(models.Model):
+    EFECTIVO = 'efectivo'
+    TRANSFERENCIA = 'transferencia'
+    TARJETA = 'tarjeta'
+    OTRO = 'otro'
+    METODO_CHOICES = [
+        (EFECTIVO, 'Efectivo'),
+        (TRANSFERENCIA, 'Transferencia'),
+        (TARJETA, 'Tarjeta'),
+        (OTRO, 'Otro'),
+    ]
+
     pedido = models.ForeignKey(Pedido, on_delete=models.CASCADE, related_name='pagos')
     fecha = models.DateField()
     monto = models.DecimalField(max_digits=10, decimal_places=2)
+    metodo_pago = models.CharField(max_length=20, choices=METODO_CHOICES, default=EFECTIVO)
     notas = models.CharField(max_length=200, blank=True)
 
     class Meta:
