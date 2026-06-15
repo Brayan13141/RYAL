@@ -495,3 +495,78 @@ class CrearVentaTiendaTest(TestCase):
             cliente=cliente, metodo_pago='efectivo',
         )
         self.assertEqual(pedido.cliente, cliente)
+
+
+import json
+
+
+class PosProductosEndpointTest(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user('pos_staff', password='pass', is_staff=True)
+        self.cat_a = Category.objects.create(name='Gorras', profit_margin=Decimal('100'))
+        self.cat_b = Category.objects.create(name='Tenis', profit_margin=Decimal('100'))
+        Product.objects.create(sku='CAP-001', name='Gorra NY', category=self.cat_a,
+                               base_price=Decimal('150'))
+        Product.objects.create(sku='CAP-002', name='Gorra LA', category=self.cat_a,
+                               base_price=Decimal('150'))
+        Product.objects.create(sku='SNK-001', name='Air Max', category=self.cat_b,
+                               base_price=Decimal('500'))
+        Product.objects.create(sku='OLD-001', name='Inactivo', category=self.cat_a,
+                               base_price=Decimal('10'), is_active=False)
+
+    def test_requiere_staff(self):
+        resp = self.client.get('/panel/negocio/pos/productos/')
+        self.assertIn(resp.status_code, (302, 403))
+
+    def test_lista_solo_activos(self):
+        self.client.login(username='pos_staff', password='pass')
+        resp = self.client.get('/panel/negocio/pos/productos/')
+        data = json.loads(resp.content)
+        skus = {p['sku'] for p in data['productos']}
+        self.assertNotIn('OLD-001', skus)
+        self.assertEqual(len(skus), 3)
+
+    def test_busqueda_por_nombre(self):
+        self.client.login(username='pos_staff', password='pass')
+        resp = self.client.get('/panel/negocio/pos/productos/?q=air')
+        data = json.loads(resp.content)
+        self.assertEqual([p['sku'] for p in data['productos']], ['SNK-001'])
+
+    def test_busqueda_por_sku(self):
+        self.client.login(username='pos_staff', password='pass')
+        resp = self.client.get('/panel/negocio/pos/productos/?q=CAP-001')
+        data = json.loads(resp.content)
+        self.assertEqual([p['sku'] for p in data['productos']], ['CAP-001'])
+
+    def test_filtro_por_categoria(self):
+        self.client.login(username='pos_staff', password='pass')
+        resp = self.client.get(f'/panel/negocio/pos/productos/?categoria={self.cat_b.pk}')
+        data = json.loads(resp.content)
+        self.assertEqual([p['sku'] for p in data['productos']], ['SNK-001'])
+
+    def test_cada_producto_trae_precio_y_nombre(self):
+        self.client.login(username='pos_staff', password='pass')
+        resp = self.client.get('/panel/negocio/pos/productos/?q=CAP-001')
+        prod = json.loads(resp.content)['productos'][0]
+        self.assertEqual(prod['nombre'], 'Gorra NY')
+        # final_price = base 150 + envío 0 + margen 100 = 250
+        self.assertEqual(prod['precio'], '250.00')
+        self.assertIn('imagen_url', prod)
+        self.assertIn('categoria_id', prod)
+
+    def test_sin_filtro_ordena_mas_vendidos_primero(self):
+        # Vende SNK-001 una vez → debe quedar primero en la vista por defecto
+        pedido = Pedido.objects.create(
+            descripcion='x', costo_producto=Decimal('0'), precio_venta=Decimal('0'),
+            origen='tienda', estado=Pedido.PAGADO,
+        )
+        snk = Product.objects.get(sku='SNK-001')
+        PedidoItem.objects.create(
+            pedido=pedido, product=snk, sku_snapshot='SNK-001',
+            nombre_snapshot='Air Max', cantidad=1,
+            costo_unitario=Decimal('500'), precio_unitario=Decimal('900'),
+        )
+        self.client.login(username='pos_staff', password='pass')
+        resp = self.client.get('/panel/negocio/pos/productos/')
+        skus = [p['sku'] for p in json.loads(resp.content)['productos']]
+        self.assertEqual(skus[0], 'SNK-001')  # el más vendido primero

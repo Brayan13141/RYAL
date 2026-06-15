@@ -1,10 +1,13 @@
+import json
 from decimal import Decimal
 from django.contrib.admin.views.decorators import staff_member_required
-from django.db.models import Sum
+from django.core.paginator import Paginator
+from django.db.models import Q, Count, Sum
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404, redirect
 from django.views.decorators.http import require_POST
 
+from catalog.models import Product
 from .forms import ClienteForm, PedidoForm, PagoForm, GastoForm
 from .models import Cliente, Pedido, Pago, Gasto
 
@@ -141,3 +144,59 @@ def resumen(request):
         'total_por_cobrar': total_por_cobrar,
         'n_pendientes': len(pedidos_pendientes),
     })
+
+
+# ── POS ───────────────────────────────────────────────────
+
+PAGE_SIZE = 24  # cards por página
+
+
+@staff_member_required
+def pos_productos(request):
+    """Grid de productos activos para el POS. Filtros: q (nombre/SKU), categoria (pk).
+    Sin filtro = "más vendidos arriba" (agregado de PedidoItem). Paginado. JSON.
+    La búsqueda usa el ORM (parametrizado → sin SQLi)."""
+    qs = (
+        Product.objects.filter(is_active=True)
+        .select_related('category', 'category__parent')
+        .prefetch_related('images')
+    )
+
+    q = (request.GET.get('q') or '').strip()
+    if q:
+        qs = qs.filter(Q(name__icontains=q) | Q(sku__icontains=q))
+
+    categoria = (request.GET.get('categoria') or '').strip()
+    if categoria.isdigit():
+        qs = qs.filter(Q(category_id=int(categoria)) | Q(category__parent_id=int(categoria)))
+
+    if not q and not categoria.isdigit():
+        # Vista por defecto: más vendidos primero (vacío al inicio → cae a recientes)
+        qs = qs.annotate(_vendidos=Count('ventas_items')).order_by(
+            '-_vendidos', 'display_order', '-created_at')
+    else:
+        qs = qs.order_by('display_order', '-created_at')
+
+    try:
+        page_num = max(1, int(request.GET.get('page', 1)))
+    except (TypeError, ValueError):
+        page_num = 1
+    page = Paginator(qs, PAGE_SIZE).get_page(page_num)
+
+    productos = []
+    for p in page.object_list:
+        cover = next((img for img in p.images.all() if img.is_cover), None)
+        if cover is None:
+            cover = next(iter(p.images.all()), None)
+        productos.append({
+            'sku': p.sku,
+            'nombre': p.name,
+            'precio': str(p.final_price),
+            'imagen_url': cover.image.url if cover and cover.image else '',
+            'categoria_id': p.category_id,
+            'categoria_raiz_id': p.category.parent_id or p.category_id,
+            'categoria_nombre': (p.category.parent.name if p.category.parent_id
+                                 else p.category.name),
+        })
+
+    return JsonResponse({'productos': productos, 'has_next': page.has_next()})
