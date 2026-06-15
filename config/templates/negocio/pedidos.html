@@ -16,7 +16,7 @@
         {% for p in pedidos %}
         <tr>
           <td>{{ p.pk }}</td>
-          <td><a href="{% url 'negocio:cliente_detail' p.cliente.pk %}">{{ p.cliente.nombre }}</a></td>
+          <td>{% if p.cliente %}<a href="{% url 'negocio:cliente_detail' p.cliente.pk %}">{{ p.cliente.nombre }}</a>{% else %}Mostrador{% endif %}</td>
           <td>{{ p.descripcion|truncatechars:35 }}</td>
           <td>${{ p.total_a_cobrar }}</td>
           <td>

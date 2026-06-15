@@ -656,3 +656,26 @@ class PosCobrarEndpointTest(TestCase):
         })
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(Pedido.objects.count(), 0)
+
+
+class PedidosNullClienteTest(TestCase):
+    """Regresión: las ventas de tienda tienen cliente=None; las vistas de pedidos
+    no deben romper (NoReverseMatch) al renderizarlas."""
+    def setUp(self):
+        self.staff = User.objects.create_user('plist', password='pass', is_staff=True)
+        self.pedido = Pedido.objects.create(
+            descripcion='Venta mostrador', costo_producto=Decimal('100'),
+            precio_venta=Decimal('200'), origen='tienda', estado=Pedido.PAGADO,
+        )
+
+    def test_lista_pedidos_renderiza_con_venta_mostrador(self):
+        self.client.login(username='plist', password='pass')
+        resp = self.client.get('/panel/negocio/pedidos/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Mostrador')
+
+    def test_detalle_pedido_renderiza_con_venta_mostrador(self):
+        self.client.login(username='plist', password='pass')
+        resp = self.client.get(f'/panel/negocio/pedidos/{self.pedido.pk}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Mostrador')

@@ -8,7 +8,7 @@
   <div class="p-card" style="flex:2;min-width:280px;">
     <div class="p-card-head"><h2>Detalle</h2></div>
     <div class="p-card-body" style="font-size:13px;color:#888;line-height:1.8;">
-      <p>Cliente: <a href="{% url 'negocio:cliente_detail' pedido.cliente.pk %}" style="color:#ddd;">{{ pedido.cliente.nombre }}</a></p>
+      <p>Cliente: {% if pedido.cliente %}<a href="{% url 'negocio:cliente_detail' pedido.cliente.pk %}" style="color:#ddd;">{{ pedido.cliente.nombre }}</a>{% else %}Mostrador{% endif %}</p>
       <p>Fecha: <span style="color:#ddd;">{{ pedido.fecha }}</span></p>
       <p>Descripción: <span style="color:#ddd;">{{ pedido.descripcion }}</span></p>
       <hr style="border-color:#1a1a1a;margin:12px 0;">
