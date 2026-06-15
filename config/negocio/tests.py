@@ -345,3 +345,17 @@ class PedidoTiendaTest(TestCase):
             precio_venta=Decimal('200'), origen='tienda',
         )
         self.assertEqual(p.origen, 'tienda')
+
+    def test_str_con_cliente(self):
+        cliente = Cliente.objects.create(nombre='Juan', telefono='5550000099')
+        p = Pedido.objects.create(
+            cliente=cliente, descripcion='x',
+            costo_producto=Decimal('100'), precio_venta=Decimal('200'),
+        )
+        self.assertEqual(str(p), f'Pedido #{p.pk} — Juan')
+
+    def test_str_sin_cliente_muestra_mostrador(self):
+        p = Pedido.objects.create(
+            descripcion='x', costo_producto=Decimal('100'), precio_venta=Decimal('200'),
+        )
+        self.assertEqual(str(p), f'Pedido #{p.pk} — Mostrador')
