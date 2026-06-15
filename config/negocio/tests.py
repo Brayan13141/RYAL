@@ -570,3 +570,72 @@ class PosProductosEndpointTest(TestCase):
         resp = self.client.get('/panel/negocio/pos/productos/')
         skus = [p['sku'] for p in json.loads(resp.content)['productos']]
         self.assertEqual(skus[0], 'SNK-001')  # el más vendido primero
+
+
+class PosCobrarEndpointTest(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user('cobra_staff', password='pass', is_staff=True)
+        self.cat = Category.objects.create(name='Gorras', profit_margin=Decimal('100'))
+        Product.objects.create(sku='CAP-001', name='Gorra NY', category=self.cat,
+                               base_price=Decimal('150'))
+        self.cliente = Cliente.objects.create(nombre='Ana', telefono='5552223333')
+
+    def _post(self, payload):
+        return self.client.post(
+            '/panel/negocio/pos/cobrar/',
+            data=json.dumps(payload), content_type='application/json',
+        )
+
+    def test_requiere_staff(self):
+        resp = self._post({'lineas': [], 'metodo_pago': 'efectivo'})
+        self.assertIn(resp.status_code, (302, 403))
+
+    def test_cobro_valido_crea_venta(self):
+        self.client.login(username='cobra_staff', password='pass')
+        resp = self._post({
+            'lineas': [{'sku': 'CAP-001', 'cantidad': 2, 'precio_unitario': '250'}],
+            'cliente_id': None, 'metodo_pago': 'efectivo',
+        })
+        self.assertEqual(resp.status_code, 200)
+        data = json.loads(resp.content)
+        self.assertTrue(data['ok'])
+        pedido = Pedido.objects.get(pk=data['pedido_id'])
+        self.assertEqual(pedido.estado, Pedido.PAGADO)
+        self.assertEqual(pedido.precio_venta, Decimal('500'))
+
+    def test_cobro_con_cliente(self):
+        self.client.login(username='cobra_staff', password='pass')
+        resp = self._post({
+            'lineas': [{'sku': 'CAP-001', 'cantidad': 1, 'precio_unitario': '250'}],
+            'cliente_id': self.cliente.pk, 'metodo_pago': 'tarjeta',
+        })
+        data = json.loads(resp.content)
+        pedido = Pedido.objects.get(pk=data['pedido_id'])
+        self.assertEqual(pedido.cliente_id, self.cliente.pk)
+        self.assertEqual(pedido.pagos.get().metodo_pago, 'tarjeta')
+
+    def test_payload_invalido_no_crea_nada(self):
+        self.client.login(username='cobra_staff', password='pass')
+        resp = self._post({
+            'lineas': [{'sku': 'NOPE', 'cantidad': 1, 'precio_unitario': '100'}],
+            'metodo_pago': 'efectivo',
+        })
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(Pedido.objects.count(), 0)
+
+    def test_json_malformado_da_400(self):
+        self.client.login(username='cobra_staff', password='pass')
+        resp = self.client.post(
+            '/panel/negocio/pos/cobrar/', data='no-es-json',
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_cliente_inexistente_da_400(self):
+        self.client.login(username='cobra_staff', password='pass')
+        resp = self._post({
+            'lineas': [{'sku': 'CAP-001', 'cantidad': 1, 'precio_unitario': '250'}],
+            'cliente_id': 999999, 'metodo_pago': 'efectivo',
+        })
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(Pedido.objects.count(), 0)

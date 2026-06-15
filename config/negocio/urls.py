@@ -15,4 +15,5 @@ urlpatterns = [
     path('pedidos/<int:pk>/pago/',       views.pedido_pago_add, name='pedido_pago_add'),
     path('gastos/',                      views.gastos_list,     name='gastos_list'),
     path('pos/productos/',               views.pos_productos,   name='pos_productos'),
+    path('pos/cobrar/',                  views.pos_cobrar,      name='pos_cobrar'),
 ]

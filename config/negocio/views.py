@@ -7,9 +7,12 @@ from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404, redirect
 from django.views.decorators.http import require_POST
 
+from django_ratelimit.decorators import ratelimit
+
 from catalog.models import Product
 from .forms import ClienteForm, PedidoForm, PagoForm, GastoForm
 from .models import Cliente, Pedido, Pago, Gasto
+from .services import crear_venta_tienda, VentaInvalida
 
 
 # ── Clientes ──────────────────────────────────────────────
@@ -200,3 +203,46 @@ def pos_productos(request):
         })
 
     return JsonResponse({'productos': productos, 'has_next': page.has_next()})
+
+
+# ── POS: cobrar ───────────────────────────────────────────
+
+@staff_member_required
+@require_POST
+@ratelimit(key='user', rate='30/m', method='POST', block=True)
+def pos_cobrar(request):
+    """Crea una venta de tienda física. Payload JSON:
+    {lineas:[{sku,cantidad,precio_unitario}], cliente_id?, metodo_pago}.
+    staff-only + POST + CSRF + rate limit. Toda la validación de negocio en el servicio."""
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (ValueError, UnicodeDecodeError):
+        return JsonResponse({'ok': False, 'error': 'JSON inválido'}, status=400)
+
+    lineas = payload.get('lineas')
+    if not isinstance(lineas, list):
+        return JsonResponse({'ok': False, 'error': 'lineas debe ser una lista'}, status=400)
+
+    cliente = None
+    cliente_id = payload.get('cliente_id')
+    if cliente_id not in (None, '', 0):
+        try:
+            cliente = Cliente.objects.get(pk=cliente_id)
+        except (Cliente.DoesNotExist, ValueError, TypeError):
+            return JsonResponse({'ok': False, 'error': 'Cliente no encontrado'}, status=400)
+
+    metodo_pago = payload.get('metodo_pago', Pago.EFECTIVO)
+
+    try:
+        pedido = crear_venta_tienda(
+            lineas=lineas, cliente=cliente, metodo_pago=metodo_pago,
+        )
+    except VentaInvalida as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+
+    return JsonResponse({
+        'ok': True,
+        'pedido_id': pedido.pk,
+        'total': str(pedido.precio_venta),
+        'ganancia': str(pedido.ganancia),
+    })
