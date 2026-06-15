@@ -27,20 +27,32 @@ class Pedido(models.Model):
         (CANCELADO, 'Cancelado'),
     ]
 
-    cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name='pedidos')
+    WHATSAPP = 'whatsapp'
+    TIENDA = 'tienda'
+    ORIGEN_CHOICES = [
+        (WHATSAPP, 'WhatsApp'),
+        (TIENDA, 'Tienda física'),
+    ]
+
+    cliente = models.ForeignKey(
+        Cliente, on_delete=models.PROTECT, related_name='pedidos',
+        null=True, blank=True,
+    )
     fecha = models.DateField(default=datetime.date.today)
-    descripcion = models.TextField()
+    descripcion = models.TextField(blank=True)
     costo_producto = models.DecimalField(max_digits=10, decimal_places=2)
     precio_venta = models.DecimalField(max_digits=10, decimal_places=2)
     envio = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0'))
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default=PENDIENTE)
+    origen = models.CharField(max_length=20, choices=ORIGEN_CHOICES, default=WHATSAPP)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['-fecha', '-created_at']
 
     def __str__(self):
-        return f"Pedido #{self.pk} — {self.cliente.nombre}"
+        nombre = self.cliente.nombre if self.cliente else 'Mostrador'
+        return f"Pedido #{self.pk} — {nombre}"
 
     @property
     def total_a_cobrar(self):

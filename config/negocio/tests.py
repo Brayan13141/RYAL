@@ -322,3 +322,26 @@ class PagoMetodoTest(TestCase):
             monto=Decimal('200'), metodo_pago='transferencia',
         )
         self.assertEqual(pago.metodo_pago, 'transferencia')
+
+
+class PedidoTiendaTest(TestCase):
+    def test_pedido_sin_cliente_es_valido(self):
+        # Venta de mostrador anónima: cliente nullable
+        p = Pedido.objects.create(
+            descripcion='Venta mostrador',
+            costo_producto=Decimal('100'), precio_venta=Decimal('200'),
+        )
+        self.assertIsNone(p.cliente)
+
+    def test_origen_default_whatsapp(self):
+        p = Pedido.objects.create(
+            descripcion='x', costo_producto=Decimal('100'), precio_venta=Decimal('200'),
+        )
+        self.assertEqual(p.origen, 'whatsapp')
+
+    def test_origen_tienda(self):
+        p = Pedido.objects.create(
+            descripcion='x', costo_producto=Decimal('100'),
+            precio_venta=Decimal('200'), origen='tienda',
+        )
+        self.assertEqual(p.origen, 'tienda')
