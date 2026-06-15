@@ -391,6 +391,12 @@
         <i class="bi bi-cash-stack"></i>
         <span class="nav-label">Gastos</span>
       </a>
+      <a href="{% url 'negocio:pos' %}"
+         title="Venta rápida"
+         class="{% if request.resolver_match.url_name == 'pos' %}on{% endif %}">
+        <i class="bi bi-shop"></i>
+        <span class="nav-label">Venta rápida</span>
+      </a>
 
       <div class="p-nav-sec">Catálogo</div>
 

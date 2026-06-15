@@ -1,0 +1,198 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Venta rápida — RYAL{% endblock %}
+{% block page_title %}Venta rápida{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+<div class="pos-wrap">
+  <div class="pos-toolbar">
+    <input id="pos-q" type="search" class="form-control" placeholder="Buscar nombre o SKU…" autocomplete="off">
+    <select id="pos-cat" class="form-select">
+      <option value="">Todas las categorías</option>
+      {% for c in categorias %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}
+    </select>
+  </div>
+
+  <div id="pos-grid" class="pos-grid"></div>
+  <div id="pos-more" class="text-center my-3" style="display:none">
+    <button class="btn btn-outline-secondary" id="pos-more-btn">Cargar más</button>
+  </div>
+
+  <div class="pos-cart">
+    <div id="pos-bulk" class="pos-bulk" style="display:none">
+      <select id="pos-bulk-cat" class="form-select form-select-sm"></select>
+      <input id="pos-bulk-price" type="number" min="0" step="0.01" class="form-control form-control-sm" placeholder="$ precio">
+      <button id="pos-bulk-apply" class="btn btn-sm btn-outline-warning">Aplicar a categoría</button>
+    </div>
+    <div id="pos-lines" class="pos-lines"></div>
+    <div class="pos-cart-foot">
+      <div class="d-flex gap-2 align-items-center">
+        <select id="pos-cliente" class="form-select form-select-sm">
+          <option value="">Mostrador (sin cliente)</option>
+          {% for cl in clientes %}<option value="{{ cl.pk }}">{{ cl.nombre }}</option>{% endfor %}
+        </select>
+        <a href="{% url 'negocio:cliente_create' %}" target="_blank" class="btn btn-sm btn-outline-light" title="Nuevo cliente">+</a>
+      </div>
+      <select id="pos-metodo" class="form-select form-select-sm">
+        <option value="efectivo">Efectivo</option>
+        <option value="transferencia">Transferencia</option>
+        <option value="tarjeta">Tarjeta</option>
+        <option value="otro">Otro</option>
+      </select>
+      <div class="pos-total">Total: $<span id="pos-total">0.00</span></div>
+      <button id="pos-cobrar" class="btn btn-primary w-100" disabled>Cobrar</button>
+    </div>
+  </div>
+</div>
+
+<style>
+  .pos-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:.5rem; }
+  .pos-card { border:1px solid #2a2a2a; border-radius:.5rem; overflow:hidden; cursor:pointer; background:#161616; }
+  .pos-card img { width:100%; aspect-ratio:1; object-fit:cover; display:block; }
+  .pos-card .pos-card-body { padding:.4rem; }
+  .pos-card .pos-name { font-size:.78rem; line-height:1.1; max-height:2.2em; overflow:hidden; }
+  .pos-card .pos-price { font-weight:700; color:#d4af37; }
+  .pos-toolbar { display:flex; gap:.5rem; margin-bottom:.75rem; }
+  .pos-cart { position:sticky; bottom:0; background:#101010; border-top:1px solid #2a2a2a; padding:.5rem; margin-top:1rem; }
+  .pos-line { display:flex; align-items:center; gap:.5rem; padding:.25rem 0; font-size:.85rem; }
+  .pos-line input { width:5rem; }
+  .pos-cart-foot { display:grid; gap:.4rem; margin-top:.5rem; }
+  .pos-bulk { display:flex; gap:.4rem; align-items:center; margin-bottom:.4rem; }
+  .pos-total { font-size:1.1rem; font-weight:700; }
+  @media (min-width:768px){ .pos-cart{ position:static; } }
+</style>
+
+<script>
+(function(){
+  const csrf = document.querySelector('[name=csrfmiddlewaretoken]').value;
+  const grid = document.getElementById('pos-grid');
+  const moreWrap = document.getElementById('pos-more');
+  const moreBtn = document.getElementById('pos-more-btn');
+  const qEl = document.getElementById('pos-q');
+  const catEl = document.getElementById('pos-cat');
+  const linesEl = document.getElementById('pos-lines');
+  const totalEl = document.getElementById('pos-total');
+  const cobrarBtn = document.getElementById('pos-cobrar');
+  const bulkWrap = document.getElementById('pos-bulk');
+  const bulkCat = document.getElementById('pos-bulk-cat');
+  const bulkPrice = document.getElementById('pos-bulk-price');
+  const bulkApply = document.getElementById('pos-bulk-apply');
+
+  let page = 1, loading = false;
+  const cart = new Map();  // sku -> {sku,nombre,precio,cantidad,categoria_raiz_id,categoria_nombre}
+
+  function fmt(n){ return Number(n).toFixed(2); }
+
+  function renderBulk(){
+    const cats = new Map();
+    cart.forEach(it => cats.set(it.categoria_raiz_id, it.categoria_nombre));
+    bulkWrap.style.display = cats.size ? 'flex' : 'none';
+    const prev = bulkCat.value;
+    bulkCat.innerHTML = '';
+    cats.forEach((nombre, id) => {
+      const o = document.createElement('option');
+      o.value = id; o.textContent = nombre; bulkCat.appendChild(o);
+    });
+    if (prev) bulkCat.value = prev;
+  }
+
+  function renderCart(){
+    linesEl.innerHTML = '';
+    let total = 0;
+    cart.forEach(it => {
+      total += Number(it.precio) * it.cantidad;
+      const row = document.createElement('div');
+      row.className = 'pos-line';
+      row.innerHTML = `<span style="flex:1">${it.nombre}</span>
+        <button class="btn btn-sm btn-outline-light" data-dec="${it.sku}">−</button>
+        <span>${it.cantidad}</span>
+        <button class="btn btn-sm btn-outline-light" data-inc="${it.sku}">+</button>
+        <input type="number" min="0" step="0.01" value="${fmt(it.precio)}" data-price="${it.sku}">`;
+      linesEl.appendChild(row);
+    });
+    totalEl.textContent = fmt(total);
+    cobrarBtn.disabled = cart.size === 0;
+    renderBulk();
+  }
+
+  bulkApply.addEventListener('click', () => {
+    const catId = bulkCat.value;
+    const precio = bulkPrice.value;
+    if (catId === '' || precio === '') return;
+    cart.forEach(it => {
+      if (String(it.categoria_raiz_id) === String(catId)) it.precio = precio;
+    });
+    renderCart();
+  });
+
+  function addToCart(p){
+    const ex = cart.get(p.sku);
+    if (ex){ ex.cantidad += 1; } else { cart.set(p.sku, {...p, cantidad:1}); }
+    renderCart();
+  }
+
+  linesEl.addEventListener('click', e => {
+    const inc = e.target.dataset.inc, dec = e.target.dataset.dec;
+    if (inc){ cart.get(inc).cantidad += 1; renderCart(); }
+    if (dec){ const it = cart.get(dec); it.cantidad -= 1; if(it.cantidad<=0) cart.delete(dec); renderCart(); }
+  });
+  linesEl.addEventListener('change', e => {
+    const sku = e.target.dataset.price;
+    if (sku){ cart.get(sku).precio = e.target.value; renderCart(); }
+  });
+
+  function renderCards(items, append){
+    if (!append) grid.innerHTML = '';
+    items.forEach(p => {
+      const card = document.createElement('div');
+      card.className = 'pos-card';
+      card.innerHTML = `${p.imagen_url ? `<img src="${p.imagen_url}" alt="">` : ''}
+        <div class="pos-card-body">
+          <div class="pos-name">${p.nombre}</div>
+          <div class="pos-price">$${fmt(p.precio)}</div>
+        </div>`;
+      card.addEventListener('click', () => addToCart(p));
+      grid.appendChild(card);
+    });
+  }
+
+  function load(append){
+    if (loading) return; loading = true;
+    const params = new URLSearchParams({ q: qEl.value, categoria: catEl.value, page });
+    fetch(`{% url 'negocio:pos_productos' %}?` + params)
+      .then(r => r.json())
+      .then(d => {
+        renderCards(d.productos, append);
+        moreWrap.style.display = d.has_next ? 'block' : 'none';
+        loading = false;
+      });
+  }
+
+  function reset(){ page = 1; load(false); }
+  let t; qEl.addEventListener('input', () => { clearTimeout(t); t = setTimeout(reset, 250); });
+  catEl.addEventListener('change', reset);
+  moreBtn.addEventListener('click', () => { page += 1; load(true); });
+
+  cobrarBtn.addEventListener('click', () => {
+    const lineas = [...cart.values()].map(it => ({
+      sku: it.sku, cantidad: it.cantidad, precio_unitario: String(it.precio),
+    }));
+    cobrarBtn.disabled = true;
+    fetch(`{% url 'negocio:pos_cobrar' %}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+      body: JSON.stringify({
+        lineas,
+        cliente_id: document.getElementById('pos-cliente').value || null,
+        metodo_pago: document.getElementById('pos-metodo').value,
+      }),
+    }).then(r => r.json()).then(d => {
+      if (d.ok){ cart.clear(); renderCart(); alert('Venta registrada. Total $' + d.total); }
+      else { alert('Error: ' + (d.error || 'no se pudo cobrar')); cobrarBtn.disabled = false; }
+    }).catch(() => { alert('Error de red'); cobrarBtn.disabled = false; });
+  });
+
+  reset();
+})();
+</script>
+{% endblock %}

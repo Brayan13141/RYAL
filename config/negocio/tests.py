@@ -497,6 +497,23 @@ class CrearVentaTiendaTest(TestCase):
         self.assertEqual(pedido.cliente, cliente)
 
 
+class PosPantallaTest(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user('pos_ui', password='pass', is_staff=True)
+        self.cat = Category.objects.create(name='Gorras', profit_margin=Decimal('100'))
+
+    def test_pantalla_requiere_staff(self):
+        resp = self.client.get('/panel/negocio/pos/')
+        self.assertIn(resp.status_code, (302, 403))
+
+    def test_pantalla_renderiza_para_staff(self):
+        self.client.login(username='pos_ui', password='pass')
+        resp = self.client.get('/panel/negocio/pos/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Venta rápida')
+        self.assertContains(resp, 'Gorras')  # categoría disponible para el filtro
+
+
 import json
 
 

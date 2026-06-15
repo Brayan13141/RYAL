@@ -9,7 +9,7 @@ from django.views.decorators.http import require_POST
 
 from django_ratelimit.decorators import ratelimit
 
-from catalog.models import Product
+from catalog.models import Category, Product
 from .forms import ClienteForm, PedidoForm, PagoForm, GastoForm
 from .models import Cliente, Pedido, Pago, Gasto
 from .services import crear_venta_tienda, VentaInvalida
@@ -146,6 +146,16 @@ def resumen(request):
         'ganancia_neta': ganancia_neta,
         'total_por_cobrar': total_por_cobrar,
         'n_pendientes': len(pedidos_pendientes),
+    })
+
+
+@staff_member_required
+def pos(request):
+    """Pantalla POS móvil. Pasa categorías raíz (filtro) y clientes (selector)."""
+    categorias = Category.objects.filter(parent__isnull=True).order_by('name')
+    clientes = Cliente.objects.order_by('nombre')
+    return render(request, 'negocio/pos.html', {
+        'categorias': categorias, 'clientes': clientes,
     })
 
 
