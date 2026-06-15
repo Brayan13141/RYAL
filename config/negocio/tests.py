@@ -476,3 +476,22 @@ class CrearVentaTiendaTest(TestCase):
                 lineas=[{'sku': 'CAP-001', 'cantidad': 1, 'precio_unitario': '100'}],
                 cliente=None, metodo_pago='bitcoin',
             )
+
+    def test_segunda_linea_invalida_revierte_todo(self):
+        # línea 1 válida, línea 2 con SKU inexistente → rollback total (atomicidad real)
+        lineas = [
+            {'sku': 'CAP-001', 'cantidad': 1, 'precio_unitario': '250'},
+            {'sku': 'NOPE', 'cantidad': 1, 'precio_unitario': '100'},
+        ]
+        with self.assertRaises(VentaInvalida):
+            crear_venta_tienda(lineas=lineas, cliente=None, metodo_pago='efectivo')
+        self.assertEqual(Pedido.objects.count(), 0)
+        self.assertEqual(PedidoItem.objects.count(), 0)
+
+    def test_cliente_se_asocia_al_pedido(self):
+        cliente = Cliente.objects.create(nombre='Ana', telefono='5557778888')
+        pedido = crear_venta_tienda(
+            lineas=[{'sku': 'CAP-001', 'cantidad': 1, 'precio_unitario': '250'}],
+            cliente=cliente, metodo_pago='efectivo',
+        )
+        self.assertEqual(pedido.cliente, cliente)
