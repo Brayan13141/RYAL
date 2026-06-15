@@ -103,11 +103,32 @@
       total += Number(it.precio) * it.cantidad;
       const row = document.createElement('div');
       row.className = 'pos-line';
-      row.innerHTML = `<span style="flex:1">${it.nombre}</span>
-        <button class="btn btn-sm btn-outline-light" data-dec="${it.sku}">−</button>
-        <span>${it.cantidad}</span>
-        <button class="btn btn-sm btn-outline-light" data-inc="${it.sku}">+</button>
-        <input type="number" min="0" step="0.01" value="${fmt(it.precio)}" data-price="${it.sku}">`;
+
+      const nameSpan = document.createElement('span');
+      nameSpan.style.flex = '1';
+      nameSpan.textContent = it.nombre;
+
+      const decBtn = document.createElement('button');
+      decBtn.className = 'btn btn-sm btn-outline-light';
+      decBtn.dataset.dec = it.sku;
+      decBtn.textContent = '−';
+
+      const qtySpan = document.createElement('span');
+      qtySpan.textContent = it.cantidad;
+
+      const incBtn = document.createElement('button');
+      incBtn.className = 'btn btn-sm btn-outline-light';
+      incBtn.dataset.inc = it.sku;
+      incBtn.textContent = '+';
+
+      const priceInput = document.createElement('input');
+      priceInput.type = 'number';
+      priceInput.min = '0';
+      priceInput.step = '0.01';
+      priceInput.value = fmt(it.precio);
+      priceInput.dataset.price = it.sku;
+
+      row.append(nameSpan, decBtn, qtySpan, incBtn, priceInput);
       linesEl.appendChild(row);
     });
     totalEl.textContent = fmt(total);
@@ -146,11 +167,23 @@
     items.forEach(p => {
       const card = document.createElement('div');
       card.className = 'pos-card';
-      card.innerHTML = `${p.imagen_url ? `<img src="${p.imagen_url}" alt="">` : ''}
-        <div class="pos-card-body">
-          <div class="pos-name">${p.nombre}</div>
-          <div class="pos-price">$${fmt(p.precio)}</div>
-        </div>`;
+      if (p.imagen_url){
+        const img = document.createElement('img');
+        img.src = p.imagen_url;
+        img.alt = '';
+        card.appendChild(img);
+      }
+      const body = document.createElement('div');
+      body.className = 'pos-card-body';
+      const nameEl = document.createElement('div');
+      nameEl.className = 'pos-name';
+      nameEl.textContent = p.nombre;
+      const priceEl = document.createElement('div');
+      priceEl.className = 'pos-price';
+      priceEl.textContent = '$' + fmt(p.precio);
+      body.appendChild(nameEl);
+      body.appendChild(priceEl);
+      card.appendChild(body);
       card.addEventListener('click', () => addToCart(p));
       grid.appendChild(card);
     });
@@ -165,7 +198,8 @@
         renderCards(d.productos, append);
         moreWrap.style.display = d.has_next ? 'block' : 'none';
         loading = false;
-      });
+      })
+      .catch(() => { loading = false; });
   }
 
   function reset(){ page = 1; load(false); }
@@ -186,7 +220,10 @@
         cliente_id: document.getElementById('pos-cliente').value || null,
         metodo_pago: document.getElementById('pos-metodo').value,
       }),
-    }).then(r => r.json()).then(d => {
+    }).then(r => {
+      if (!r.ok && r.status !== 400) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(d => {
       if (d.ok){ cart.clear(); renderCart(); alert('Venta registrada. Total $' + d.total); }
       else { alert('Error: ' + (d.error || 'no se pudo cobrar')); cobrarBtn.disabled = false; }
     }).catch(() => { alert('Error de red'); cobrarBtn.disabled = false; });
