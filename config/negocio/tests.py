@@ -4,6 +4,7 @@ from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from negocio.models import Cliente, Pedido, Pago, Gasto, PedidoItem
 from catalog.models import Category, Product
+from negocio.services import crear_venta_tienda, VentaInvalida
 
 
 class ClienteModelTest(TestCase):
@@ -391,3 +392,87 @@ class PedidoItemTest(TestCase):
         item.refresh_from_db()
         self.assertIsNone(item.product)
         self.assertEqual(item.nombre_snapshot, 'Gorra NY')   # snapshot intacto
+
+
+class CrearVentaTiendaTest(TestCase):
+    def setUp(self):
+        self.cat = Category.objects.create(name='Gorras', profit_margin=Decimal('100'))
+        self.p1 = Product.objects.create(
+            sku='CAP-001', name='Gorra NY', category=self.cat, base_price=Decimal('150'),
+        )
+        self.p2 = Product.objects.create(
+            sku='CAP-002', name='Gorra LA', category=self.cat, base_price=Decimal('100'),
+        )
+        self.inactivo = Product.objects.create(
+            sku='OLD-001', name='Viejo', category=self.cat,
+            base_price=Decimal('50'), is_active=False,
+        )
+
+    def test_crea_pedido_pagado_con_items_y_pago(self):
+        lineas = [
+            {'sku': 'CAP-001', 'cantidad': 2, 'precio_unitario': '250'},
+            {'sku': 'CAP-002', 'cantidad': 1, 'precio_unitario': '200'},
+        ]
+        pedido = crear_venta_tienda(lineas=lineas, cliente=None, metodo_pago='efectivo')
+        self.assertEqual(pedido.origen, 'tienda')
+        self.assertEqual(pedido.estado, Pedido.PAGADO)
+        self.assertIsNone(pedido.cliente)
+        self.assertEqual(pedido.items.count(), 2)
+        self.assertEqual(pedido.precio_venta, Decimal('700'))
+        self.assertEqual(pedido.costo_producto, Decimal('400'))
+        self.assertEqual(pedido.ganancia, Decimal('300'))
+        self.assertEqual(pedido.balance_pendiente, Decimal('0'))
+        pago = pedido.pagos.get()
+        self.assertEqual(pago.monto, Decimal('700'))
+        self.assertEqual(pago.metodo_pago, 'efectivo')
+
+    def test_costo_se_toma_del_servidor_no_del_cliente(self):
+        lineas = [{'sku': 'CAP-001', 'cantidad': 1, 'precio_unitario': '250',
+                   'costo_unitario': '0'}]
+        pedido = crear_venta_tienda(lineas=lineas, cliente=None, metodo_pago='efectivo')
+        self.assertEqual(pedido.items.get().costo_unitario, Decimal('150'))
+
+    def test_descripcion_autogenerada(self):
+        lineas = [{'sku': 'CAP-001', 'cantidad': 2, 'precio_unitario': '250'}]
+        pedido = crear_venta_tienda(lineas=lineas, cliente=None, metodo_pago='efectivo')
+        self.assertIn('Gorra NY', pedido.descripcion)
+        self.assertIn('2', pedido.descripcion)
+
+    def test_sku_inexistente_rechaza_y_no_crea_nada(self):
+        lineas = [{'sku': 'NOPE', 'cantidad': 1, 'precio_unitario': '100'}]
+        with self.assertRaises(VentaInvalida):
+            crear_venta_tienda(lineas=lineas, cliente=None, metodo_pago='efectivo')
+        self.assertEqual(Pedido.objects.count(), 0)
+
+    def test_producto_inactivo_rechaza(self):
+        lineas = [{'sku': 'OLD-001', 'cantidad': 1, 'precio_unitario': '100'}]
+        with self.assertRaises(VentaInvalida):
+            crear_venta_tienda(lineas=lineas, cliente=None, metodo_pago='efectivo')
+        self.assertEqual(Pedido.objects.count(), 0)
+
+    def test_cantidad_invalida_rechaza(self):
+        for bad in [0, -1, 'x']:
+            with self.assertRaises(VentaInvalida):
+                crear_venta_tienda(
+                    lineas=[{'sku': 'CAP-001', 'cantidad': bad, 'precio_unitario': '100'}],
+                    cliente=None, metodo_pago='efectivo',
+                )
+        self.assertEqual(Pedido.objects.count(), 0)
+
+    def test_precio_negativo_rechaza(self):
+        with self.assertRaises(VentaInvalida):
+            crear_venta_tienda(
+                lineas=[{'sku': 'CAP-001', 'cantidad': 1, 'precio_unitario': '-5'}],
+                cliente=None, metodo_pago='efectivo',
+            )
+
+    def test_lineas_vacias_rechaza(self):
+        with self.assertRaises(VentaInvalida):
+            crear_venta_tienda(lineas=[], cliente=None, metodo_pago='efectivo')
+
+    def test_metodo_pago_invalido_rechaza(self):
+        with self.assertRaises(VentaInvalida):
+            crear_venta_tienda(
+                lineas=[{'sku': 'CAP-001', 'cantidad': 1, 'precio_unitario': '100'}],
+                cliente=None, metodo_pago='bitcoin',
+            )
