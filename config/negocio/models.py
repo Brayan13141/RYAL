@@ -113,3 +113,32 @@ class Gasto(models.Model):
 
     def __str__(self):
         return f"{self.descripcion} — ${self.monto}"
+
+
+class PedidoItem(models.Model):
+    """Línea de una venta. Snapshots de SKU/nombre/costo para preservar el
+    historial aunque el producto del catálogo cambie o se borre."""
+    pedido = models.ForeignKey('Pedido', on_delete=models.CASCADE, related_name='items')
+    product = models.ForeignKey(
+        'catalog.Product', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='ventas_items',  # permite agregar "más vendidos" por producto
+    )
+    sku_snapshot = models.CharField(max_length=100)
+    nombre_snapshot = models.CharField(max_length=200)
+    cantidad = models.PositiveIntegerField(default=1)
+    costo_unitario = models.DecimalField(max_digits=10, decimal_places=2)
+    precio_unitario = models.DecimalField(max_digits=10, decimal_places=2)
+
+    class Meta:
+        ordering = ['pk']
+
+    def __str__(self):
+        return f"{self.nombre_snapshot} ×{self.cantidad}"
+
+    @property
+    def subtotal(self):
+        return self.precio_unitario * self.cantidad
+
+    @property
+    def costo_total(self):
+        return self.costo_unitario * self.cantidad

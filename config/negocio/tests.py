@@ -2,7 +2,8 @@ import datetime
 from decimal import Decimal
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
-from negocio.models import Cliente, Pedido, Pago, Gasto
+from negocio.models import Cliente, Pedido, Pago, Gasto, PedidoItem
+from catalog.models import Category, Product
 
 
 class ClienteModelTest(TestCase):
@@ -359,3 +360,34 @@ class PedidoTiendaTest(TestCase):
             descripcion='x', costo_producto=Decimal('100'), precio_venta=Decimal('200'),
         )
         self.assertEqual(str(p), f'Pedido #{p.pk} — Mostrador')
+
+
+class PedidoItemTest(TestCase):
+    def setUp(self):
+        self.cat = Category.objects.create(name='Gorras', profit_margin=Decimal('100'))
+        self.product = Product.objects.create(
+            sku='CAP-001', name='Gorra NY', category=self.cat, base_price=Decimal('150'),
+        )
+        self.pedido = Pedido.objects.create(
+            descripcion='x', costo_producto=Decimal('0'), precio_venta=Decimal('0'),
+        )
+
+    def test_subtotal_y_costo_total(self):
+        item = PedidoItem.objects.create(
+            pedido=self.pedido, product=self.product,
+            sku_snapshot='CAP-001', nombre_snapshot='Gorra NY',
+            cantidad=3, costo_unitario=Decimal('150'), precio_unitario=Decimal('250'),
+        )
+        self.assertEqual(item.subtotal, Decimal('750'))      # 250 * 3
+        self.assertEqual(item.costo_total, Decimal('450'))   # 150 * 3
+
+    def test_item_sobrevive_si_se_borra_el_producto(self):
+        item = PedidoItem.objects.create(
+            pedido=self.pedido, product=self.product,
+            sku_snapshot='CAP-001', nombre_snapshot='Gorra NY',
+            cantidad=1, costo_unitario=Decimal('150'), precio_unitario=Decimal('250'),
+        )
+        self.product.delete()
+        item.refresh_from_db()
+        self.assertIsNone(item.product)
+        self.assertEqual(item.nombre_snapshot, 'Gorra NY')   # snapshot intacto
