@@ -58,8 +58,12 @@ describe('extractPrice', () => {
         expect(extractPrice(null)).toBeNull()
         expect(extractPrice('')).toBeNull()
     })
-    test('ignora números fuera del rango válido (< 50 o > 9999)', () => {
+    test('ignora números fuera del rango válido (< 50 o > 99999)', () => {
         expect(extractPrice('Talla 7 disponible')).toBeNull()
+    })
+    test('extrae precio de 5 dígitos con marcador', () => {
+        expect(extractPrice('$12000 mayoreo')).toBe(12000)
+        expect(extractPrice('precio: $15000')).toBe(15000)
     })
     test('NO confunde números de modelo de tenis con precio (sin marcador)', () => {
         expect(extractPrice('New Balance 550 talla 42')).toBeNull()
@@ -107,6 +111,9 @@ describe('markupCaption', () => {
     })
     test('NO toca "Modelo-013" ni "Mod-01"', () => {
         expect(markupCaption('Modelo-013\nMod-01', 100)).toBe('Modelo-013\nMod-01')
+    })
+    test('aplica markup a precio de 5 dígitos', () => {
+        expect(markupCaption('$12000 mayoreo', 100)).toContain('$12100')
     })
 })
 

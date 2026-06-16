@@ -1,0 +1,83 @@
+═══════════════════════════════════════════════════════════════════════
+  RUNBOOK — Deploy + validación: reenvío por LOTE del bot (Enfoque 2)
+  Rama: feature/bot-batch-forwarding · 2026-06-14
+═══════════════════════════════════════════════════════════════════════
+
+Archivos nuevos/modificados a desplegar:
+  - bot/batchBuffer.js   (NUEVO — indispensable)
+  - bot/utils.js         (modificado: buildImageCaption)
+  - bot/bot.js           (modificado: buffer/flush/legacy + sweeper)
+
+SERVER: root@5.161.249.245  ·  bot persona1: /root/app/bot  ·  persona2: /root/app/bot-p2 (FUERA de git → copia manual)
+
+───────────────────────────────────────────────────────────────────────
+0) VALIDACIÓN LOCAL (sin riesgo, antes de subir nada)
+───────────────────────────────────────────────────────────────────────
+cd C:/Users/Lenovo/Documents/WEB_RYAL/bot
+node --check bot.js
+npx jest
+# Esperado: "OK" y "Tests: 42 passed, 42 total"
+
+⚠️ NUNCA correr `node bot.js` en local contra el .baileys_auth de prod:
+   WhatsApp da 401 conflict e INVALIDA el login de producción.
+
+───────────────────────────────────────────────────────────────────────
+1) SUBIR ARCHIVOS (desde tu PC)
+───────────────────────────────────────────────────────────────────────
+cd C:/Users/Lenovo/Documents/WEB_RYAL
+scp bot/batchBuffer.js bot/utils.js bot/bot.js root@5.161.249.245:/root/app/bot/
+scp bot/batchBuffer.js bot/utils.js bot/bot.js root@5.161.249.245:/root/app/bot-p2/
+
+───────────────────────────────────────────────────────────────────────
+2) REINICIAR SERVICIOS (en el server)
+───────────────────────────────────────────────────────────────────────
+ssh root@5.161.249.245
+systemctl restart bot-persona1 bot-persona2
+systemctl --no-pager status bot-persona1 bot-persona2 | head -20
+# Esperado: ambos "active (running)"
+
+───────────────────────────────────────────────────────────────────────
+3) LOGS EN VIVO (en el server, durante las pruebas)
+───────────────────────────────────────────────────────────────────────
+# Un solo servicio:
+journalctl -u bot-persona1 -f
+# Ambos a la vez:
+journalctl -u bot-persona1 -u bot-persona2 -f
+# Esperado al arrancar: "Bot conectado ✓" (sin loop de reconexión)
+
+───────────────────────────────────────────────────────────────────────
+4) PRUEBA DEL LOTE (en el grupo del PROVEEDOR)
+───────────────────────────────────────────────────────────────────────
+a) Manda 2-3 imágenes SIN caption.
+b) Luego un mensaje de texto con UN precio, ej:
+      Todo a $300, calidad 1:1, tallas 25-30
+Logs esperados (persona1):
+   "Imagen de lote buffereada (sin precio)"  x N
+   "Enviando lote al Grupo Ryal"
+   "Lote reenviado completo"
+En el GRUPO RYAL: cada imagen con caption  $400 MXN  + pie,
+   y al final UN mensaje con la descripción (calidad/tallas) marcada.
+
+───────────────────────────────────────────────────────────────────────
+5) PRUEBA DEL CLIENTE (lo crítico: que NO se rompió)
+───────────────────────────────────────────────────────────────────────
+Como cliente (chat privado con persona2), REENVÍA una de esas imágenes.
+   Esperado: el bot responde  "Total: $400 MXN"  (menos descuento si registrado).
+
+───────────────────────────────────────────────────────────────────────
+6) PRUEBAS OPCIONALES
+───────────────────────────────────────────────────────────────────────
+TTL: manda imágenes y NO mandes precio. Tras 5 min:
+   log "Lote(s) expirado(s) sin precio — imágenes descartadas". Nada se reenvía.
+Legacy: manda una imagen CON precio en su propio caption →
+   se reenvía de inmediato (ruta vieja intacta).
+
+───────────────────────────────────────────────────────────────────────
+ROLLBACK (si algo sale mal)
+───────────────────────────────────────────────────────────────────────
+# En el server, restaurar la versión anterior de bot.js/utils.js desde git
+# (persona1 está en git; persona2 es copia manual):
+cd /root/app && git checkout -- bot/bot.js bot/utils.js && rm -f bot/batchBuffer.js
+systemctl restart bot-persona1 bot-persona2
+# Para persona2: volver a copiar los archivos viejos manualmente.
+═══════════════════════════════════════════════════════════════════════
