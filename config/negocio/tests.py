@@ -745,6 +745,20 @@ class PrintUtilsTest(TestCase):
         textos = [v.get('content', '') for v in result.values() if v.get('type') == 0]
         self.assertTrue(any('GR-NY-001' in t for t in textos))
 
+    def test_build_label_json_con_imagen_incluye_entry_tipo_1(self):
+        from negocio.print_utils import _build_label_json
+        result = _build_label_json(self.product, image_url='https://example.com/img.jpg')
+        img_entries = [v for v in result.values() if v.get('type') == 1]
+        self.assertEqual(len(img_entries), 1)
+        self.assertEqual(img_entries[0]['path'], 'https://example.com/img.jpg')
+        self.assertEqual(img_entries[0]['align'], 1)
+
+    def test_build_label_json_sin_imagen_no_tiene_tipo_1(self):
+        from negocio.print_utils import _build_label_json
+        result = _build_label_json(self.product)
+        img_entries = [v for v in result.values() if v.get('type') == 1]
+        self.assertEqual(len(img_entries), 0)
+
     def test_build_receipt_json_claves_string_numericas(self):
         from negocio.print_utils import _build_receipt_json
         result = _build_receipt_json(self.pedido)

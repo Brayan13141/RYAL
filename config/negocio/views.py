@@ -308,5 +308,11 @@ def label_print_json(request, sku):
     except BadSignature:
         return JsonResponse({'error': 'token inválido'}, status=403)
 
-    product = get_object_or_404(Product, sku=sku, is_active=True)
-    return JsonResponse(_build_label_json(product))
+    product = get_object_or_404(
+        Product.objects.prefetch_related('images'), sku=sku, is_active=True
+    )
+    cover = next((img for img in product.images.all() if img.is_cover), None)
+    if cover is None:
+        cover = next(iter(product.images.all()), None)
+    image_url = request.build_absolute_uri(cover.image.url) if cover and cover.image else None
+    return JsonResponse(_build_label_json(product, image_url=image_url))
