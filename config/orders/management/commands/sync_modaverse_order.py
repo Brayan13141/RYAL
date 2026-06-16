@@ -79,16 +79,34 @@ class Command(BaseCommand):
         items_data = []
         for item in pending_items:
             parent_cat, category = _cat_path(item)
+            # Preferir el nombre actual del producto (actualizado por load_productos)
+            # sobre el snapshot congelado al crear el pedido
+            try:
+                current_name = item.order_item.product.name or ''
+                mv_name = item.order_item.product.modaverse_name or ''
+            except Exception:
+                current_name = ''
+                mv_name = ''
+            name = current_name or item.order_item.name_snapshot
             items_data.append({
                 'id':           item.id,
                 'sku':          item.order_item.sku_snapshot,
-                'name':         item.order_item.name_snapshot,
+                'name':         name,
+                'mv_name':      mv_name,
                 'supplier_url': item.supplier_url,
                 'variant':      item.variant_target,
                 'quantity':     item.order_item.quantity,
                 'parent_cat':   parent_cat,
                 'category':     category,
             })
+
+        # qty_map: {pid: desired_qty} para todos los ítems con qty > 1
+        # Se usa al final para corregir todos los qtys de una sola vez
+        qty_map = {
+            self._extract_pid(d['supplier_url']): d['quantity']
+            for d in items_data
+            if d['quantity'] > 1 and self._extract_pid(d['supplier_url'])
+        }
 
         # Agrupar por supplier_url: mismo producto físico va en un solo grupo
         # (preserva el orden de primer aparición)
@@ -145,6 +163,11 @@ class Command(BaseCommand):
                     results.update(group_results)
                     self._debug_cart_size(page, group[0]['sku'])
 
+                if qty_map:
+                    self._fix_all_qtys(page, qty_map)
+
+                self.stdout.write('\n[pre-export] Estado final del carrito:')
+                self._debug_cart_size(page, 'FINAL')
                 cart_script = self._extract_cart_script(page)
                 if cart_script:
                     self.stdout.write(self.style.SUCCESS('Script de carrito generado OK'))
@@ -198,6 +221,11 @@ class Command(BaseCommand):
             return {d['id']: {'status': 'variant_not_found', 'notes': note} for d in group}
         card = self._find_product_with_pagination(page, first)
         if card is None:
+            # Fallback: probar todas las opciones del bar_box con este nombre de categoría
+            pid = self._extract_pid(first.get('supplier_url', ''))
+            if pid and self._try_other_category_options(page, first['category'], pid):
+                card = self._find_product_with_pagination(page, first)
+        if card is None:
             note = f'Producto no encontrado (hasta {MAX_PAGES} páginas)'
             return {d['id']: {'status': 'variant_not_found', 'notes': note} for d in group}
         root = card
@@ -214,8 +242,12 @@ class Command(BaseCommand):
         # del viewport inicialmente y Playwright's click() ya hace scroll automático.
         if root.locator('button.btn_1').count() > 0:
             try:
+                before = self._cart_len(page)
                 btn_simple.click()
                 page.wait_for_timeout(CART_WAIT)
+                after = self._cart_len(page)
+                grew = '' if after > before else '  <-- NO CRECIO'
+                self.stdout.write(f'  [add btn_1 {sku}] cart {before} -> {after}{grew}')
                 qty = group[0]['quantity']
                 if qty > 1:
                     self._set_last_cart_item_qty(page, qty)
@@ -253,15 +285,16 @@ class Command(BaseCommand):
 
     def _add_with_specs_multi(self, page, card, group: list) -> dict:
         """
-        Abre el dialog de tallas y agrega cada talla con un click en "Agregar" separado.
+        Abre el dialog de specs (btn_2) y agrega cada ítem del grupo.
 
-        El selector de tallas es radio (un solo seleccionado a la vez): cada click
-        en una .zhi_i reemplaza la selección anterior. Por eso se hace click en
-        "Agregar" una vez POR TALLA, no una vez al final.
+        El diálogo puede tener una o dos filas (.zhi_box):
+          - Solo tallas: una fila con las tallas disponibles.
+          - Tallas + colores: dos filas (una por dimensión).
+        variant_target puede ser "Talla L", "Talla L / Rojo burdeos" o un color solo.
 
-        La cantidad no se puede fijar con fill+Tab (Vue no reactiva), así que se
-        actualiza directamente en localStorage con _set_last_cart_item_qty tras
-        cada Agregar.
+        Seleccionamos color primero (si aplica), luego talla. Hacemos click en
+        "Agregar" una vez por ítem (el diálogo permanece abierto entre adds del
+        mismo producto, ya que las tallas son radio-buttons).
         """
         card.locator('button.btn_2').first.click()
         page.wait_for_timeout(900)
@@ -271,50 +304,84 @@ class Command(BaseCommand):
             note = 'Diálogo de especificaciones no apareció'
             return {d['id']: {'status': 'variant_not_found', 'notes': note} for d in group}
 
-        top_options = dialog.locator('.zhi_box .zhi_i')
-        available   = [opt.locator('span').first.inner_text().strip() for opt in top_options.all()]
-
         item_results = {}
         added_parts  = []
 
         for data in group:
-            variant    = data['variant'].strip()
-            size_value = variant.removeprefix('Talla').strip() if variant.startswith('Talla') else variant
-            qty        = data['quantity']
-            item_id    = data['id']
+            variant     = data['variant'].strip()
+            size_value, color_value = self._parse_variant(variant)
+            qty         = data['quantity']
+            item_id     = data['id']
+            sku         = data['sku']
 
-            if not size_value:
-                all_opts = top_options.all()
+            self.stdout.write(f'  [specs {sku}] variant="{variant}" → size="{size_value}" color="{color_value}"')
+
+            selected_label = ''
+
+            if color_value or size_value:
+                # Seleccionar color primero (puede actualizar las opciones de talla)
+                if color_value:
+                    opt = self._find_option_in_dialog(dialog, color_value, skip_value=size_value)
+                    if opt:
+                        opt.click()
+                        page.wait_for_timeout(400)
+                        self.stdout.write(f'  [specs {sku}] color "{color_value}" OK')
+                    else:
+                        self.stdout.write(self.style.WARNING(
+                            f'  [specs {sku}] color "{color_value}" no encontrado — '
+                            f'opciones: {self._list_dialog_options(dialog)}'
+                        ))
+
+                # Seleccionar talla
+                if size_value:
+                    opt = self._find_option_in_dialog(dialog, size_value, skip_value=color_value)
+                    if opt:
+                        opt.click()
+                        page.wait_for_timeout(400)
+                        self.stdout.write(f'  [specs {sku}] talla "{size_value}" OK')
+                        selected_label = variant
+                    else:
+                        note = (
+                            f'Talla "{size_value}" no encontrada. '
+                            f'Opciones: {self._list_dialog_options(dialog)}'
+                        )
+                        self.stdout.write(self.style.WARNING(f'  [specs {sku}] {note}'))
+                        item_results[item_id] = {'status': 'variant_not_found', 'notes': note}
+                        continue
+                else:
+                    selected_label = variant  # solo color
+
+            else:
+                # Sin variante — seleccionar primera opción disponible
+                all_opts = dialog.locator('.zhi_box .zhi_i').all()
                 if not all_opts:
                     item_results[item_id] = {'status': 'variant_not_found', 'notes': 'Sin opciones en el diálogo'}
                     continue
                 all_opts[0].click()
                 page.wait_for_timeout(400)
-                dialog.locator('.btn_box button.btn').first.click()
-                page.wait_for_timeout(CART_WAIT)
-                if qty > 1:
-                    self._set_last_cart_item_qty(page, qty)
-                label = available[0] if available else '?'
-                self.stdout.write(self.style.WARNING(f'  Sin variante — seleccionando primera: "{label}"'))
-                item_results[item_id] = {'status': 'added', 'notes': f'Sin variante — seleccionado: "{label}"'}
-                added_parts.append(f'?×{qty}')
-                continue
+                first_label = all_opts[0].locator('span').first.inner_text().strip()
+                self.stdout.write(self.style.WARNING(
+                    f'  [specs {sku}] Sin variante — seleccionando primera opción: "{first_label}"'
+                ))
+                selected_label = first_label
 
-            matched = self._match_size_option(top_options, size_value)
-            if not matched:
-                note = f'Talla "{size_value}" no encontrada. Disponibles: {", ".join(available)}'
-                item_results[item_id] = {'status': 'variant_not_found', 'notes': note}
-                self.stdout.write(self.style.WARNING(f'  {note}'))
-                continue
-
-            matched.click()
-            page.wait_for_timeout(400)
-            dialog.locator('.btn_box button.btn').first.click()
+            before   = self._cart_len(page)
+            add_btns = dialog.locator('.btn_box button.btn')
+            self.stdout.write(
+                f'  [add btn_2 {sku} "{variant}"] botones_agregar={add_btns.count()} cart_antes={before}'
+            )
+            add_btns.first.click()
             page.wait_for_timeout(CART_WAIT)
+            after = self._cart_len(page)
+            grew  = '' if after > before else '  <-- NO CRECIO'
+            self.stdout.write(f'  [add btn_2 {sku} "{variant}"] cart {before} -> {after}{grew}')
+
             if qty > 1:
                 self._set_last_cart_item_qty(page, qty)
-            item_results[item_id] = {'status': 'added', 'notes': ''}
-            added_parts.append(f'{size_value}×{qty}')
+
+            notes = '' if (color_value or size_value) else f'Sin variante — seleccionado: "{selected_label}"'
+            item_results[item_id] = {'status': 'added', 'notes': notes}
+            added_parts.append(f'{selected_label}×{qty}')
 
         # Cerrar dialog
         try:
@@ -325,20 +392,60 @@ class Command(BaseCommand):
             pass
 
         if added_parts:
-            self.stdout.write(self.style.SUCCESS(f'  [OK] Tallas agregadas: {", ".join(added_parts)}'))
+            self.stdout.write(self.style.SUCCESS(f'  [OK] Agregado: {", ".join(added_parts)}'))
 
         return item_results
 
-    def _match_size_option(self, options, size_value: str):
-        """Busca un .zhi_i que coincida con size_value (exacto, luego parcial)."""
-        for opt in options.all():
-            if opt.locator('span').first.inner_text().strip().lower() == size_value.lower():
-                return opt
-        for opt in options.all():
-            txt = opt.locator('span').first.inner_text().strip().lower()
-            if size_value.lower() in txt or txt in size_value.lower():
-                return opt
+    @staticmethod
+    def _parse_variant(variant: str) -> tuple:
+        """
+        Extrae (size_value, color_value) de variant_target.
+          "Talla L / Rojo burdeos" → ("L", "Rojo burdeos")
+          "Talla L"                → ("L", "")
+          "Rojo burdeos"           → ("", "Rojo burdeos")
+          ""                       → ("", "")
+        """
+        if not variant:
+            return '', ''
+        if variant.startswith('Talla') and ' / ' in variant:
+            size_part, color_part = variant.split(' / ', 1)
+            return size_part.removeprefix('Talla').strip(), color_part.strip()
+        if variant.startswith('Talla'):
+            return variant.removeprefix('Talla').strip(), ''
+        return '', variant.strip()
+
+    def _find_option_in_dialog(self, dialog, value: str, skip_value: str = ''):
+        """
+        Busca un .zhi_i cuyo texto coincida con value en cualquier .zhi_box del diálogo.
+        skip_value evita confundir dimensiones (ej. "Negro" al buscar "L").
+        Primero exact match en todos los boxes, luego partial match.
+        """
+        # Exact match
+        for box in dialog.locator('.zhi_box').all():
+            for opt in box.locator('.zhi_i').all():
+                txt = opt.locator('span').first.inner_text().strip()
+                if skip_value and txt.lower() == skip_value.lower():
+                    continue
+                if txt.lower() == value.lower():
+                    return opt
+        # Partial match
+        for box in dialog.locator('.zhi_box').all():
+            for opt in box.locator('.zhi_i').all():
+                txt = opt.locator('span').first.inner_text().strip()
+                if skip_value and txt.lower() == skip_value.lower():
+                    continue
+                if value.lower() in txt.lower() or txt.lower() in value.lower():
+                    return opt
         return None
+
+    def _list_dialog_options(self, dialog) -> str:
+        """Devuelve descripción de todas las opciones por fila para diagnóstico."""
+        rows = []
+        for i, box in enumerate(dialog.locator('.zhi_box').all()):
+            opts = [opt.locator('span').first.inner_text().strip()
+                    for opt in box.locator('.zhi_i').all()]
+            rows.append(f'Fila{i+1}:[{", ".join(opts)}]')
+        return ' | '.join(rows) if rows else '(vacío)'
 
     # ── NAVEGACIÓN ────────────────────────────────────────────────────────────
 
@@ -403,43 +510,170 @@ class Command(BaseCommand):
     def _navigate_via_bar_box(self, page, parent_cat: str, category: str) -> bool:
         """
         Usa el bar_box (click para abrir) para navegar a la subcategoría correcta.
-        Estructura: .bar_box .body_box (trigger) → .info_box .mu_i (padre) → .info_box .option (sub)
+        Además captura los productIds del XHR que modaverse dispara al cargar la
+        categoría; esto permite buscar por pid aunque el nombre haya cambiado.
         """
         trigger = page.locator('.bar_box .body_box').first
         if not trigger.is_visible():
             self.stdout.write(self.style.WARNING('  bar_box trigger no visible'))
             return False
 
+        # Toggle-safe: cerrar si ya está abierto antes de abrir limpio
+        if page.locator('.info_box').is_visible():
+            trigger.click()
+            page.wait_for_timeout(400)
         trigger.click()
         page.wait_for_timeout(800)
 
+        # Diagnóstico: mostrar padres disponibles
+        mu_all = page.locator('.info_box .mu_i').all()
+        mu_texts = [m.inner_text().strip() for m in mu_all if m.is_visible()]
+        self.stdout.write(f'  [nav] padres ({len(mu_texts)}): {mu_texts[:6]}')
+
         if parent_cat:
+            # 1. Exact match
             mu_i = page.locator('.info_box .mu_i').filter(has_text=parent_cat).first
+            if not mu_i.is_visible():
+                # 2. Partial case-insensitive match (primeras palabras significativas)
+                parent_lower = parent_cat.lower()
+                for m in mu_all:
+                    if not m.is_visible():
+                        continue
+                    txt = m.inner_text().strip().lower()
+                    if any(w in txt for w in parent_lower.split() if len(w) > 4):
+                        mu_i = m
+                        break
             if mu_i.is_visible():
+                mu_text = mu_i.inner_text().strip()
                 mu_i.click()
                 page.wait_for_timeout(500)
+                self.stdout.write(f'  [nav] padre: "{mu_text}"')
+            else:
+                self.stdout.write(f'  [nav] padre "{parent_cat}" no encontrado — sin filtro de padre')
+
+        # Mostrar opciones visibles tras click de padre
+        opt_texts = [o.inner_text().strip() for o in page.locator('.info_box .option').all() if o.is_visible()]
+        self.stdout.write(f'  [nav] opciones ({len(opt_texts)}): {opt_texts[:8]}')
 
         option = page.locator('.info_box .option').filter(has_text=category).first
         if not option.is_visible():
             self.stdout.write(self.style.WARNING(f'  Subcategoría "{category}" no encontrada en el menú'))
             return False
+        option_text = option.inner_text().strip()
+        self.stdout.write(f'  [nav] opción seleccionada: "{option_text}"')
 
+        # Activar captura XHR antes del click de navegación
+        self._page_product_pids = []
+        self._page_pid_names    = {}
+        pids_buf = []
+
+        def _on_response(resp):
+            self._try_capture_pids(resp, pids_buf)
+
+        page.on('response', _on_response)
         option.click()
         page.wait_for_load_state('networkidle', timeout=TIMEOUT)
-        # Esperar a que Vue renderice al menos un producto antes de buscar
         try:
             page.wait_for_selector('.product_item', timeout=8000)
         except Exception:
             pass
         page.wait_for_timeout(800)
-        self.stdout.write(f'  Navegado a "{category}"')
+        page.remove_listener('response', _on_response)
+
+        if pids_buf:
+            self._page_product_pids = list(pids_buf)
+        self.stdout.write(
+            f'  Navegado a "{category}" — {len(self._page_product_pids)} pids capturados'
+        )
         return True
+
+    def _try_other_category_options(self, page, category: str, target_pid: str) -> bool:
+        """
+        Fallback exhaustivo: itera TODOS los padres del bar_box buscando opciones
+        que coincidan con `category`, verifica el XHR de cada una por `target_pid`.
+        Cubre el caso donde el mismo nombre aparece bajo distintos padres
+        (ej. "FOG" bajo Gorra Y bajo Camisetas).
+        Retorna True si navega a la categoría donde se encontró el pid.
+        """
+        if not target_pid:
+            return False
+
+        trigger = page.locator('.bar_box .body_box').first
+        if not trigger.is_visible():
+            return False
+
+        def _open_fresh():
+            if page.locator('.info_box').is_visible():
+                trigger.click()
+                page.wait_for_timeout(400)
+            trigger.click()
+            page.wait_for_timeout(700)
+
+        _open_fresh()
+
+        mu_all = page.locator('.info_box .mu_i').all()
+        mu_visible = [(j, m) for j, m in enumerate(mu_all) if m.is_visible()]
+        self.stdout.write(
+            f'  [fallback] Escaneando {len(mu_visible)} padres por "{category}" pid={target_pid[:20]}...'
+        )
+
+        for j, (_, mu) in enumerate(mu_visible):
+            mu_text = mu.inner_text().strip()
+            mu.click()
+            page.wait_for_timeout(400)
+
+            opts = [o for o in page.locator('.info_box .option').all()
+                    if category.lower() in o.inner_text().strip().lower() and o.is_visible()]
+            if not opts:
+                continue
+
+            for opt in opts:
+                opt_text = opt.inner_text().strip()
+                pids_buf = []
+
+                def _on_resp(resp, buf=pids_buf):
+                    self._try_capture_pids(resp, buf)
+
+                page.on('response', _on_resp)
+                opt.click()
+                page.wait_for_load_state('networkidle', timeout=TIMEOUT)
+                try:
+                    page.wait_for_selector('.product_item', timeout=5000)
+                except Exception:
+                    pass
+                page.wait_for_timeout(800)
+                page.remove_listener('response', _on_resp)
+
+                if target_pid in pids_buf:
+                    self._page_product_pids = list(pids_buf)
+                    self.stdout.write(
+                        f'  [fallback] ✓ pid en padre="{mu_text}" opción="{opt_text}"'
+                    )
+                    return True
+
+                self.stdout.write(
+                    f'  [fallback] padre="{mu_text}" opt="{opt_text}" — {len(pids_buf)} pids, no encontrado'
+                )
+
+                # Re-abrir y volver al mismo padre para la siguiente opción
+                _open_fresh()
+                mu_fresh = page.locator('.info_box .mu_i').all()
+                if j < len(mu_fresh) and mu_fresh[j].is_visible():
+                    mu_fresh[j].click()
+                    page.wait_for_timeout(400)
+
+        # Asegurar bar_box cerrado al salir
+        if page.locator('.info_box').is_visible():
+            trigger.click()
+            page.wait_for_timeout(400)
+
+        return False
 
     # ── BÚSQUEDA DE PRODUCTO ──────────────────────────────────────────────────
 
     def _find_product_with_pagination(self, page, data: dict):
         """
-        Busca .product_item por SKU o nombre (has-text, no exact match) con paginación.
+        Busca .product_item con paginación. Primero por pid (XHR), luego por nombre.
         """
         for page_num in range(1, MAX_PAGES + 1):
             card = self._find_product_card(page, data)
@@ -450,20 +684,43 @@ class Command(BaseCommand):
             if not next_btn.is_visible() or next_btn.get_attribute('disabled') is not None:
                 break
 
-            next_btn.click()
-            page.wait_for_load_state('networkidle', timeout=TIMEOUT)
-            page.wait_for_timeout(800)
-            self.stdout.write(f'  Pagina {page_num + 1}...')
+            # Capturar pids de la nueva página mientras carga
+            pids_buf = []
 
-        # No encontrado — imprimir qué nombres hay en la página para diagnóstico
+            def _on_response(resp):
+                self._try_capture_pids(resp, pids_buf)
+
+            page.on('response', _on_response)
+            next_btn.click()
+            try:
+                page.wait_for_selector('.product_item', state='attached', timeout=8000)
+            except Exception:
+                pass
+            page.wait_for_timeout(1200)
+            page.remove_listener('response', _on_response)
+            if pids_buf:
+                self._page_product_pids = list(pids_buf)
+
+            self.stdout.write(f'  Pagina {page_num + 1} — {len(self._page_product_pids)} pids')
+
+        # No encontrado — diagnóstico
         try:
+            pid  = self._extract_pid(data.get('supplier_url', ''))
+            name = (data.get('name') or '')[:50]
+            self.stdout.write(f'  [no encontrado] pid="{pid}" nombre="{name}"')
+            # Mostrar pids capturados para detectar diferencias de formato
+            captured = getattr(self, '_page_product_pids', [])
+            if captured:
+                self.stdout.write(f'  [pids capturados ({len(captured)})]: {captured[:6]} ...')
+                # Búsqueda case-insensitive por si el formato difiere
+                pid_lower = pid.lower()
+                ci_match = next((i for i, p in enumerate(captured) if p.lower() == pid_lower), -1)
+                if ci_match >= 0:
+                    self.stdout.write(f'  [!] pid encontrado en capturados (case-insensitive) en índice {ci_match}')
             names = page.evaluate("""
                 () => Array.from(document.querySelectorAll('.pro_name'))
-                      .slice(0, 8)
-                      .map(el => el.innerText.trim())
+                      .slice(0, 8).map(el => el.innerText.trim())
             """)
-            buscando = (data.get('name') or '')[:50]
-            self.stdout.write(f'  [no encontrado] buscando: "{buscando}"')
             for n in names:
                 try:
                     self.stdout.write(f'    - {n[:60]}')
@@ -474,39 +731,208 @@ class Command(BaseCommand):
 
         return None
 
+    @staticmethod
+    def _names_match(our_name: str, card_name: str) -> bool:
+        """
+        True si los nombres son suficientemente similares.
+
+        Substring match solo se acepta cuando el match termina en espacio o fin
+        de string — evita que "9026" matchee "9026白" o "白金-10" matchee "白金-109".
+        """
+        a = our_name.strip().lower()
+        b = card_name.strip().lower()
+        if not a or not b:
+            return False
+        if a == b:
+            return True
+        for haystack, needle in ((b, a), (a, b)):
+            idx = haystack.find(needle)
+            if idx < 0:
+                continue
+            end = idx + len(needle)
+            after = haystack[end] if end < len(haystack) else ''
+            if not after or after == ' ':
+                return True
+        return False
+
+    @staticmethod
+    def _card_name_ok(name: str, mv_name: str, card_name: str) -> bool:
+        """True si card_name es compatible con name/mv_name.
+        Sin ningún nombre disponible, confiar en PID (retorna True)."""
+        if not name and not mv_name:
+            return True
+        return (
+            (bool(name) and Command._names_match(name, card_name)) or
+            (bool(mv_name) and Command._names_match(mv_name, card_name))
+        )
+
+    def _card_name(self, card) -> str:
+        """Devuelve el texto del .pro_name de una card, o '' si falla."""
+        try:
+            return card.locator('.pro_name').first.inner_text().strip()
+        except Exception:
+            return ''
+
     def _find_product_card(self, page, data: dict):
         """
-        Busca .product_item por varias estrategias (orden de prioridad):
-        1. Nombre completo (has-text substring) — basta con count()>0; click() ya hace scroll
-        2. Primeras 3 palabras del nombre (útil si el nombre está truncado)
-        3. Única card en la página → asumir que es el producto correcto
+        Busca .product_item verificando SIEMPRE pid + nombre para evitar agregar
+        el producto equivocado.
+
+        Prioridad:
+        1. pid en XHR → índice → verificar nombre en esa card
+        2. pid en outerHTML → verificar nombre
+        3. Nombre exacto → verificar pid en outerHTML (si disponible)
+        4. Nombre parcial (primera palabra significativa) → verificar pid
+        5. Única card → solo si nombre coincide
         """
-        name = (data.get('name') or '').strip()
+        pid     = self._extract_pid(data.get('supplier_url', ''))
+        name    = (data.get('name') or '').strip()
+        db_mv   = (data.get('mv_name') or '').strip()   # Product.modaverse_name
 
-        if name:
-            card = page.locator(f'.product_item:has(.pro_name:has-text("{name}"))').first
-            if card.count() > 0:
-                return card
+        # 1. Pid en XHR → nombre exacto de modaverse → búsqueda en DOM
+        if pid and getattr(self, '_page_product_pids', []):
+            try:
+                idx = self._page_product_pids.index(pid)
+                # Preferir mv_name del XHR; fallback a mv_name de la BD
+                mv_name = getattr(self, '_page_pid_names', {}).get(pid, '') or db_mv
+                if mv_name:
+                    # Buscar por nombre exacto de modaverse (más fiable que índice)
+                    card_by_mv = page.locator(
+                        f'.product_item:has(.pro_name:has-text("{mv_name}"))'
+                    ).first
+                    if card_by_mv.count() > 0:
+                        cn = self._card_name(card_by_mv)
+                        self.stdout.write(f'  [card] pid+mvNombre "{mv_name}" ✓')
+                        return card_by_mv
+                # Fallback: usar índice y verificar nombre
+                card = page.locator('.product_item').nth(idx)
+                if card.count() > 0:
+                    cn = self._card_name(card)
+                    if self._card_name_ok(name, mv_name, cn):
+                        self.stdout.write(f'  [card] pid@{idx} mv="{mv_name}" cn="{cn}" ✓')
+                        return card
+                    self.stdout.write(f'  [card] pid@{idx} cn="{cn}" ≠ name="{name}" mv="{mv_name}" — descartado')
+            except ValueError:
+                pass
 
-        words = name.split()
-        if len(words) >= 3:
-            short = ' '.join(words[:3])
+        # 2. Pid en outerHTML → confirmar nombre
+        if pid:
+            idx = page.evaluate(f"""
+                () => Array.from(document.querySelectorAll('.product_item'))
+                      .findIndex(el => el.outerHTML.includes('{pid}'))
+            """)
+            if idx >= 0:
+                card = page.locator('.product_item').nth(idx)
+                cn = self._card_name(card)
+                if self._card_name_ok(name, db_mv, cn):
+                    self.stdout.write(f'  [card] pid-html@{idx} "{cn}" ✓')
+                    return card
+                self.stdout.write(f'  [card] pid-html@{idx} nombre="{cn}" ≠ "{name}" mv="{db_mv}" — descartado')
+
+        # 3. Nombre exacto → iterar todos los matches y verificar con _names_match
+        # Buscar también por modaverse_name si está disponible
+        search_name = name or db_mv
+        if search_name:
+            for candidate in page.locator(f'.product_item:has(.pro_name:has-text("{search_name}"))').all():
+                cn = self._card_name(candidate)
+                if self._card_name_ok(name, db_mv, cn):
+                    self.stdout.write(f'  [card] nombre-exacto "{cn}" ✓')
+                    return candidate
+
+        # 4. Primera palabra significativa del nombre (≥4 chars)
+        words = [w for w in name.split() if len(w) >= 4]
+        if words:
+            short = words[0]
             card = page.locator(f'.product_item:has(.pro_name:has-text("{short}"))').first
             if card.count() > 0:
-                return card
+                cn = self._card_name(card)
+                if self._names_match(name, cn):
+                    self.stdout.write(f'  [card] nombre-parcial "{cn}" ✓')
+                    return card
+                self.stdout.write(f'  [card] nombre-parcial "{cn}" ≠ "{name}" — descartado')
 
-        all_cards = page.locator('.product_item').all()
-        if len(all_cards) == 1:
-            return page.locator('.product_item').first
+        # 5. Única card SOLO si el nombre coincide (nunca asumir a ciegas)
+        if page.locator('.product_item').count() == 1:
+            card = page.locator('.product_item').first
+            cn = self._card_name(card)
+            if not name or self._names_match(name, cn):
+                self.stdout.write(f'  [card] única-card "{cn}" ✓')
+                return card
+            self.stdout.write(f'  [card] única-card "{cn}" ≠ "{name}" — descartado (producto equivocado)')
 
         return None
 
+    def _try_capture_pids(self, response, buf: list) -> None:
+        """
+        Extrae la lista de productIds de respuestas XHR de modaverse.
+        Escribe en `buf` (lista mutable) para poder usarlo desde closures.
+        """
+        try:
+            if response.status != 200:
+                return
+            url = response.url
+            # Log ALL JSON responses para descubrir el endpoint correcto
+            ct = response.headers.get('content-type', '')
+            if 'json' not in ct:
+                return
+            try:
+                body = response.json()
+            except Exception:
+                return
+            # Intentar extraer lista de productos de cualquier estructura razonable
+            lst = None
+            data = body.get('data')
+            if isinstance(data, dict):
+                lst = data.get('list') or data.get('records') or data.get('rows')
+            elif isinstance(data, list):
+                lst = data
+            if lst and isinstance(lst, list) and lst:
+                first = lst[0]
+                if isinstance(first, dict) and ('productId' in first or 'id' in first):
+                    pids = [str(p.get('productId') or p.get('id', '')) for p in lst]
+                    pids = [p for p in pids if p]
+                    if pids:
+                        self.stdout.write(f'  [xhr] {url[:80]} → {len(pids)} pids')
+                        buf.clear()
+                        buf.extend(pids)
+                        # Capturar pid → nombre exacto de modaverse (misma respuesta XHR)
+                        if not hasattr(self, '_page_pid_names'):
+                            self._page_pid_names = {}
+                        for item in lst:
+                            p_id = str(item.get('productId') or item.get('id', ''))
+                            if not p_id:
+                                continue
+                            mv_name = (
+                                item.get('productName') or item.get('name') or
+                                item.get('title') or item.get('nameEn') or ''
+                            )
+                            if mv_name:
+                                self._page_pid_names[p_id] = str(mv_name).strip()
+                        return
+            # Sin lista útil — loguear URL y estructura para diagnóstico
+            keys = list(body.keys())[:6] if isinstance(body, dict) else type(body).__name__
+            self.stdout.write(f'  [xhr] {url[:80]} (sin lista) keys={keys}')
+        except Exception:
+            pass
+
+    @staticmethod
+    def _extract_pid(supplier_url: str) -> str:
+        """Extrae el productId del supplier_url. Soporta #/proinfo/{pid} y ?pid={pid}."""
+        import re
+        if not supplier_url:
+            return ''
+        m = re.search(r'/proinfo/([A-Za-z0-9]+)', supplier_url)
+        if m:
+            return m.group(1)
+        m = re.search(r'[?&]pid=([A-Za-z0-9]+)', supplier_url)
+        return m.group(1) if m else ''
+
     # ── CARRITO ────────────────────────────────────────────────────────────────
 
-    def _debug_cart_size(self, page, sku: str):
-        """Imprime el tamaño del shopCarList tras cada grupo."""
+    def _cart_len(self, page) -> int:
+        """Devuelve la cantidad de ítems en shopCarList (o -1 si falla la lectura)."""
         try:
-            count = page.evaluate("""
+            return page.evaluate("""
                 () => {
                     try {
                         const u = JSON.parse(localStorage.getItem('user') || '{}');
@@ -514,9 +940,64 @@ class Command(BaseCommand):
                     } catch(e) { return -1; }
                 }
             """)
-            self.stdout.write(f'  [diag tras {sku}] shopCarList={count}')
+        except Exception:
+            return -1
+
+    def _debug_cart_size(self, page, sku: str):
+        """Imprime el contenido completo del shopCarList tras cada grupo."""
+        try:
+            info = page.evaluate("""
+                () => {
+                    try {
+                        const u = JSON.parse(localStorage.getItem('user') || '{}');
+                        const cart = u.shopCarList || [];
+                        return {
+                            count: cart.length,
+                            items: cart.map(function(i) {
+                                return {
+                                    name: (i.productName || i.name || i.productId || '?').slice(0, 40),
+                                    qty:   i.num || i.quantity || 1,
+                                    specs: i.specsValue || ''
+                                };
+                            })
+                        };
+                    } catch(e) { return {count: -1, items: []}; }
+                }
+            """)
+            self.stdout.write(f'  [cart tras {sku}] {info["count"]} ítem(s):')
+            for item in (info.get('items') or []):
+                spec = f' [{item["specs"]}]' if item.get('specs') else ''
+                try:
+                    self.stdout.write(f'    · {item["name"]} ×{item["qty"]}{spec}')
+                except UnicodeEncodeError:
+                    self.stdout.write(f'    · (nombre especial) ×{item["qty"]}{spec}')
         except Exception as exc:
-            self.stdout.write(self.style.WARNING(f'  [diag] Error: {exc}'))
+            self.stdout.write(self.style.WARNING(f'  [cart] Error: {exc}'))
+
+    def _fix_all_qtys(self, page, qty_map: dict):
+        """
+        Corrige num de todos los ítems en shopCarList usando productId como clave.
+        Llamar una sola vez después de que todos los grupos han sido agregados.
+        Necesario porque cada click de btn_2 hace que Vue sobreescriba localStorage
+        desde su estado en memoria (num=1 para todos los ítems previos), revirtiendo
+        los ajustes de _set_last_cart_item_qty de grupos anteriores.
+        """
+        page.evaluate("""
+            (qtyMap) => {
+                try {
+                    const u = JSON.parse(localStorage.getItem('user') || '{}');
+                    if (!u.shopCarList) return;
+                    u.shopCarList.forEach(item => {
+                        const pid = item.productId || '';
+                        if (pid && qtyMap[pid] !== undefined) {
+                            item.num = qtyMap[pid];
+                        }
+                    });
+                    localStorage.setItem('user', JSON.stringify(u));
+                } catch(e) {}
+            }
+        """, qty_map)
+        self.stdout.write('  [fix_qtys] Cantidades corregidas en todos los ítems')
 
     def _set_last_cart_item_qty(self, page, qty: int):
         """
@@ -563,18 +1044,32 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING('  shopCarList vacío — el carrito no tiene ítems'))
                 return ''
 
-            self.stdout.write(f'  shopCarList extraído: {len(shop_car_list)} items')
+            self.stdout.write(f'  shopCarList extraído: {len(shop_car_list)} ítem(s)')
+            for entry in shop_car_list:
+                name  = str(entry.get('productName') or entry.get('name') or entry.get('productId') or '?')[:50]
+                qty   = entry.get('num') or entry.get('quantity') or 1
+                specs = entry.get('specsValue', '')
+                spec_str = f' [{specs}]' if specs else ''
+                try:
+                    self.stdout.write(f'    · {name} ×{qty}{spec_str}')
+                except UnicodeEncodeError:
+                    self.stdout.write(f'    · (nombre especial) ×{qty}{spec_str}')
 
             cart_json = json.dumps(shop_car_list, ensure_ascii=False)
-            # Fusiona solo shopCarList en el user existente → preserva userToken/sesión
+            # Fusiona shopCarList en el user existente → preserva userToken/sesión.
+            # location.reload() fuerza recarga completa para que Vue reinicialice
+            # su store desde localStorage; window.location.hash no sirve porque
+            # el router SPA de Vue cambia la ruta sin recargar la página y el
+            # store en memoria no se actualiza.
             return (
                 "(function(){"
                 f"var c={cart_json};"
-                "console.log('[modaverse-script] Items en carrito:', c.length, c.map(function(i){return (i.productName||i.name||i.productId||'?')+'(qty:'+(i.num||i.quantity||i.qty||'?')+')';}));"
+                "console.log('[ryal] Inyectando', c.length, 'ítem(s):', c.map(function(i){return (i.productName||i.name||'?')+'(×'+(i.num||1)+')';}));"
                 "var u=JSON.parse(localStorage.getItem('user')||'{}');"
                 "u.shopCarList=c;"
                 "localStorage.setItem('user',JSON.stringify(u));"
-                "window.location.hash='/cart';"
+                "console.log('[ryal] ✅ Carrito inyectado. Recargando página...');"
+                "location.reload();"
                 "})()"
             )
         except Exception as exc:
@@ -594,7 +1089,9 @@ class Command(BaseCommand):
 
         if cart_script:
             self.stdout.write('\n  Para importar el carrito en tu navegador:')
-            self.stdout.write(f'  1. Abre {MODAVERSE_BASE}/#/cart')
-            self.stdout.write('  2. Abre la consola (F12 → Console)')
-            self.stdout.write('  3. Pega el script que aparece en el panel')
+            self.stdout.write(f'  1. Abre {MODAVERSE_BASE} (cualquier página, NO la del carrito)')
+            self.stdout.write('  2. F12 → Console → escribe "allow pasting" → Enter')
+            self.stdout.write('  3. Pega el script del panel → Enter')
+            self.stdout.write('  4. La página se recarga automáticamente con el carrito cargado')
+            self.stdout.write('  5. Navega al carrito desde el ícono en la UI de modaverse')
         self.stdout.write('')

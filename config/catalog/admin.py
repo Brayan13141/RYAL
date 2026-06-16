@@ -1,5 +1,7 @@
 from django.contrib import admin
-from .models import Category, Tag, Product, ProductImage, ProductVariant, VolumeTier
+from django.utils import timezone
+from django.utils.html import format_html
+from .models import Category, Tag, Product, ProductImage, ProductVariant, VolumeTier, PendingProduct
 
 
 class VolumeTierInline(admin.TabularInline):
@@ -68,3 +70,58 @@ class ProductAdmin(admin.ModelAdmin):
     @admin.display(description='Requiere envío', boolean=True)
     def requires_shipping_display(self, obj):
         return obj.requires_shipping
+
+
+@admin.register(PendingProduct)
+class PendingProductAdmin(admin.ModelAdmin):
+    list_display       = ['thumbnail_img', 'modaverse_name', 'display_name', 'category', 'base_price', 'status', 'link_proveedor', 'created_at']
+    list_display_links = ['modaverse_name']
+    list_editable      = ['display_name', 'base_price', 'category']
+    list_filter        = ['status', 'category__parent']
+    search_fields      = ['display_name', 'modaverse_name', 'supplier_url']
+    readonly_fields    = ['thumbnail_img', 'modaverse_name', 'supplier_url', 'raw_data', 'created_at', 'reviewed_at']
+    actions            = ['approve_selected', 'reject_selected']
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if not request.GET.get('status__exact'):
+            return qs.filter(status='pending')
+        return qs
+
+    @admin.display(description='Foto')
+    def thumbnail_img(self, obj):
+        url = obj.cover_image.url if obj.cover_image else (obj.raw_data or {}).get('image_url', '')
+        if url:
+            return format_html(
+                '<img src="{}" style="height:60px;width:60px;object-fit:cover;border-radius:4px;" loading="lazy">',
+                url,
+            )
+        return format_html('<span style="color:#888;font-size:11px;">—</span>')
+
+    @admin.display(description='Proveedor')
+    def link_proveedor(self, obj):
+        if obj.supplier_url and obj.supplier_url.startswith('http'):
+            return format_html('<a href="{}" target="_blank">Ver ↗</a>', obj.supplier_url)
+        return '—'
+
+    @admin.action(description='✓ Aprobar seleccionados → agregar al catálogo')
+    def approve_selected(self, request, queryset):
+        count, errors = 0, []
+        for pending in queryset.filter(status='pending'):
+            try:
+                pending.approve()
+                count += 1
+            except Exception as e:
+                errors.append(f'{pending.display_name}: {e}')
+        msg = f'{count} producto(s) aprobado(s) y agregado(s) al catálogo.'
+        if errors:
+            msg += ' Errores: ' + '; '.join(errors)
+        self.message_user(request, msg)
+
+    @admin.action(description='✗ Rechazar seleccionados')
+    def reject_selected(self, request, queryset):
+        count = 0
+        for pending in queryset.filter(status='pending'):
+            pending.reject()
+            count += 1
+        self.message_user(request, f'{count} producto(s) rechazado(s).')

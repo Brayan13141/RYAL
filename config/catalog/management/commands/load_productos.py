@@ -14,8 +14,8 @@ from django.core.files.base import ContentFile
 from django.utils.text import slugify
 from django.core.management.base import BaseCommand
 
-from catalog.models import Category, Product, ProductImage, Tag
-from catalog.modaverse import pid_from_url
+from catalog.models import Category, PendingProduct, Product, ProductImage, Tag, SizeGroup
+from catalog.modaverse import pid_from_url, category_filter_ids, read_modaverse_json
 
 
 def _build_existing_pids(supplier_urls) -> set:
@@ -28,6 +28,23 @@ def _build_existing_pids(supplier_urls) -> set:
         if pid:
             pids.add(pid)
     return pids
+
+
+def get_or_create_size_group(sizes) -> 'SizeGroup':
+    """Find-or-create de un SizeGroup para un conjunto de tallas de ropa.
+
+    Dedup por el CONTENIDO del conjunto (insensible al orden), pero conserva el
+    orden de aparición en `sizes` para el display (S·M·L·XL, no alfabético). Así,
+    la misma talla-set en distinto orden no crea grupos duplicados.
+    conversion_table = None (la ropa no usa tabla EU/MX/US como el calzado)."""
+    canonical = list(dict.fromkeys(sizes))          # display order preservado
+    target = set(canonical)
+    for sg in SizeGroup.objects.filter(name__startswith='Ropa · '):
+        if set(sg.sizes) == target:
+            return sg
+    name = ('Ropa · ' + '·'.join(canonical))[:100]
+    return SizeGroup.objects.create(name=name, sizes=canonical, conversion_table=None)
+
 
 # Pricing por categoría padre (slug → {shipping, margin, order})
 PARENT_PRICING = {
@@ -125,25 +142,8 @@ def _next_sku_index(prefix: str) -> int:
     return (max(nums) + 1) if nums else 1
 
 
-def _category_filter_ids(categories_tree, keywords) -> set:
-    """IDs de categoría (padre + subs) que coinciden con alguna keyword.
-    Match en el padre incluye todas sus subs; match en una sub incluye su padre.
-    Sin distinción de mayúsculas. Mismo criterio que el scraper --category."""
-    kws = [k.lower() for k in keywords]
-    ids = set()
-    for cat in categories_tree:
-        name = (cat.get('name_es') or cat.get('name_zh') or '').lower()
-        if any(kw in name for kw in kws):
-            ids.add(cat['id'])
-            for sub in cat.get('subcategories', []):
-                ids.add(sub['id'])
-        else:
-            for sub in cat.get('subcategories', []):
-                sname = (sub.get('name_es') or sub.get('name_zh') or '').lower()
-                if any(kw in sname for kw in kws):
-                    ids.add(sub['id'])
-                    ids.add(cat['id'])
-    return ids
+# Alias backward-compat — movido a catalog/modaverse.py
+_category_filter_ids = category_filter_ids
 
 
 def _clean_name(raw) -> str:
@@ -193,7 +193,11 @@ class Command(BaseCommand):
             .exclude(supplier_url__isnull=True)
             .values_list('supplier_url', flat=True)
         )
-        self.stdout.write(f'✓ {len(existing_urls)} productos ya en BD (skip automático)')
+        # Agregar pendientes para no volverlos a encolar en la misma sesión
+        existing_urls |= set(
+            PendingProduct.objects.values_list('supplier_url', flat=True)
+        )
+        self.stdout.write(f'✓ {len(existing_urls)} productos ya en BD o en cola (skip automático)')
 
         if only in ('modaverse', 'all'):
             self._load_modaverse(tag_nuevo, no_images, existing_urls, category)
@@ -208,16 +212,19 @@ class Command(BaseCommand):
 
     # ── Modaverse (multi-categoría con jerarquía) ──────────────────────────────
 
+    def _read_modaverse_json(self):
+        """Lee scraped_modaverse.json. Wrapper con warning de stdout."""
+        data = read_modaverse_json()
+        if data is None:
+            self.stdout.write(self.style.WARNING('  ⚠ No se encontró scraped_modaverse.json'))
+        return data
+
     def _load_modaverse(self, tag_nuevo, no_images, existing_urls, category=None):
         self.stdout.write('\n── Cargando desde scraped_modaverse.json ──')
-        json_path = Path(__file__).resolve().parents[4] / 'scraped_modaverse.json'
 
-        if not json_path.exists():
-            self.stdout.write(self.style.WARNING(f'  ⚠ No se encontró {json_path}'))
+        data = self._read_modaverse_json()
+        if data is None:
             return
-
-        with open(json_path, encoding='utf-8') as f:
-            data = json.load(f)
 
         products = data.get('products', [])
         categories_tree = data.get('categories', [])
@@ -309,10 +316,26 @@ class Command(BaseCommand):
 
         # Agrupar por categoría padre para SKU consecutivo
         prefix_counters = {}
-        new_count = skip_count = 0
+        new_count = skip_count = reclassified_count = 0
 
         # Dedup por productId (estable entre formatos #/proinfo y #/product?pid=)
         existing_pids = _build_existing_pids(existing_urls)
+
+        # Productos YA en BD cuyo pid aparece en el scope JSON del --category.
+        # Se busca en TODAS las categorías Django (no solo las del árbol JSON actual)
+        # para poder mover productos que estaban en otra categoría al scope correcto.
+        existing_in_scope = {}
+        if filter_ids is not None:
+            scope_pids_set = {
+                p['sku'] for p in products
+                if p.get('sku') and p.get('category_id', '') in filter_ids
+            }
+            for prod in Product.objects.filter(
+                supplier_url__icontains='modaverse.vip'
+            ).only('pk', 'supplier_url', 'category_id', 'size_group_id', 'variant_colors'):
+                ppid = pid_from_url(prod.supplier_url)
+                if ppid and ppid in scope_pids_set:
+                    existing_in_scope[ppid] = prod
 
         for p in products:
             # Filtro por categoría (--category): omitir productos fuera del set
@@ -323,6 +346,29 @@ class Command(BaseCommand):
             if pid:
                 if pid in existing_pids:
                     skip_count += 1
+                    prod = existing_in_scope.get(pid)
+                    if prod is not None:
+                        self._apply_variants(
+                            prod, p.get('sizes', []), p.get('colors', [])
+                        )
+                        # Actualizar nombre exacto de Modaverse
+                        raw_name = (p.get('name') or '').strip()
+                        changed_fields = []
+                        if raw_name and raw_name.lower() not in _SKIP_NAMES and prod.name != raw_name:
+                            prod.name = raw_name
+                            changed_fields.append('name')
+                        if raw_name and prod.modaverse_name != raw_name:
+                            prod.modaverse_name = raw_name
+                            changed_fields.append('modaverse_name')
+                        if changed_fields:
+                            prod.save(update_fields=changed_fields)
+                        # Reclasificar si la categoría cambió dentro del mismo scope
+                        if filter_ids is not None:
+                            new_cat = cat_map.get(p.get('category_id', ''))
+                            if new_cat is not None and prod.category_id != new_cat.pk:
+                                prod.category = new_cat
+                                prod.save(update_fields=['category'])
+                                reclassified_count += 1
                     continue
             # Sin pid (caso raro): caer al match por URL literal
             elif p.get('url', '') and p['url'] in existing_urls:
@@ -378,10 +424,11 @@ class Command(BaseCommand):
             if prefix not in prefix_counters:
                 prefix_counters[prefix] = _next_sku_index(prefix)
 
-            name = _clean_name(p.get('name') or '')
+            raw_name = (p.get('name') or '').strip()
             # Filtrar entradas informativas que no son productos reales
-            if not name or name.strip().lower() in _SKIP_NAMES:
+            if not raw_name or raw_name.lower() in _SKIP_NAMES:
                 continue
+            name = raw_name   # Guardar nombre exacto de Modaverse
 
             # Precio: usar el de la API; si es 0/None, usar default por categoría padre
             root_slug = slugify((cat_obj.parent or cat_obj).name)
@@ -403,6 +450,9 @@ class Command(BaseCommand):
                 images=p.get('images', []),
                 tag=tag_nuevo,
                 no_images=no_images,
+                sizes=p.get('sizes', []),
+                colors=p.get('colors', []),
+                modaverse_name=raw_name,
             )
             if created:
                 existing_urls.add(supplier_url)
@@ -412,7 +462,10 @@ class Command(BaseCommand):
                 new_count += 1
 
         self.stdout.write(
-            self.style.SUCCESS(f'  → {new_count} nuevos · {skip_count} ya existían (omitidos)')
+            self.style.SUCCESS(
+                f'  → {new_count} pendientes de aprobación · {skip_count} ya existían (omitidos)'
+                + (f' · {reclassified_count} recategorizados' if reclassified_count else '')
+            )
         )
 
     # ── Calzado (yupoo_pf — por marcas) ───────────────────────────────────────
@@ -676,36 +729,52 @@ class Command(BaseCommand):
 
     # ── Helper genérico ────────────────────────────────────────────────────────
 
+    def _apply_variants(self, product, sizes, colors):
+        """Asigna size_group (find-or-create) y variant_colors al producto.
+        Idempotente: solo guarda los campos que cambian."""
+        changed = []
+        if sizes:
+            sg = get_or_create_size_group(sizes)
+            if product.size_group_id != sg.pk:
+                product.size_group = sg
+                changed.append('size_group')
+        if colors and product.variant_colors != list(colors):
+            product.variant_colors = list(colors)
+            changed.append('variant_colors')
+        if changed:
+            product.save(update_fields=changed)
+
     def _create_product(self, sku, name, category, base_price, description,
-                        supplier_url, images, tag, no_images, img_referer=None):
+                        supplier_url, images, tag, no_images, img_referer=None,
+                        sizes=None, colors=None, modaverse_name=''):
         if supplier_url and Product.objects.filter(supplier_url=supplier_url).exists():
             return False
         if Product.objects.filter(sku=sku).exists():
             self.stdout.write(f'    ↩ {sku} ya existe')
             return False
 
-        product = Product.objects.create(
-            sku=sku, name=name, category=category, base_price=base_price,
-            description=description, supplier_url=supplier_url,
-            status='available', is_active=True,
-        )
-        product.tags.add(tag)
+        # Pre-calcular size_group para que approve() no tenga que reimportar
+        sg = get_or_create_size_group(sizes) if sizes else None
 
-        if not no_images and images:
-            for order, img_url in enumerate(images[:250]):
-                if not img_url:
-                    continue
-                img_bytes = _download_image(img_url, referer=img_referer)
-                if img_bytes:
-                    ext = _get_ext(img_url)
-                    pi = ProductImage(
-                        product=product,
-                        is_cover=(order == 0),
-                        display_order=order,
-                    )
-                    pi.image.save(f"{sku}_{order}.{ext}", ContentFile(img_bytes), save=True)
-
-        self.stdout.write(
-            f'    ✓ {sku} — {name[:40]} → {category.name} (${base_price:.0f} → ${product.final_price:.0f} MXN)'
+        key = supplier_url or f'pending://{sku}'
+        _, created = PendingProduct.objects.get_or_create(
+            supplier_url=key,
+            defaults={
+                'display_name':   name,
+                'modaverse_name': modaverse_name or name,
+                'category':       category,
+                'base_price':     base_price,
+                'raw_data': {
+                    'sku':            sku,
+                    'size_group_pk':  sg.pk if sg else None,
+                    'variant_colors': list(colors) if colors else [],
+                    'description':    description,
+                    'image_url':      images[0] if images else '',
+                },
+            },
         )
-        return True
+        if created:
+            self.stdout.write(
+                f'    ⏳ {sku} — {name[:40]} → pendiente de aprobación'
+            )
+        return created

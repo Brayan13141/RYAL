@@ -1,0 +1,335 @@
+{% extends "panel/base_panel.html" %}
+{% load static %}
+
+{% block title %}Productos pendientes{% endblock %}
+
+{% block extra_css %}
+<style>
+  /* ── grid de cards ── */
+  .pcard {
+    background: #1a1a1a;
+    border: 1px solid #2c2c2c;
+    border-radius: 10px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: border-color .15s;
+  }
+  .pcard:hover { border-color: #D4AF37; }
+
+  .pcard-img {
+    width: 100%;
+    aspect-ratio: 1/1;
+    object-fit: cover;
+    background: #111;
+    display: block;
+  }
+  .pcard-img-placeholder {
+    width: 100%;
+    aspect-ratio: 1/1;
+    background: #111;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #444;
+    font-size: 2rem;
+  }
+
+  .pcard-body {
+    padding: 10px 12px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .pcard-mv-name {
+    font-size: 10px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .pcard-name-input {
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 5px;
+    color: #fff;
+    font-size: 13px;
+    padding: 4px 8px;
+    width: 100%;
+  }
+  .pcard-name-input:focus {
+    outline: none;
+    border-color: #D4AF37;
+    background: #0e0e0e;
+  }
+
+  .pcard-row {
+    display: flex;
+    gap: 6px;
+  }
+  .pcard-price-input {
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 5px;
+    color: #D4AF37;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 4px 8px;
+    width: 80px;
+    min-width: 0;
+  }
+  .pcard-price-input:focus {
+    outline: none;
+    border-color: #D4AF37;
+    background: #0e0e0e;
+  }
+  .pcard-cat-select {
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 5px;
+    color: #ccc;
+    font-size: 12px;
+    padding: 4px 6px;
+    flex: 1;
+    min-width: 0;
+  }
+  .pcard-cat-select:focus {
+    outline: none;
+    border-color: #D4AF37;
+  }
+
+  .pcard-actions {
+    padding: 8px 12px;
+    display: flex;
+    gap: 6px;
+    border-top: 1px solid #2c2c2c;
+    margin-top: auto;
+  }
+  .btn-approve {
+    flex: 1;
+    background: rgba(40,167,69,.15);
+    border: 1px solid rgba(40,167,69,.4);
+    color: #5cb85c;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 6px;
+    padding: 5px 0;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .btn-approve:hover { background: rgba(40,167,69,.3); }
+  .btn-reject {
+    flex: 1;
+    background: rgba(220,53,69,.1);
+    border: 1px solid rgba(220,53,69,.35);
+    color: #e05c6b;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 6px;
+    padding: 5px 0;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .btn-reject:hover { background: rgba(220,53,69,.25); }
+
+  /* ── tabs de estado ── */
+  .status-tabs { display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap; }
+  .status-tab {
+    padding: 5px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    border: 1px solid #333;
+    color: #888;
+    text-decoration: none;
+    transition: all .15s;
+  }
+  .status-tab:hover { border-color: #D4AF37; color: #D4AF37; }
+  .status-tab.active { background: #D4AF37; border-color: #D4AF37; color: #000; }
+  .status-tab .badge-count {
+    background: rgba(0,0,0,.25);
+    border-radius: 10px;
+    padding: 0 6px;
+    margin-left: 4px;
+    font-size: 11px;
+  }
+
+  .pcard-supplier-link {
+    font-size: 10px;
+    color: #555;
+    text-decoration: none;
+    display: block;
+    text-align: right;
+    margin-top: 2px;
+  }
+  .pcard-supplier-link:hover { color: #D4AF37; }
+</style>
+{% endblock extra_css %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h5 class="mb-0" style="color:#D4AF37;font-weight:700;">Productos pendientes</h5>
+  <small class="text-muted">Revisa y aprueba los productos nuevos detectados en el scrape.</small>
+</div>
+
+{# ── Tabs de estado ── #}
+<div class="status-tabs">
+  <a href="?status=pending"  class="status-tab {% if status_filter == 'pending'  %}active{% endif %}">
+    Pendientes <span class="badge-count">{{ counts.pending }}</span>
+  </a>
+  <a href="?status=approved" class="status-tab {% if status_filter == 'approved' %}active{% endif %}">
+    Aprobados <span class="badge-count">{{ counts.approved }}</span>
+  </a>
+  <a href="?status=rejected" class="status-tab {% if status_filter == 'rejected' %}active{% endif %}">
+    Rechazados <span class="badge-count">{{ counts.rejected }}</span>
+  </a>
+</div>
+
+{% if messages %}
+  {% for msg in messages %}
+    <div class="alert alert-{{ msg.tags|default:'info' }} alert-dismissible fade show mb-3" role="alert">
+      {{ msg }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+  {% endfor %}
+{% endif %}
+
+{% if page_obj.object_list %}
+<div class="row g-3">
+  {% for pp in page_obj %}
+  <div class="col-6 col-sm-4 col-md-3 col-xl-2">
+    <div class="pcard h-100">
+      {# ── Foto: primero imagen local, fallback CDN, fallback placeholder ── #}
+      {% if pp.cover_image %}
+        <img src="{{ pp.cover_image.url }}" alt="{{ pp.display_name }}" class="pcard-img" loading="lazy">
+      {% elif pp.raw_data.image_url %}
+        <img src="{{ pp.raw_data.image_url }}" alt="{{ pp.display_name }}" class="pcard-img" loading="lazy">
+      {% else %}
+        <div class="pcard-img-placeholder"><i class="bi bi-image"></i></div>
+      {% endif %}
+
+      {# ── Formulario inline ── #}
+      <form method="post"
+            action="{% if status_filter == 'pending' %}{% url 'panel:pendiente_approve' pp.pk %}{% else %}#{% endif %}"
+            class="pcard-body">
+        {% csrf_token %}
+
+        <div class="pcard-mv-name" title="{{ pp.modaverse_name }}">{{ pp.modaverse_name|truncatechars:40 }}</div>
+
+        {% if status_filter == 'pending' %}
+        <input  type="text"
+                name="display_name"
+                value="{{ pp.display_name }}"
+                class="pcard-name-input"
+                placeholder="Nombre para el catálogo"
+                maxlength="500">
+
+        <div class="pcard-row">
+          <input  type="number"
+                  name="base_price"
+                  value="{{ pp.base_price }}"
+                  class="pcard-price-input"
+                  step="0.01" min="0"
+                  placeholder="$">
+          <select name="category" class="pcard-cat-select">
+            <option value="">— categoría —</option>
+            {% for root in root_cats %}
+              <optgroup label="{{ root.name }}">
+                {% for sub in root.subcategories.all %}
+                  <option value="{{ sub.pk }}"
+                          {% if pp.category_id == sub.pk %}selected{% endif %}>
+                    {{ sub.name }}
+                  </option>
+                {% endfor %}
+              </optgroup>
+            {% endfor %}
+          </select>
+        </div>
+
+        {% if pp.supplier_url and pp.supplier_url|slice:":4" == "http" %}
+          <a href="{{ pp.supplier_url }}" target="_blank" class="pcard-supplier-link">Ver en proveedor ↗</a>
+        {% endif %}
+
+        <div class="pcard-actions">
+          <button type="submit" class="btn-approve">✓ Aprobar</button>
+          <button type="button"
+                  class="btn-reject"
+                  onclick="rejectProduct({{ pp.pk }}, this)">✗ Rechazar</button>
+        </div>
+
+        {% else %}
+          {# Vista de solo lectura para aprobados/rechazados #}
+          <div style="font-size:13px;color:#ccc;">{{ pp.display_name|truncatechars:50 }}</div>
+          {% if pp.category %}
+            <div style="font-size:11px;color:#666;">{{ pp.category.name }}</div>
+          {% endif %}
+          <div style="font-size:12px;color:#D4AF37;font-weight:600;">${{ pp.base_price }} MXN</div>
+          <div style="font-size:10px;color:#555;margin-top:auto;">{{ pp.reviewed_at|date:"d/m/Y" }}</div>
+        {% endif %}
+      </form>
+
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{# ── Paginación ── #}
+{% if page_obj.has_other_pages %}
+<nav class="mt-4">
+  <ul class="pagination pagination-sm justify-content-center">
+    {% if page_obj.has_previous %}
+      <li class="page-item">
+        <a class="page-link" href="?status={{ status_filter }}&page={{ page_obj.previous_page_number }}">‹</a>
+      </li>
+    {% endif %}
+    {% for num in page_obj.paginator.page_range %}
+      {% if page_obj.number == num %}
+        <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+      {% elif num|add:"-2" <= page_obj.number and page_obj.number <= num|add:"2" %}
+        <li class="page-item">
+          <a class="page-link" href="?status={{ status_filter }}&page={{ num }}">{{ num }}</a>
+        </li>
+      {% endif %}
+    {% endfor %}
+    {% if page_obj.has_next %}
+      <li class="page-item">
+        <a class="page-link" href="?status={{ status_filter }}&page={{ page_obj.next_page_number }}">›</a>
+      </li>
+    {% endif %}
+  </ul>
+</nav>
+{% endif %}
+
+{% else %}
+<div class="text-center py-5" style="color:#555;">
+  <i class="bi bi-check2-circle" style="font-size:2.5rem;display:block;margin-bottom:10px;color:#2c2c2c;"></i>
+  {% if status_filter == 'pending' %}
+    No hay productos pendientes de revisión.
+  {% elif status_filter == 'approved' %}
+    Ningún producto aprobado aún.
+  {% else %}
+    Ningún producto rechazado.
+  {% endif %}
+</div>
+{% endif %}
+
+{# ── Formulario oculto para rechazar ── #}
+<form id="reject-form" method="post" action="" style="display:none;">
+  {% csrf_token %}
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function rejectProduct(pk, btn) {
+  if (!confirm('¿Rechazar este producto?')) return;
+  const form = document.getElementById('reject-form');
+  form.action = '/panel/pendientes/' + pk + '/rechazar/';
+  form.submit();
+}
+</script>
+{% endblock %}

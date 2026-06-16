@@ -96,10 +96,24 @@ class Product(models.Model):
         help_text='Precio final fijo. Cuando se especifica ignora base_price, envío y margen.'
     )
 
+    # Colores seleccionables (variantes Modaverse) — dimensión independiente de la talla.
+    # Lista de strings, ej. ["Rojo burdeos", "Negro"]. Vacía = el producto no pide color.
+    variant_colors = models.JSONField(default=list, blank=True)
+
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='available')
     tags = models.ManyToManyField(Tag, blank=True)
     supplier_url = models.URLField(blank=True, help_text='URL del producto en el proveedor')
+    modaverse_name = models.CharField(
+        max_length=500, blank=True, default='',
+        help_text='Nombre crudo de Modaverse (productName sin _clean_name). '
+                  'Se usa para encontrar el producto en el carrito de Modaverse.',
+    )
     is_active   = models.BooleanField(default=True)
+    auto_deactivated = models.BooleanField(
+        default=False,
+        help_text='Desactivado por reconcile_catalog (removido del proveedor). '
+                  'Distingue de ocultamientos manuales; habilita reactivación segura.',
+    )
     is_featured = models.BooleanField(default=False, help_text='Aparece en "Nuevos ingresos" del inicio')
     display_order = models.PositiveIntegerField(default=0)
     created_at  = models.DateTimeField(auto_now_add=True)
@@ -168,6 +182,87 @@ class Product(models.Model):
 
     def __str__(self):
         return f'{self.sku} — {self.name}'
+
+
+class PendingProduct(models.Model):
+    """Productos nuevos detectados en el scrape, en espera de aprobación manual."""
+    STATUS_CHOICES = [
+        ('pending',  'Pendiente'),
+        ('approved', 'Aprobado'),
+        ('rejected', 'Rechazado'),
+    ]
+
+    supplier_url   = models.CharField(max_length=600, unique=True)
+    display_name   = models.CharField(max_length=500)
+    modaverse_name = models.CharField(max_length=500, blank=True)
+    category       = models.ForeignKey(
+        'Category', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='pending_products',
+    )
+    base_price   = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    raw_data     = models.JSONField(default=dict)
+    cover_image  = models.ImageField(upload_to='pending/', blank=True)
+    status       = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending', db_index=True)
+    notes        = models.TextField(blank=True)
+    created_at   = models.DateTimeField(auto_now_add=True)
+    reviewed_at  = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = 'Producto pendiente'
+        verbose_name_plural = 'Productos pendientes'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.display_name} [{self.get_status_display()}]'
+
+    def approve(self):
+        """Crea el Product en catálogo y marca como aprobado."""
+        from django.utils import timezone
+
+        sku            = self.raw_data.get('sku', '')
+        size_group_pk  = self.raw_data.get('size_group_pk')
+        variant_colors = self.raw_data.get('variant_colors', [])
+        description    = self.raw_data.get('description', '')
+
+        size_group = None
+        if size_group_pk:
+            try:
+                size_group = SizeGroup.objects.get(pk=size_group_pk)
+            except SizeGroup.DoesNotExist:
+                pass
+
+        product, created = Product.objects.get_or_create(
+            sku=sku,
+            defaults={
+                'name':           self.display_name,
+                'modaverse_name': self.modaverse_name or self.display_name,
+                'category':       self.category,
+                'base_price':     self.base_price,
+                'supplier_url':   self.supplier_url,
+                'variant_colors': variant_colors,
+                'size_group':     size_group,
+                'description':    description,
+                'status':         'available',
+                'is_active':      True,
+            },
+        )
+        if not created:
+            product.name           = self.display_name
+            product.modaverse_name = self.modaverse_name or self.display_name
+            product.base_price     = self.base_price
+            product.save(update_fields=['name', 'modaverse_name', 'base_price'])
+
+        self.status      = 'approved'
+        self.reviewed_at = timezone.now()
+        self.save(update_fields=['status', 'reviewed_at'])
+        return product
+
+    def reject(self, notes=''):
+        from django.utils import timezone
+        self.status      = 'rejected'
+        self.notes       = notes
+        self.reviewed_at = timezone.now()
+        self.save(update_fields=['status', 'notes', 'reviewed_at'])
 
 
 class ProductImage(models.Model):

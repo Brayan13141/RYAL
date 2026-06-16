@@ -138,10 +138,11 @@ function renderCartItems(items, subtotal, shipping, total, categoryWarnings = []
 
 // ─── Acciones del carrito ───────────────────────────────────────────────────
 
-async function addToCart(productId, variantId, qty = 1, imagePk = null) {
+async function addToCart(productId, variantId, qty = 1, imagePk = null, color = null) {
   try {
     const payload = { product_id: productId, variant_id: variantId, qty };
     if (imagePk) payload.image_pk = imagePk;
+    if (color) payload.color = color;
     const res = await fetch(URLS.cartAdd, {
       method: 'POST',
       headers: {
@@ -215,8 +216,9 @@ function cardQuickAdd(btn) {
   const hasVariants  = btn.dataset.hasVariants  === 'true';
   const hasSizes     = btn.dataset.hasSizes     === 'true';
   const hasColorway  = btn.dataset.hasColorway  === 'true';
+  const hasColors    = btn.dataset.hasColors    === 'true';
   const minQty       = parseInt(btn.dataset.minQty || '1', 10);
-  if (hasVariants || hasSizes || hasColorway || minQty > 1) {
+  if (hasVariants || hasSizes || hasColors || hasColorway || minQty > 1) {
     window.location.href = `/catalogo/${productId}/`;
     return;
   }

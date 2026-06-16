@@ -116,6 +116,18 @@
       </div>
       {% endif %}
 
+      {% if product.variant_colors %}
+      <div class="pd-color-chips" id="pdColorChips">
+        <div class="pd-qty-label">Color</div>
+        <div class="color-chip-row">
+          {% for color in product.variant_colors %}
+          <button type="button" class="color-chip" data-color="{{ color }}"
+                  onclick="selectColor('{{ color|escapejs }}', this)">{{ color }}</button>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
       {% if size_group %}
       <!-- ── Guía de tallas (conversión) ── -->
       {% if size_group.conversion_table %}
@@ -170,8 +182,8 @@
         </div>
         <div id="sizeRows">
           {% for s in unique_sizes %}
-          <div class="size-row-item">
-            <span class="size-row-label">{{ s }}</span>
+          <div class="size-card" id="scard-{{ s|slugify }}">
+            <span class="size-card-label">{{ s }}</span>
             <div class="qty-control qty-control--sm">
               <button class="qty-btn" type="button" onclick="changeSizeQty('{{ s|escapejs }}', '{{ s|slugify }}', -1)" aria-label="Reducir">−</button>
               <span class="qty-val" id="sqty-{{ s|slugify }}">0</span>
@@ -592,25 +604,142 @@
   .pd-guide-table th { color: var(--gold); border-bottom: 1px solid #222; font-weight: 600; }
   .pd-guide-table td { color: #ccc; border-bottom: 1px solid #181818; }
 
-  /* ── Grid de tallas ───────────────────────────────────────────────────── */
-  .pd-size-grid { margin: 12px 0; }
-  .pd-size-grid-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-  .size-row-item {
+  /* ── Chips de color ───────────────────────────────────────────────────── */
+  .pd-color-chips { margin: 20px 0 10px; }
+  .pd-color-chips .pd-qty-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    color: #444;
+    margin-bottom: 10px;
+  }
+  .color-chip-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .color-chip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 13px 24px;
+    background: #111;
+    border: 1px solid #252525;
+    border-radius: 4px;
+    color: #888;
+    font-size: .85rem;
+    font-weight: 500;
+    letter-spacing: .03em;
+    cursor: pointer;
+    white-space: nowrap;
+    line-height: 1;
+    transition: border-color .18s, color .18s, background .18s;
+  }
+  .color-chip:hover {
+    border-color: rgba(212,175,55,.5);
+    color: #ddd;
+    background: #161616;
+  }
+  .color-chip.selected {
+    border-color: var(--gold);
+    background: rgba(212,175,55,.1);
+    color: #fff;
+    box-shadow: inset 0 0 0 1px rgba(212,175,55,.15);
+  }
+  .color-chip.selected::before {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--gold);
+    border-radius: 0 0 4px 4px;
+  }
+
+  /* ── Filas de tallas ──────────────────────────────────────────────────── */
+  .pd-size-grid { margin: 18px 0; }
+  .pd-size-grid-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+
+  #sizeRows { margin-bottom: 12px; }
+
+  .size-card {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 0;
-    border-bottom: 1px solid #1a1a1a;
+    padding: 0 12px 0 16px;
+    height: 52px;
+    background: #111;
+    border: 1px solid #1e1e1e;
+    border-left: 3px solid #1e1e1e;
+    border-radius: 4px;
+    margin-bottom: 6px;
+    transition: border-color .18s, border-left-color .18s, background .18s;
+    overflow: hidden;
   }
-  .size-row-label { font-size: .92rem; color: #ddd; min-width: 70px; }
-  .qty-control--sm .qty-btn { width: 28px; height: 28px; font-size: .85rem; }
-  .qty-control--sm .qty-val { font-size: .9rem; min-width: 28px; }
+  .size-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, rgba(212,175,55,.04) 0%, transparent 60%);
+    opacity: 0;
+    transition: opacity .18s;
+    pointer-events: none;
+  }
+  .size-card:hover { border-color: #2a2a2a; border-left-color: rgba(212,175,55,.5); background: #141414; }
+  .size-card:hover::after { opacity: 1; }
+  .size-card.has-qty {
+    border-left-color: var(--gold);
+    border-color: rgba(212,175,55,.2);
+    background: rgba(212,175,55,.05);
+  }
+  .size-card.has-qty::after { opacity: 1; }
+
+  .size-card-label {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #555;
+    letter-spacing: .03em;
+    transition: color .18s;
+    user-select: none;
+    min-width: 40px;
+  }
+  .size-card:hover .size-card-label { color: #999; }
+  .size-card.has-qty .size-card-label { color: var(--gold); }
+
+  .size-card .qty-control--sm { gap: 0; }
+  .size-card .qty-control--sm .qty-btn {
+    width: 32px;
+    height: 32px;
+    font-size: .9rem;
+    background: #1a1a1a;
+    border: 1px solid #303030;
+    border-radius: 4px;
+    color: #fff;
+    transition: border-color .15s, background .15s;
+  }
+  .size-card .qty-control--sm .qty-btn:hover { background: #252525; border-color: rgba(212,175,55,.45); }
+  .size-card.has-qty .qty-control--sm .qty-btn { border-color: rgba(212,175,55,.3); color: #fff; }
+  .size-card .qty-control--sm .qty-val {
+    font-size: .95rem;
+    min-width: 32px;
+    text-align: center;
+    color: #fff;
+    font-weight: 600;
+    transition: color .15s;
+  }
+  .size-card.has-qty .qty-control--sm .qty-val { color: var(--gold); font-weight: 700; }
+
   .pd-size-total {
-    margin: 12px 0 8px;
-    font-size: .85rem;
-    color: #888;
+    margin: 6px 0 12px;
+    font-size: .8rem;
+    color: #555;
+    letter-spacing: .03em;
   }
-  .pd-size-total strong { color: var(--gold); font-size: 1rem; }
+  .pd-size-total strong { color: var(--gold); font-weight: 700; }
 
   /* ── Selector de colores (calzado) ───────────────────────────────────── */
   .pd-color-grid { margin: 16px 0; }
@@ -667,8 +796,9 @@
   const PRODUCT_TIERS    = {{ tiers_json|safe }};
   const IMAGES_DATA      = {{ images_json|safe }};  /* colorways / también para tallas+colorway */
   const HAS_COLORWAY     = {{ has_colorway|yesno:"true,false" }};  /* colorway activo en cualquier nivel */
+  const VARIANT_COLORS   = {{ variant_colors_json|safe }};  /* [] si el producto no pide color */
 </script>
-<script src="{% static 'js/product.js' %}?v=4"></script>
+<script src="{% static 'js/product.js' %}?v=5"></script>
 <script>
   function toggleDesc(toggle) {
     toggle.classList.toggle('open');
