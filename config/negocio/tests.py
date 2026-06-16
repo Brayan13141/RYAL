@@ -679,3 +679,94 @@ class PedidosNullClienteTest(TestCase):
         resp = self.client.get(f'/panel/negocio/pedidos/{self.pedido.pk}/')
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Mostrador')
+
+
+# ── Print utils ───────────────────────────────────────────
+
+class PrintUtilsTest(TestCase):
+    def setUp(self):
+        cat = Category.objects.create(name='Gorras', slug='gorras')
+        self.product = Product.objects.create(
+            name='Gorra NY Azul',
+            sku='GR-NY-001',
+            category=cat,
+            base_price=Decimal('150'),
+            is_active=True,
+        )
+        self.cliente = Cliente.objects.create(nombre='Ana', telefono='5550000099')
+        self.pedido = Pedido.objects.create(
+            cliente=self.cliente,
+            descripcion='Gorra NY Azul ×2',
+            costo_producto=Decimal('300'),
+            precio_venta=Decimal('400'),
+            estado=Pedido.PAGADO,
+            origen=Pedido.TIENDA,
+        )
+        self.item = PedidoItem.objects.create(
+            pedido=self.pedido,
+            product=self.product,
+            sku_snapshot='GR-NY-001',
+            nombre_snapshot='Gorra NY Azul',
+            cantidad=2,
+            costo_unitario=Decimal('150'),
+            precio_unitario=Decimal('200'),
+        )
+        self.pago = Pago.objects.create(
+            pedido=self.pedido,
+            fecha=datetime.date.today(),
+            monto=Decimal('400'),
+            metodo_pago=Pago.EFECTIVO,
+        )
+
+    def test_build_label_json_claves_string_numericas(self):
+        from negocio.print_utils import _build_label_json
+        result = _build_label_json(self.product)
+        self.assertIsInstance(result, dict)
+        for k in result:
+            self.assertTrue(k.isdigit(), f"Clave no numérica: {k}")
+        self.assertIn("0", result)
+
+    def test_build_label_json_contiene_qr_con_sku(self):
+        from negocio.print_utils import _build_label_json
+        result = _build_label_json(self.product)
+        qr_entries = [v for v in result.values() if v.get('type') == 3]
+        self.assertTrue(len(qr_entries) >= 1, "Debe haber al menos un entry QR (type=3)")
+        self.assertEqual(qr_entries[0]['value'], 'GR-NY-001')
+
+    def test_build_label_json_contiene_nombre_producto(self):
+        from negocio.print_utils import _build_label_json
+        result = _build_label_json(self.product)
+        textos = [v.get('content', '') for v in result.values() if v.get('type') == 0]
+        self.assertTrue(any('Gorra NY Azul' in t for t in textos))
+
+    def test_build_label_json_contiene_sku_en_texto(self):
+        from negocio.print_utils import _build_label_json
+        result = _build_label_json(self.product)
+        textos = [v.get('content', '') for v in result.values() if v.get('type') == 0]
+        self.assertTrue(any('GR-NY-001' in t for t in textos))
+
+    def test_build_receipt_json_claves_string_numericas(self):
+        from negocio.print_utils import _build_receipt_json
+        result = _build_receipt_json(self.pedido)
+        self.assertIsInstance(result, dict)
+        for k in result:
+            self.assertTrue(k.isdigit(), f"Clave no numérica: {k}")
+
+    def test_build_receipt_json_contiene_item(self):
+        from negocio.print_utils import _build_receipt_json
+        result = _build_receipt_json(self.pedido)
+        textos = [v.get('content', '') for v in result.values() if v.get('type') == 0]
+        self.assertTrue(any('Gorra NY Azul' in t for t in textos))
+        self.assertTrue(any('x2' in t for t in textos))
+
+    def test_build_receipt_json_contiene_total(self):
+        from negocio.print_utils import _build_receipt_json
+        result = _build_receipt_json(self.pedido)
+        textos = [v.get('content', '') for v in result.values() if v.get('type') == 0]
+        self.assertTrue(any('400.00' in t for t in textos))
+
+    def test_build_receipt_json_contiene_metodo_pago(self):
+        from negocio.print_utils import _build_receipt_json
+        result = _build_receipt_json(self.pedido)
+        textos = [v.get('content', '') for v in result.values() if v.get('type') == 0]
+        self.assertTrue(any('Efectivo' in t for t in textos))
