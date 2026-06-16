@@ -199,7 +199,7 @@ def pos_productos(request):
         page_num = 1
     page = Paginator(qs, PAGE_SIZE).get_page(page_num)
 
-    signer = Signer()
+    signer = Signer(salt='negocio-label')
     productos = []
     for p in page.object_list:
         cover = next((img for img in p.images.all() if img.is_cover), None)
@@ -259,7 +259,7 @@ def pos_cobrar(request):
     except VentaInvalida as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 
-    signer = Signer()
+    signer = Signer(salt='negocio-receipt')
     token = quote(signer.sign(str(pedido.pk)), safe='')
     bprint_url = (
         f"bprint://{request.scheme}://{request.get_host()}"
@@ -276,12 +276,12 @@ def pos_cobrar(request):
 
 # ── Print endpoints (Bluetooth Print app) ─────────────────
 
-@ratelimit(key='ip', rate='60/m', block=True)
+@ratelimit(key='header:X-Forwarded-For', rate='60/m', block=True)
 def receipt_print_json(request, pedido_id):
     """Devuelve JSON para Bluetooth Print app — ticket de venta.
     Público (sin sesión) pero protegido con token HMAC firmado por Django."""
     token = request.GET.get('token', '')
-    signer = Signer()
+    signer = Signer(salt='negocio-receipt')
     try:
         value = signer.unsign(token)
         if value != str(pedido_id):
@@ -295,12 +295,12 @@ def receipt_print_json(request, pedido_id):
     return JsonResponse(_build_receipt_json(pedido))
 
 
-@ratelimit(key='ip', rate='60/m', block=True)
+@ratelimit(key='header:X-Forwarded-For', rate='60/m', block=True)
 def label_print_json(request, sku):
     """Devuelve JSON para Bluetooth Print app — etiqueta de producto.
     Público (sin sesión) pero protegido con token HMAC firmado por Django."""
     token = request.GET.get('token', '')
-    signer = Signer()
+    signer = Signer(salt='negocio-label')
     try:
         value = signer.unsign(token)
         if value != sku:

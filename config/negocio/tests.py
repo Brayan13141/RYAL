@@ -808,14 +808,18 @@ class PrintEndpointsTest(TestCase):
             metodo_pago=Pago.EFECTIVO,
         )
 
-    def _token(self, value):
+    def _receipt_token(self, value):
         from django.core.signing import Signer
-        return Signer().sign(str(value))
+        return Signer(salt='negocio-receipt').sign(str(value))
+
+    def _label_token(self, value):
+        from django.core.signing import Signer
+        return Signer(salt='negocio-label').sign(str(value))
 
     # ── receipt_print_json ──
 
     def test_receipt_token_valido_devuelve_200(self):
-        token = self._token(self.pedido.pk)
+        token = self._receipt_token(self.pedido.pk)
         url = f'/panel/negocio/api/receipt/{self.pedido.pk}/?token={token}'
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 200)
@@ -833,13 +837,13 @@ class PrintEndpointsTest(TestCase):
         self.assertEqual(resp.status_code, 403)
 
     def test_receipt_pedido_inexistente_devuelve_404(self):
-        token = self._token(99999)
+        token = self._receipt_token(99999)
         url = f'/panel/negocio/api/receipt/99999/?token={token}'
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 404)
 
     def test_receipt_json_contiene_items_y_total(self):
-        token = self._token(self.pedido.pk)
+        token = self._receipt_token(self.pedido.pk)
         url = f'/panel/negocio/api/receipt/{self.pedido.pk}/?token={token}'
         data = self.client.get(url).json()
         textos = [v.get('content', '') for v in data.values() if v.get('type') == 0]
@@ -849,7 +853,7 @@ class PrintEndpointsTest(TestCase):
     # ── label_print_json ──
 
     def test_label_token_valido_devuelve_200(self):
-        token = self._token(self.product.sku)
+        token = self._label_token(self.product.sku)
         url = f'/panel/negocio/api/label/{self.product.sku}/?token={token}'
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 200)
@@ -857,7 +861,7 @@ class PrintEndpointsTest(TestCase):
         self.assertIn('0', data)
 
     def test_label_qr_contiene_sku(self):
-        token = self._token(self.product.sku)
+        token = self._label_token(self.product.sku)
         url = f'/panel/negocio/api/label/{self.product.sku}/?token={token}'
         data = self.client.get(url).json()
         qr = [v for v in data.values() if v.get('type') == 3]
@@ -875,7 +879,7 @@ class PrintEndpointsTest(TestCase):
         self.assertEqual(resp.status_code, 403)
 
     def test_label_sku_inexistente_devuelve_404(self):
-        token = self._token('NOEXISTE-999')
+        token = self._label_token('NOEXISTE-999')
         url = f'/panel/negocio/api/label/NOEXISTE-999/?token={token}'
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 404)
@@ -890,7 +894,7 @@ class PrintEndpointsTest(TestCase):
             origen=Pedido.TIENDA,
         )
         # token válido para otro_pedido, usado en URL de self.pedido
-        token = self._token(otro_pedido.pk)
+        token = self._receipt_token(otro_pedido.pk)
         url = f'/panel/negocio/api/receipt/{self.pedido.pk}/?token={token}'
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 403)
@@ -906,7 +910,7 @@ class PrintEndpointsTest(TestCase):
             is_active=True,
         )
         # token válido para otro_product.sku, usado en URL de self.product.sku
-        token = self._token(otro_product.sku)
+        token = self._label_token(otro_product.sku)
         url = f'/panel/negocio/api/label/{self.product.sku}/?token={token}'
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 403)
@@ -974,4 +978,4 @@ class PosProductosLabelUrlTest(TestCase):
             inner_url = p['label_bprint_url'].split('bprint://', 1)[1]
             parsed = urlparse(inner_url)
             token = parse_qs(parsed.query)['token'][0]
-            self.assertEqual(Signer().unsign(token), p['sku'])
+            self.assertEqual(Signer(salt='negocio-label').unsign(token), p['sku'])
