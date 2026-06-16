@@ -4,6 +4,28 @@
 
 {% block content %}
 {% csrf_token %}
+
+<!-- Modal post-cobro -->
+<div class="modal fade" id="ventaModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content bg-dark text-light border border-secondary">
+      <div class="modal-header border-secondary py-2">
+        <h6 class="modal-title">Venta registrada</h6>
+      </div>
+      <div class="modal-body text-center py-3">
+        <div class="fs-3 fw-bold text-warning mb-3">$<span id="modal-total">0.00</span></div>
+        <a id="modal-bprint" href="#" class="btn btn-success w-100 mb-2">
+          Imprimir ticket
+        </a>
+      </div>
+      <div class="modal-footer border-secondary py-2">
+        <button type="button" class="btn btn-secondary w-100" id="modal-cerrar"
+                data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="pos-wrap">
   <div class="pos-toolbar">
     <input id="pos-q" type="search" class="form-control" placeholder="Buscar nombre o SKU…" autocomplete="off">
@@ -183,6 +205,12 @@
       priceEl.textContent = '$' + fmt(p.precio);
       body.appendChild(nameEl);
       body.appendChild(priceEl);
+      const printLbl = document.createElement('a');
+      printLbl.className = 'btn btn-sm btn-outline-secondary w-100 mt-1';
+      printLbl.textContent = 'Imprimir etiqueta';
+      printLbl.href = p.label_bprint_url || '#';
+      printLbl.addEventListener('click', e => e.stopPropagation());
+      body.appendChild(printLbl);
       card.appendChild(body);
       card.addEventListener('click', () => addToCart(p));
       grid.appendChild(card);
@@ -224,9 +252,19 @@
       if (!r.ok && r.status !== 400) throw new Error('HTTP ' + r.status);
       return r.json();
     }).then(d => {
-      if (d.ok){ cart.clear(); renderCart(); alert('Venta registrada. Total $' + d.total); }
-      else { alert('Error: ' + (d.error || 'no se pudo cobrar')); cobrarBtn.disabled = false; }
+      if (d.ok){
+        document.getElementById('modal-total').textContent = d.total;
+        document.getElementById('modal-bprint').href = d.bprint_url;
+        new bootstrap.Modal(document.getElementById('ventaModal')).show();
+      } else {
+        alert('Error: ' + (d.error || 'no se pudo cobrar'));
+        cobrarBtn.disabled = false;
+      }
     }).catch(() => { alert('Error de red'); cobrarBtn.disabled = false; });
+  });
+
+  document.getElementById('ventaModal').addEventListener('hidden.bs.modal', () => {
+    cart.clear(); renderCart(); cobrarBtn.disabled = false;
   });
 
   reset();

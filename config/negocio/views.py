@@ -199,11 +199,13 @@ def pos_productos(request):
         page_num = 1
     page = Paginator(qs, PAGE_SIZE).get_page(page_num)
 
+    signer = Signer()
     productos = []
     for p in page.object_list:
         cover = next((img for img in p.images.all() if img.is_cover), None)
         if cover is None:
             cover = next(iter(p.images.all()), None)
+        label_token = quote(signer.sign(p.sku), safe='')
         productos.append({
             'sku': p.sku,
             'nombre': p.name,
@@ -213,6 +215,10 @@ def pos_productos(request):
             'categoria_raiz_id': p.category.parent_id or p.category_id,
             'categoria_nombre': (p.category.parent.name if p.category.parent_id
                                  else p.category.name),
+            'label_bprint_url': (
+                f"bprint://{request.scheme}://{request.get_host()}"
+                f"/panel/negocio/api/label/{p.sku}/?token={label_token}"
+            ),
         })
 
     return JsonResponse({'productos': productos, 'has_next': page.has_next()})

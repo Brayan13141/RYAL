@@ -943,3 +943,35 @@ class PosCobrarBprintTest(TestCase):
         self.assertTrue(data['bprint_url'].startswith('bprint://'))
         self.assertIn('/negocio/api/receipt/', data['bprint_url'])
         self.assertIn('token=', data['bprint_url'])
+
+
+class PosProductosLabelUrlTest(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user('staff4', password='pass', is_staff=True)
+        cat = Category.objects.create(name='Gorras2', slug='gorras2-label')
+        Product.objects.create(
+            name='Gorra Chicago',
+            sku='GR-CH-001',
+            category=cat,
+            base_price=Decimal('120'),
+            is_active=True,
+        )
+        self.client.force_login(self.staff)
+
+    def test_pos_productos_incluye_label_bprint_url(self):
+        resp = self.client.get('/panel/negocio/pos/productos/')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(len(data['productos']) >= 1)
+        from urllib.parse import urlparse, parse_qs
+        from django.core.signing import Signer
+        for p in data['productos']:
+            self.assertIn('label_bprint_url', p)
+            self.assertTrue(p['label_bprint_url'].startswith('bprint://'))
+            self.assertIn('/negocio/api/label/', p['label_bprint_url'])
+            self.assertIn('token=', p['label_bprint_url'])
+            # Verifica que el token firma el SKU correcto
+            inner_url = p['label_bprint_url'].split('bprint://', 1)[1]
+            parsed = urlparse(inner_url)
+            token = parse_qs(parsed.query)['token'][0]
+            self.assertEqual(Signer().unsign(token), p['sku'])
