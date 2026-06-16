@@ -879,3 +879,34 @@ class PrintEndpointsTest(TestCase):
         url = f'/panel/negocio/api/label/NOEXISTE-999/?token={token}'
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 404)
+
+    def test_receipt_token_de_otro_pedido_devuelve_403(self):
+        otro_pedido = Pedido.objects.create(
+            cliente=self.cliente,
+            descripcion='Otro',
+            costo_producto=Decimal('200'),
+            precio_venta=Decimal('300'),
+            estado=Pedido.PAGADO,
+            origen=Pedido.TIENDA,
+        )
+        # token válido para otro_pedido, usado en URL de self.pedido
+        token = self._token(otro_pedido.pk)
+        url = f'/panel/negocio/api/receipt/{self.pedido.pk}/?token={token}'
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 403)
+
+    def test_label_token_de_otro_sku_devuelve_403(self):
+        from catalog.models import Category, Product
+        cat2 = Category.objects.create(name='Botas', slug='botas-test')
+        otro_product = Product.objects.create(
+            name='Bota X',
+            sku='BT-X-001',
+            category=cat2,
+            base_price=Decimal('500'),
+            is_active=True,
+        )
+        # token válido para otro_product.sku, usado en URL de self.product.sku
+        token = self._token(otro_product.sku)
+        url = f'/panel/negocio/api/label/{self.product.sku}/?token={token}'
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 403)

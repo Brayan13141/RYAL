@@ -262,6 +262,7 @@ def pos_cobrar(request):
 
 # ── Print endpoints (Bluetooth Print app) ─────────────────
 
+@ratelimit(key='ip', rate='60/m', block=True)
 def receipt_print_json(request, pedido_id):
     """Devuelve JSON para Bluetooth Print app — ticket de venta.
     Público (sin sesión) pero protegido con token HMAC firmado por Django."""
@@ -280,6 +281,7 @@ def receipt_print_json(request, pedido_id):
     return JsonResponse(_build_receipt_json(pedido))
 
 
+@ratelimit(key='ip', rate='60/m', block=True)
 def label_print_json(request, sku):
     """Devuelve JSON para Bluetooth Print app — etiqueta de producto.
     Público (sin sesión) pero protegido con token HMAC firmado por Django."""
