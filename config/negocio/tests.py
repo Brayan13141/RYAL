@@ -770,3 +770,112 @@ class PrintUtilsTest(TestCase):
         result = _build_receipt_json(self.pedido)
         textos = [v.get('content', '') for v in result.values() if v.get('type') == 0]
         self.assertTrue(any('Efectivo' in t for t in textos))
+
+
+class PrintEndpointsTest(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user('staff2', password='pass', is_staff=True)
+        cat = Category.objects.create(name='Tenis', slug='tenis-print')
+        self.product = Product.objects.create(
+            name='Nike Air Max',
+            sku='TN-AIR-001',
+            category=cat,
+            base_price=Decimal('350'),
+            is_active=True,
+        )
+        self.cliente = Cliente.objects.create(nombre='Bob', telefono='5550000088')
+        self.pedido = Pedido.objects.create(
+            cliente=self.cliente,
+            descripcion='Nike Air Max ×1',
+            costo_producto=Decimal('350'),
+            precio_venta=Decimal('450'),
+            estado=Pedido.PAGADO,
+            origen=Pedido.TIENDA,
+        )
+        PedidoItem.objects.create(
+            pedido=self.pedido,
+            product=self.product,
+            sku_snapshot='TN-AIR-001',
+            nombre_snapshot='Nike Air Max',
+            cantidad=1,
+            costo_unitario=Decimal('350'),
+            precio_unitario=Decimal('450'),
+        )
+        Pago.objects.create(
+            pedido=self.pedido,
+            fecha=datetime.date.today(),
+            monto=Decimal('450'),
+            metodo_pago=Pago.EFECTIVO,
+        )
+
+    def _token(self, value):
+        from django.core.signing import Signer
+        return Signer().sign(str(value))
+
+    # ── receipt_print_json ──
+
+    def test_receipt_token_valido_devuelve_200(self):
+        token = self._token(self.pedido.pk)
+        url = f'/panel/negocio/api/receipt/{self.pedido.pk}/?token={token}'
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn('0', data)
+
+    def test_receipt_token_invalido_devuelve_403(self):
+        url = f'/panel/negocio/api/receipt/{self.pedido.pk}/?token=tampered:abc'
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 403)
+
+    def test_receipt_sin_token_devuelve_403(self):
+        url = f'/panel/negocio/api/receipt/{self.pedido.pk}/'
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 403)
+
+    def test_receipt_pedido_inexistente_devuelve_404(self):
+        token = self._token(99999)
+        url = f'/panel/negocio/api/receipt/99999/?token={token}'
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 404)
+
+    def test_receipt_json_contiene_items_y_total(self):
+        token = self._token(self.pedido.pk)
+        url = f'/panel/negocio/api/receipt/{self.pedido.pk}/?token={token}'
+        data = self.client.get(url).json()
+        textos = [v.get('content', '') for v in data.values() if v.get('type') == 0]
+        self.assertTrue(any('Nike Air Max' in t for t in textos))
+        self.assertTrue(any('450.00' in t for t in textos))
+
+    # ── label_print_json ──
+
+    def test_label_token_valido_devuelve_200(self):
+        token = self._token(self.product.sku)
+        url = f'/panel/negocio/api/label/{self.product.sku}/?token={token}'
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn('0', data)
+
+    def test_label_qr_contiene_sku(self):
+        token = self._token(self.product.sku)
+        url = f'/panel/negocio/api/label/{self.product.sku}/?token={token}'
+        data = self.client.get(url).json()
+        qr = [v for v in data.values() if v.get('type') == 3]
+        self.assertTrue(len(qr) >= 1)
+        self.assertEqual(qr[0]['value'], 'TN-AIR-001')
+
+    def test_label_token_invalido_devuelve_403(self):
+        url = f'/panel/negocio/api/label/{self.product.sku}/?token=bad:token'
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 403)
+
+    def test_label_sin_token_devuelve_403(self):
+        url = f'/panel/negocio/api/label/{self.product.sku}/'
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 403)
+
+    def test_label_sku_inexistente_devuelve_404(self):
+        token = self._token('NOEXISTE-999')
+        url = f'/panel/negocio/api/label/NOEXISTE-999/?token={token}'
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 404)

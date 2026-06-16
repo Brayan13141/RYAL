@@ -2,6 +2,7 @@ import json
 from decimal import Decimal
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.paginator import Paginator
+from django.core.signing import Signer, BadSignature
 from django.db.models import Q, Count, Sum
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404, redirect
@@ -12,6 +13,7 @@ from django_ratelimit.decorators import ratelimit
 from catalog.models import Category, Product
 from .forms import ClienteForm, PedidoForm, PagoForm, GastoForm
 from .models import Cliente, Pedido, Pago, Gasto
+from .print_utils import _build_label_json, _build_receipt_json
 from .services import crear_venta_tienda, VentaInvalida
 
 
@@ -256,3 +258,39 @@ def pos_cobrar(request):
         'total': str(pedido.precio_venta),
         'ganancia': str(pedido.ganancia),
     })
+
+
+# ── Print endpoints (Bluetooth Print app) ─────────────────
+
+def receipt_print_json(request, pedido_id):
+    """Devuelve JSON para Bluetooth Print app — ticket de venta.
+    Público (sin sesión) pero protegido con token HMAC firmado por Django."""
+    token = request.GET.get('token', '')
+    signer = Signer()
+    try:
+        value = signer.unsign(token)
+        if value != str(pedido_id):
+            return JsonResponse({'error': 'token inválido'}, status=403)
+    except BadSignature:
+        return JsonResponse({'error': 'token inválido'}, status=403)
+
+    pedido = get_object_or_404(
+        Pedido.objects.prefetch_related('items', 'pagos'), pk=pedido_id
+    )
+    return JsonResponse(_build_receipt_json(pedido))
+
+
+def label_print_json(request, sku):
+    """Devuelve JSON para Bluetooth Print app — etiqueta de producto.
+    Público (sin sesión) pero protegido con token HMAC firmado por Django."""
+    token = request.GET.get('token', '')
+    signer = Signer()
+    try:
+        value = signer.unsign(token)
+        if value != sku:
+            return JsonResponse({'error': 'token inválido'}, status=403)
+    except BadSignature:
+        return JsonResponse({'error': 'token inválido'}, status=403)
+
+    product = get_object_or_404(Product, sku=sku, is_active=True)
+    return JsonResponse(_build_label_json(product))
