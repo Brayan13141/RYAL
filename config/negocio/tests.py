@@ -910,3 +910,36 @@ class PrintEndpointsTest(TestCase):
         url = f'/panel/negocio/api/label/{self.product.sku}/?token={token}'
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 403)
+
+
+class PosCobrarBprintTest(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user('staff3', password='pass', is_staff=True)
+        cat = Category.objects.create(name='Sudaderas', slug='sudaderas-bprint')
+        self.product = Product.objects.create(
+            name='Sudadera G5',
+            sku='SD-G5-001',
+            category=cat,
+            base_price=Decimal('200'),
+            is_active=True,
+        )
+        self.client.force_login(self.staff)
+
+    def test_pos_cobrar_exitoso_incluye_bprint_url(self):
+        payload = {
+            'lineas': [{'sku': 'SD-G5-001', 'cantidad': 1, 'precio_unitario': '300'}],
+            'cliente_id': None,
+            'metodo_pago': 'efectivo',
+        }
+        resp = self.client.post(
+            '/panel/negocio/pos/cobrar/',
+            data=json.dumps(payload),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data['ok'])
+        self.assertIn('bprint_url', data)
+        self.assertTrue(data['bprint_url'].startswith('bprint://'))
+        self.assertIn('/negocio/api/receipt/', data['bprint_url'])
+        self.assertIn('token=', data['bprint_url'])

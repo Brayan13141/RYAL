@@ -1,5 +1,6 @@
 import json
 from decimal import Decimal
+from urllib.parse import quote
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.paginator import Paginator
 from django.core.signing import Signer, BadSignature
@@ -252,11 +253,18 @@ def pos_cobrar(request):
     except VentaInvalida as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 
+    signer = Signer()
+    token = quote(signer.sign(str(pedido.pk)), safe='')
+    bprint_url = (
+        f"bprint://{request.scheme}://{request.get_host()}"
+        f"/panel/negocio/api/receipt/{pedido.pk}/?token={token}"
+    )
     return JsonResponse({
         'ok': True,
         'pedido_id': pedido.pk,
         'total': str(pedido.precio_venta),
         'ganancia': str(pedido.ganancia),
+        'bprint_url': bprint_url,
     })
 
 
