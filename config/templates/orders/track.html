@@ -64,8 +64,8 @@
     </div>
 
     <!-- Timeline de estados -->
-    <div style="padding:1.5rem;background:#0a0a0a;border-bottom:1px solid var(--ryal-border);">
-      <div style="display:flex;align-items:flex-start;gap:0;position:relative;">
+    <div style="padding:1.5rem;background:#0a0a0a;border-bottom:1px solid var(--ryal-border);overflow-x:auto;">
+      <div style="display:flex;align-items:flex-start;gap:0;position:relative;min-width:300px;">
         <div class="track-step {% if order.status == 'pending' or order.status == 'confirmed' or order.status == 'in_preparation' or order.status == 'shipped' or order.status == 'delivered' %}done{% endif %}">
           <div class="track-icon"><i class="bi bi-clock"></i></div>
           <div class="track-lbl">Pendiente</div>

@@ -6,7 +6,7 @@
 
 <!-- Filtros -->
 <form method="get" class="fbar" style="margin-bottom:18px;">
-  <input type="text" name="q" value="{{ q }}" placeholder="Buscar código, cliente, tel…" style="width:240px;">
+  <input type="text" name="q" value="{{ q }}" placeholder="Buscar código, cliente, tel…" style="flex:1;min-width:160px;max-width:280px;">
   <select name="status">
     <option value="">Todos los estados</option>
     {% for s, lbl in status_choices %}

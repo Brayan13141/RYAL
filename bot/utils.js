@@ -85,4 +85,13 @@ function computeTotal(price, descuento) {
     return Math.max(0, price - (descuento || 0))
 }
 
-module.exports = { extractPrice, markupCaption, cleanCaption, buildRyalForward, computeTotal }
+/**
+ * Caption corto para cada imagen reenviada de un lote: el precio ya marcado
+ * (+MARKUP) en formato que extractPrice puede releer + el pie de Ryal.
+ * Mantiene el flujo del cliente intacto (reenvía la imagen → trae precio).
+ */
+function buildImageCaption(finalPrice) {
+    return `$${finalPrice} MXN\n\n${RYAL_FOOTER}`
+}
+
+module.exports = { extractPrice, markupCaption, cleanCaption, buildRyalForward, buildImageCaption, computeTotal }

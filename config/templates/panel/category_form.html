@@ -2,6 +2,20 @@
 {% block title %}{% if is_edit %}Editar{% else %}Nueva{% endif %} categoría raíz — Panel RYAL{% endblock %}
 {% block page_title %}{% if is_edit %}Editar categoría: {{ cat.name }}{% else %}Nueva categoría raíz{% endif %}{% endblock %}
 
+{% block extra_css %}
+<style>
+.cf-grid {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 768px) {
+  .cf-grid { grid-template-columns: 1fr; }
+}
+</style>
+{% endblock extra_css %}
+
 {% block content %}
 
 <div style="display:flex;gap:10px;margin-bottom:20px;">
@@ -24,7 +38,7 @@
 
 <form method="post" enctype="multipart/form-data">
   {% csrf_token %}
-  <div style="display:grid;grid-template-columns:1fr 300px;gap:18px;align-items:start;">
+  <div class="cf-grid">
 
     <!-- ── Columna principal ── -->
     <div style="display:flex;flex-direction:column;gap:16px;">

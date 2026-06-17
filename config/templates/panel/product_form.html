@@ -2,6 +2,20 @@
 {% block title %}{% if is_edit %}Editar{% else %}Nuevo{% endif %} producto — Panel RYAL{% endblock %}
 {% block page_title %}{% if is_edit %}Editar: {{ product.name }}{% else %}Nuevo producto{% endif %}{% endblock %}
 
+{% block extra_css %}
+<style>
+.pf-grid {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 768px) {
+  .pf-grid { grid-template-columns: 1fr; }
+}
+</style>
+{% endblock extra_css %}
+
 {% block content %}
 
 <div style="display:flex;gap:10px;margin-bottom:20px;">
@@ -18,7 +32,7 @@
 
 <form method="post">
   {% csrf_token %}
-  <div style="display:grid;grid-template-columns:1fr 320px;gap:18px;align-items:start;">
+  <div class="pf-grid">
 
     <!-- Izq: datos principales -->
     <div>
