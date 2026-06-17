@@ -1603,3 +1603,19 @@ def pendiente_reject(request, pk):
     pending = get_object_or_404(PendingProduct, pk=pk, status='pending')
     pending.reject(notes=request.POST.get('notes', ''))
     return redirect('/panel/pendientes/?status=pending')
+
+
+@_staff
+@require_POST
+def pendientes_approve_all(request):
+    """Aprueba en lote los PendingProducts cuyos PKs se envían (solo los de la página actual)."""
+    from django.http import JsonResponse
+    pks = [int(v) for v in request.POST.getlist('pks') if v.isdigit()]
+    approved, errors = 0, []
+    for pending in PendingProduct.objects.filter(pk__in=pks, status='pending'):
+        try:
+            pending.approve()
+            approved += 1
+        except Exception as e:
+            errors.append(f'{pending.display_name}: {e}')
+    return JsonResponse({'approved': approved, 'errors': errors})

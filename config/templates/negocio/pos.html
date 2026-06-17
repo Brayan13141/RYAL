@@ -2,33 +2,160 @@
 {% block title %}Venta rápida — RYAL{% endblock %}
 {% block page_title %}Venta rápida{% endblock %}
 
+{% block extra_css %}
+<style>
+  /* ── Ticket de venta ── */
+  .ticket-receipt {
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    background: #fff;
+    color: #000;
+    padding: 14px 16px;
+    line-height: 1.45;
+  }
+  .ticket-store  { font-size: 15px; font-weight: 700; text-align: center; }
+  .ticket-subtitle { text-align: center; font-size: 12px; }
+  .ticket-sep    { color: #666; text-align: center; letter-spacing: -.5px; }
+  .ticket-meta   { display: flex; justify-content: space-between; font-size: 11px; color: #444; }
+  .ticket-lineas { }
+  .ticket-line   { display: flex; justify-content: space-between; gap: 6px; font-size: 12px; margin: 2px 0; }
+  .ticket-line-name  { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ticket-line-qty   { color: #555; white-space: nowrap; }
+  .ticket-line-sub   { white-space: nowrap; font-weight: 600; }
+  .ticket-total-row  { display: flex; justify-content: space-between; font-weight: 700; font-size: 14px; margin: 4px 0; }
+  .ticket-total-val  { color: #000; }
+  .ticket-metodo     { font-size: 11px; color: #444; }
+  .ticket-footer     { text-align: center; font-size: 11px; color: #555; }
+
+  @media print {
+    /* Oculta todo excepto el recibo */
+    body > * { display: none !important; }
+    .modal { display: block !important; position: static !important; }
+    .modal-dialog { margin: 0 !important; max-width: 72mm !important; }
+    .modal-content { border: none !important; box-shadow: none !important; background: #fff !important; }
+    .modal-header, .no-print { display: none !important; }
+    #ticket-receipt { display: block !important; padding: 0 !important; }
+  }
+
+  /* ── Escáner QR ── */
+  #qr-modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.88);
+    z-index: 1055;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: .75rem;
+  }
+  #qr-modal-overlay.active { display: flex; }
+  #qr-video {
+    width: min(90vw, 420px);
+    height: min(90vw, 420px);
+    object-fit: cover;
+    border: 2px solid #D4AF37;
+    border-radius: .5rem;
+    background: #000;
+  }
+  #qr-hint { color: #ccc; font-size: .85rem; text-align: center; }
+  #qr-status {
+    color: #D4AF37;
+    font-size: .9rem;
+    font-weight: 600;
+    min-height: 1.4em;
+    text-align: center;
+  }
+  #qr-close {
+    background: rgba(255,255,255,.1);
+    border: 1px solid #555;
+    color: #ccc;
+    border-radius: .4rem;
+    padding: .35rem 1.2rem;
+    font-size: .85rem;
+    cursor: pointer;
+  }
+  #qr-close:hover { background: rgba(255,255,255,.2); }
+  /* marco de mira centrado sobre el video */
+  .qr-viewfinder {
+    position: absolute;
+    width: min(70vw, 300px);
+    height: min(70vw, 300px);
+    border: 2px solid #D4AF37;
+    border-radius: .4rem;
+    pointer-events: none;
+    box-shadow: 0 0 0 2000px rgba(0,0,0,.45);
+  }
+  .qr-video-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
+</style>
+{% endblock extra_css %}
+
 {% block content %}
 {% csrf_token %}
 
-<!-- Modal post-cobro -->
+<!-- Modal post-cobro con ticket de venta -->
 <div class="modal fade" id="ventaModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-sm modal-dialog-centered">
     <div class="modal-content bg-dark text-light border border-secondary">
       <div class="modal-header border-secondary py-2">
         <h6 class="modal-title">Venta registrada</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
-      <div class="modal-body text-center py-3">
-        <div class="fs-3 fw-bold text-warning mb-3">$<span id="modal-total">0.00</span></div>
-        <a id="modal-bprint" href="#" class="btn btn-success w-100 mb-2">
-          Imprimir ticket
+      <div class="modal-body p-0">
+        <!-- Recibo imprimible -->
+        <div id="ticket-receipt" class="ticket-receipt">
+          <div class="ticket-store">RYAL SNEAKERS</div>
+          <div class="ticket-subtitle">TICKET DE VENTA</div>
+          <div class="ticket-sep">================================</div>
+          <div class="ticket-meta">
+            <span id="ticket-num">#—</span>
+            <span id="ticket-fecha">—</span>
+          </div>
+          <div class="ticket-sep">--------------------------------</div>
+          <div id="ticket-lineas" class="ticket-lineas"></div>
+          <div class="ticket-sep">--------------------------------</div>
+          <div class="ticket-total-row">
+            <span>TOTAL</span>
+            <span class="ticket-total-val">$<span id="ticket-total">0.00</span></span>
+          </div>
+          <div class="ticket-metodo">Pago: <span id="ticket-metodo">—</span></div>
+          <div class="ticket-sep">================================</div>
+          <div class="ticket-footer">Gracias por tu compra</div>
+          <div class="ticket-footer">ryalsneackers.com</div>
+        </div>
+      </div>
+      <div class="modal-footer border-secondary py-2 gap-2 no-print">
+        <button type="button" class="btn btn-outline-light btn-sm" onclick="window.print()">
+          <i class="bi bi-printer"></i> Imprimir
+        </button>
+        <a id="modal-bprint" href="#" class="btn btn-success btn-sm">
+          <i class="bi bi-bluetooth"></i> Térmica
         </a>
-      </div>
-      <div class="modal-footer border-secondary py-2">
-        <button type="button" class="btn btn-secondary w-100" id="modal-cerrar"
+        <button type="button" class="btn btn-secondary btn-sm" id="modal-cerrar"
                 data-bs-dismiss="modal">Cerrar</button>
       </div>
     </div>
   </div>
 </div>
 
+<!-- ── Overlay escáner QR ── -->
+<div id="qr-modal-overlay">
+  <div class="qr-video-wrap">
+    <video id="qr-video" playsinline muted></video>
+    <div class="qr-viewfinder"></div>
+  </div>
+  <div id="qr-status"></div>
+  <div id="qr-hint">Apunta la cámara al código QR de la etiqueta del producto</div>
+  <button id="qr-close" type="button">Cerrar escáner</button>
+</div>
+
 <div class="pos-wrap">
   <div class="pos-toolbar">
     <input id="pos-q" type="search" class="form-control" placeholder="Buscar nombre o SKU…" autocomplete="off">
+    <button type="button" id="qr-open-btn" class="btn btn-outline-warning"
+            title="Escanear QR" style="white-space:nowrap;">
+      <i class="bi bi-qr-code-scan"></i> QR
+    </button>
     <select id="pos-cat" class="form-select">
       <option value="">Todas las categorías</option>
       {% for c in categorias %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}
@@ -235,6 +362,36 @@
   catEl.addEventListener('change', reset);
   moreBtn.addEventListener('click', () => { page += 1; load(true); });
 
+  function fillTicket(d){
+    document.getElementById('ticket-num').textContent    = '#' + d.pedido_id;
+    document.getElementById('ticket-fecha').textContent  = d.fecha || '';
+    document.getElementById('ticket-total').textContent  = fmt(d.total);
+    document.getElementById('ticket-metodo').textContent = d.metodo_pago || '';
+    document.getElementById('modal-bprint').href         = d.bprint_url;
+
+    const linesEl = document.getElementById('ticket-lineas');
+    linesEl.innerHTML = '';
+    (d.lineas || []).forEach(it => {
+      const row = document.createElement('div');
+      row.className = 'ticket-line';
+
+      const name = document.createElement('span');
+      name.className = 'ticket-line-name';
+      name.textContent = it.nombre;
+
+      const qty = document.createElement('span');
+      qty.className = 'ticket-line-qty';
+      qty.textContent = 'x' + it.cantidad;
+
+      const sub = document.createElement('span');
+      sub.className = 'ticket-line-sub';
+      sub.textContent = '$' + fmt(it.subtotal);
+
+      row.append(name, qty, sub);
+      linesEl.appendChild(row);
+    });
+  }
+
   cobrarBtn.addEventListener('click', () => {
     const lineas = [...cart.values()].map(it => ({
       sku: it.sku, cantidad: it.cantidad, precio_unitario: String(it.precio),
@@ -253,8 +410,7 @@
       return r.json();
     }).then(d => {
       if (d.ok){
-        document.getElementById('modal-total').textContent = d.total;
-        document.getElementById('modal-bprint').href = d.bprint_url;
+        fillTicket(d);
         new bootstrap.Modal(document.getElementById('ventaModal')).show();
       } else {
         alert('Error: ' + (d.error || 'no se pudo cobrar'));
@@ -268,6 +424,109 @@
   });
 
   reset();
+
+  // ── Escáner QR ──────────────────────────────────────────────────────────────
+  const qrOverlay  = document.getElementById('qr-modal-overlay');
+  const qrVideo    = document.getElementById('qr-video');
+  const qrStatus   = document.getElementById('qr-status');
+  const qrOpenBtn  = document.getElementById('qr-open-btn');
+  const qrCloseBtn = document.getElementById('qr-close');
+
+  let qrStream = null, qrAnimFrame = null, qrCooldown = false;
+  const qrCanvas = document.createElement('canvas');
+  const qrCtx    = qrCanvas.getContext('2d', { willReadFrequently: true });
+
+  function qrStop() {
+    if (qrAnimFrame) { cancelAnimationFrame(qrAnimFrame); qrAnimFrame = null; }
+    if (qrStream)    { qrStream.getTracks().forEach(t => t.stop()); qrStream = null; }
+    qrVideo.srcObject = null;
+    qrOverlay.classList.remove('active');
+    qrStatus.textContent = '';
+    qrCooldown = false;
+  }
+
+  async function qrStart() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert('Tu navegador no soporta acceso a la cámara.');
+      return;
+    }
+    qrStatus.textContent = 'Iniciando cámara…';
+    qrOverlay.classList.add('active');
+    try {
+      qrStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      qrVideo.srcObject = qrStream;
+      await qrVideo.play();
+      qrStatus.textContent = '';
+      qrScanLoop();
+    } catch (err) {
+      qrStatus.textContent = 'Sin acceso a la cámara: ' + err.message;
+    }
+  }
+
+  function qrScanLoop() {
+    if (!qrStream) return;
+    if (qrVideo.readyState === qrVideo.HAVE_ENOUGH_DATA) {
+      qrCanvas.width  = qrVideo.videoWidth;
+      qrCanvas.height = qrVideo.videoHeight;
+      qrCtx.drawImage(qrVideo, 0, 0);
+      const imageData = qrCtx.getImageData(0, 0, qrCanvas.width, qrCanvas.height);
+      const code = window.jsQR && window.jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: 'dontInvert',
+      });
+      if (code && code.data && !qrCooldown) {
+        qrCooldown = true;
+        qrOnScan(code.data.trim());
+        return;  // pausa el loop mientras se busca el producto
+      }
+    }
+    qrAnimFrame = requestAnimationFrame(qrScanLoop);
+  }
+
+  async function qrOnScan(sku) {
+    qrStatus.textContent = 'Buscando: ' + sku + '…';
+    try {
+      const url = `{% url 'negocio:pos_productos' %}?q=${encodeURIComponent(sku)}&page=1`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const producto = data.productos && data.productos[0];
+      if (producto) {
+        addToCart(producto);
+        qrStatus.textContent = '✓ Agregado: ' + producto.nombre;
+        // Breve feedback visual y luego continúa escaneando
+        setTimeout(() => {
+          qrStatus.textContent = '';
+          qrCooldown = false;
+          qrAnimFrame = requestAnimationFrame(qrScanLoop);
+        }, 1200);
+      } else {
+        qrStatus.textContent = 'Producto no encontrado: ' + sku;
+        setTimeout(() => {
+          qrStatus.textContent = '';
+          qrCooldown = false;
+          qrAnimFrame = requestAnimationFrame(qrScanLoop);
+        }, 1500);
+      }
+    } catch (e) {
+      qrStatus.textContent = 'Error de búsqueda';
+      setTimeout(() => {
+        qrStatus.textContent = '';
+        qrCooldown = false;
+        qrAnimFrame = requestAnimationFrame(qrScanLoop);
+      }, 1500);
+    }
+  }
+
+  qrOpenBtn.addEventListener('click', qrStart);
+  qrCloseBtn.addEventListener('click', qrStop);
+  // Cierra también con Escape
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') qrStop(); });
+
 })();
 </script>
+<!-- jsQR: decodificador QR puro JS, sin dependencias extra -->
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"
+        integrity="sha384-hStSInNIZ8ljtOVrmrgf7zdHMapaLBWoSnPTtF0nzsybp4+LuhDz6sHuEVpWIX8o"
+        crossorigin="anonymous"></script>
 {% endblock %}

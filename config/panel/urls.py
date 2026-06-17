@@ -71,7 +71,8 @@ urlpatterns = [
     path('hero/slides/<int:pk>/eliminar/',    views.hero_slide_delete,  name='hero_slide_delete'),
     path('hero/slides/<int:pk>/orden/',       views.hero_slide_reorder, name='hero_slide_reorder'),
     path('hero/slides/<int:pk>/toggle/',      views.hero_slide_toggle,  name='hero_slide_toggle'),
-    path('pendientes/',                       views.pendientes_list,    name='pendientes_list'),
-    path('pendientes/<int:pk>/aprobar/',      views.pendiente_approve,  name='pendiente_approve'),
-    path('pendientes/<int:pk>/rechazar/',     views.pendiente_reject,   name='pendiente_reject'),
+    path('pendientes/',                       views.pendientes_list,        name='pendientes_list'),
+    path('pendientes/<int:pk>/aprobar/',      views.pendiente_approve,      name='pendiente_approve'),
+    path('pendientes/<int:pk>/rechazar/',     views.pendiente_reject,       name='pendiente_reject'),
+    path('pendientes/aprobar-todos/',         views.pendientes_approve_all, name='pendientes_approve_all'),
 ]

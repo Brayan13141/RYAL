@@ -265,12 +265,33 @@ def pos_cobrar(request):
         f"bprint://{request.scheme}://{request.get_host()}"
         f"/panel/negocio/api/receipt/{pedido.pk}/?token={token}"
     )
+
+    # Refetch con prefetch para obtener ítems y pago sin N+1
+    pedido_full = (
+        Pedido.objects.prefetch_related('items', 'pagos')
+        .get(pk=pedido.pk)
+    )
+    pago = next(iter(pedido_full.pagos.all()), None)
+    metodo_display = pago.get_metodo_pago_display() if pago else 'Efectivo'
+    lineas_display = [
+        {
+            'nombre': item.nombre_snapshot,
+            'cantidad': item.cantidad,
+            'precio_unitario': str(item.precio_unitario),
+            'subtotal': str(item.subtotal),
+        }
+        for item in pedido_full.items.all()
+    ]
+
     return JsonResponse({
         'ok': True,
         'pedido_id': pedido.pk,
         'total': str(pedido.precio_venta),
         'ganancia': str(pedido.ganancia),
         'bprint_url': bprint_url,
+        'fecha': pedido_full.fecha.strftime('%d/%m/%Y'),
+        'metodo_pago': metodo_display,
+        'lineas': lineas_display,
     })
 
 

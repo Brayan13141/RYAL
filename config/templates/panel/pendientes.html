@@ -174,7 +174,15 @@
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h5 class="mb-0" style="color:#D4AF37;font-weight:700;">Productos pendientes</h5>
-  <small class="text-muted">Revisa y aprueba los productos nuevos detectados en el scrape.</small>
+  <div class="d-flex align-items-center gap-2">
+    <small class="text-muted d-none d-sm-inline">Revisa y aprueba los productos nuevos detectados en el scrape.</small>
+    {% if status_filter == 'pending' and page_obj.object_list %}
+    <button type="button" id="btn-approve-all" class="btn btn-sm btn-success"
+            style="white-space:nowrap;">
+      ✓ Aprobar página ({{ page_obj|length }})
+    </button>
+    {% endif %}
+  </div>
 </div>
 
 {# ── Tabs de estado ── #}
@@ -215,7 +223,8 @@
       {# ── Formulario inline ── #}
       <form method="post"
             action="{% if status_filter == 'pending' %}{% url 'panel:pendiente_approve' pp.pk %}{% else %}#{% endif %}"
-            class="pcard-body">
+            class="pcard-body pcard-approve-form"
+            data-pk="{{ pp.pk }}">
         {% csrf_token %}
 
         <div class="pcard-mv-name" title="{{ pp.modaverse_name }}">{{ pp.modaverse_name|truncatechars:40 }}</div>
@@ -331,5 +340,41 @@ function rejectProduct(pk, btn) {
   form.action = '/panel/pendientes/' + pk + '/rechazar/';
   form.submit();
 }
+
+(function(){
+  const btn = document.getElementById('btn-approve-all');
+  if (!btn) return;
+
+  // Recolecta los PKs de las tarjetas pendientes visibles en esta página
+  const pks = [...document.querySelectorAll('.pcard-approve-form')].map(f => f.dataset.pk);
+  if (!pks.length) { btn.style.display = 'none'; return; }
+
+  const csrf = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+  btn.addEventListener('click', async () => {
+    if (!confirm(`¿Aprobar los ${pks.length} productos de esta página con sus valores actuales?`)) return;
+    btn.disabled = true;
+    btn.textContent = 'Aprobando…';
+
+    const body = new FormData();
+    body.append('csrfmiddlewaretoken', csrf);
+    pks.forEach(pk => body.append('pks', pk));
+
+    try {
+      const res = await fetch('{% url "panel:pendientes_approve_all" %}', { method: 'POST', body });
+      const data = await res.json();
+      if (data.errors && data.errors.length) {
+        alert(`Aprobados: ${data.approved}. Errores:\n${data.errors.join('\n')}`);
+      }
+      // Recarga la misma página/status para actualizar conteos
+      const params = new URLSearchParams(window.location.search);
+      window.location.href = '?status=pending&page=' + (params.get('page') || '1');
+    } catch(e) {
+      alert('Error de red al aprobar. Intenta de nuevo.');
+      btn.disabled = false;
+      btn.textContent = '✓ Aprobar página ({{ page_obj|length }})';
+    }
+  });
+})();
 </script>
 {% endblock %}
