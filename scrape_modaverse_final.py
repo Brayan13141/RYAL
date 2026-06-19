@@ -401,13 +401,15 @@ for item in all_products_raw:
 
     price_mxn = parse_float(item.get('unitPrice'))
     stock_num = item.get('stockNum', 0)
+    yn_launch = '1' if item.get('ynLaunch') == '1' else '0'
 
-    if stock_num is not None and int(stock_num or 0) <= 0:
-        status = 'out_of_stock'
-    elif item.get('ynLaunch') == '1':
-        status = 'available'
-    else:
+    # ynLaunch tiene prioridad: si no está publicado, no importa el stock
+    if yn_launch != '1':
         status = 'unlaunched'
+    elif stock_num is not None and int(stock_num or 0) <= 0:
+        status = 'out_of_stock'
+    else:
+        status = 'available'
 
     specs = parse_specifications(item.get('productSpecificationsList'))
     all_mapped.append({
@@ -423,6 +425,7 @@ for item in all_products_raw:
         "colors":       specs['colors'],
         "description":  "",
         "status":       status,
+        "yn_launch":    yn_launch,
         "stock":        stock_num,
         "tags":         [],
         "category_id":  cat_id,

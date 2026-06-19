@@ -9,7 +9,7 @@ Calzado (yupoo) y productos manuales quedan intactos.
 """
 from django.core.management.base import BaseCommand
 
-from catalog.models import Category, Product
+from catalog.models import Category, Product, ProductImage
 from catalog.modaverse import pid_from_url, read_modaverse_json, category_filter_ids
 
 
@@ -78,7 +78,13 @@ class Command(BaseCommand):
         else:
             json_scope = products
 
-        live_pids = {p['sku'] for p in json_scope if p.get('sku')}
+        # Solo contar como "live" los productos publicados en Modaverse (yn_launch='1').
+        # Si yn_launch no está en el JSON (datos anteriores), se asume '1' para
+        # compatibilidad hacia atrás (no desactiva productos de scrapes viejos).
+        live_pids = {
+            p['sku'] for p in json_scope
+            if p.get('sku') and p.get('yn_launch', '1') == '1'
+        }
 
         # ── Guarda 1: zero-guard ─────────────────────────────────────────────
         if not json_scope and not options['force']:
@@ -153,10 +159,20 @@ class Command(BaseCommand):
             is_active=True, auto_deactivated=False
         )
 
+        # Borrar imágenes de los productos dados de baja
+        imgs_deleted = 0
+        if to_deactivate_pks:
+            imgs = list(ProductImage.objects.filter(product_id__in=to_deactivate_pks))
+            for img in imgs:
+                img.image.delete(save=False)
+            ProductImage.objects.filter(product_id__in=to_deactivate_pks).delete()
+            imgs_deleted = len(imgs)
+
         self.stdout.write(self.style.SUCCESS(
             f'scope={scope_active_count} · '
             f'bajas={len(to_deactivate_pks)} · '
-            f'reactivaciones={len(to_reactivate_pks)}'
+            f'reactivaciones={len(to_reactivate_pks)} · '
+            f'imágenes_eliminadas={imgs_deleted}'
         ))
 
     def _prune(self, options):
@@ -191,5 +207,13 @@ class Command(BaseCommand):
                 self.stdout.write(f'  … y {count - 10} más')
             return
 
+        # Borrar archivos de imagen antes del hard-delete (CASCADE borra registros DB pero no archivos)
+        pks = list(qs.values_list('pk', flat=True))
+        imgs = list(ProductImage.objects.filter(product_id__in=pks))
+        for img in imgs:
+            img.image.delete(save=False)
+
         qs.delete()
-        self.stdout.write(self.style.SUCCESS(f'Eliminados {count} productos permanentemente.'))
+        self.stdout.write(self.style.SUCCESS(
+            f'Eliminados {count} productos + {len(imgs)} imágenes permanentemente.'
+        ))
