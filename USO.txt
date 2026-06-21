@@ -369,10 +369,10 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
     lines = open('/root/app/corrupted_list.txt').read().strip().split('\n')
     vals = ', '.join(f\"'products/{l.strip()}'\" for l in lines if l.strip())
     print(f'DELETE FROM catalog_productimage WHERE image IN ({vals}) RETURNING id;')
-    " | PGPASSWORD='WRyal2026!DB' psql -h 127.0.0.1 -U webryal_user webryal
+    " | PGPASSWORD='<DB_PASSWORD>' psql -h 127.0.0.1 -U webryal_user webryal
 
     # Reasignar portadas a productos que perdieron su cover
-    PGPASSWORD='WRyal2026!DB' psql -h 127.0.0.1 -U webryal_user webryal -c "
+    PGPASSWORD='<DB_PASSWORD>' psql -h 127.0.0.1 -U webryal_user webryal -c "
     UPDATE catalog_productimage pi SET is_cover = true
     FROM (
       SELECT DISTINCT ON (product_id) id FROM catalog_productimage
@@ -407,11 +407,11 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
 
   # Contar imágenes en disco y BD
   find /root/app/config/media/products -name "*.jpg" | wc -l
-  PGPASSWORD='WRyal2026!DB' psql -h 127.0.0.1 -U webryal_user webryal \
+  PGPASSWORD='<DB_PASSWORD>' psql -h 127.0.0.1 -U webryal_user webryal \
     -c "SELECT COUNT(*) FROM catalog_productimage;"
 
   # Productos sin imagen
-  PGPASSWORD='WRyal2026!DB' psql -h 127.0.0.1 -U webryal_user webryal -c "
+  PGPASSWORD='<DB_PASSWORD>' psql -h 127.0.0.1 -U webryal_user webryal -c "
   SELECT COUNT(*) FROM catalog_product p
   WHERE NOT EXISTS (SELECT 1 FROM catalog_productimage pi WHERE pi.product_id = p.id);"
 
@@ -419,7 +419,7 @@ Siempre usar PYTHONUTF8=1 en Windows para evitar errores de encoding.
   find /root/app/config/media/products -name "*.jpg" -size -5000c | wc -l
 
   # Estado de imágenes por categoría
-  PGPASSWORD='WRyal2026!DB' psql -h 127.0.0.1 -U webryal_user webryal -c "
+  PGPASSWORD='<DB_PASSWORD>' psql -h 127.0.0.1 -U webryal_user webryal -c "
   SELECT c.name, COUNT(DISTINCT p.id) productos, COUNT(pi.id) imagenes
   FROM catalog_product p
   JOIN catalog_category c ON p.category_id = c.id
