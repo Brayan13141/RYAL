@@ -215,6 +215,16 @@ class PendingProduct(models.Model):
     def __str__(self):
         return f'{self.display_name} [{self.get_status_display()}]'
 
+    @property
+    def final_price(self):
+        """Precio estimado de venta: base + envío + margen de la categoría raíz."""
+        root = None
+        if self.category:
+            root = self.category.parent if self.category.parent_id else self.category
+        if root is None:
+            return self.base_price + Decimal('100')
+        return self.base_price + root.shipping_cost + root.profit_margin
+
     def approve(self):
         """Crea el Product en catálogo y marca como aprobado."""
         from django.utils import timezone

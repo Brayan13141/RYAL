@@ -12,6 +12,7 @@ import httpx
 
 from django.core.files.base import ContentFile
 from django.utils.text import slugify
+from django.core.management import call_command
 from django.core.management.base import BaseCommand
 
 from catalog.models import Category, PendingProduct, Product, ProductImage, Tag, SizeGroup
@@ -146,14 +147,24 @@ def _next_sku_index(prefix: str) -> int:
 _category_filter_ids = category_filter_ids
 
 
+# Cualquier bloque CJK: CJK Compat, Símbolos CJK, Ext-A, Unificado, Compat Ideogramas,
+# Fullwidth/Halfwidth, Radicales Kangxi, Ideográficos CJK Descripciones.
+_CJK_RE = re.compile(
+    r'[⺀-⻿　-〿㐀-䶿一-鿿豈-﫿＀-￯]+'
+)
+
+
 def _clean_name(raw) -> str:
+    """Elimina sufijos de precio y todos los caracteres chinos/CJK del nombre."""
     if not raw:
         return ''
     raw = str(raw)
-    name = re.sub(r'\s*[-–]\s*\$?\d+\s*(pesos?|mxn|usd|cny)?', '', raw, flags=re.IGNORECASE)
-    name = name.strip(' .-_')
-    name = re.sub(r'\s+[一-鿿㐀-䶿]+\s*$', '', name).strip()
-    return name or raw
+    # Sufijo de precio: requiere $ o palabra de moneda para no quitar códigos tipo "RJ-003"
+    name = re.sub(r'\s*[-–]\s*\$\d+(?:\s*(?:pesos?|mxn|usd|cny))?', '', raw, flags=re.IGNORECASE)
+    name = re.sub(r'\s*[-–]\s*\d+\s*(?:pesos?|mxn|usd|cny)\b', '', name, flags=re.IGNORECASE)
+    name = _CJK_RE.sub(' ', name)
+    name = re.sub(r'\s+', ' ', name).strip(' .-_')
+    return name
 
 
 class Command(BaseCommand):
@@ -171,6 +182,9 @@ class Command(BaseCommand):
                             help='Re-categoriza productos actualmente en categoría General usando el JSON')
         parser.add_argument('--fix-urls', '--fix-proinfo-urls', action='store_true',
                             help='Actualiza supplier_url de productos modaverse al formato directo #/proinfo/{pid}')
+        parser.add_argument('--no-reconcile', action='store_true',
+                            help='Omitir la reconciliación automática (no dar de baja productos eliminados).'
+                                 ' Por defecto se reconcilia cuando se usa --category.')
 
     def handle(self, *args, **options):
         no_images = options['no_images']
@@ -207,6 +221,12 @@ class Command(BaseCommand):
 
         if options.get('recategorize'):
             self._recategorize_general()
+
+        # Reconciliar automáticamente cuando se actualiza una categoría específica:
+        # da de baja los productos que ya no existen en el proveedor.
+        if category and only in ('modaverse', 'all') and not options.get('no_reconcile'):
+            self.stdout.write('\n── Reconciliando: dando de baja productos eliminados del proveedor ──')
+            call_command('reconcile_catalog', category=category, verbosity=options['verbosity'])
 
         self.stdout.write(self.style.SUCCESS('\n✅ Carga completada. Revisa el admin.'))
 
@@ -354,9 +374,15 @@ class Command(BaseCommand):
                         # Actualizar nombre exacto de Modaverse
                         raw_name = (p.get('name') or '').strip()
                         changed_fields = []
-                        if raw_name and raw_name.lower() not in _SKIP_NAMES and prod.name != raw_name:
-                            prod.name = raw_name
-                            changed_fields.append('name')
+                        if raw_name and raw_name.lower() not in _SKIP_NAMES:
+                            clean = _clean_name(raw_name)
+                            # Propagar nombre limpio si: (a) nombre actual tiene CJK,
+                            # o (b) nunca fue editado a mano (prod.name == modaverse_name anterior).
+                            name_has_cjk = bool(_CJK_RE.search(prod.name or ''))
+                            name_was_auto = (prod.name == prod.modaverse_name)
+                            if clean and (name_has_cjk or name_was_auto) and prod.name != clean:
+                                prod.name = clean
+                                changed_fields.append('name')
                         if raw_name and prod.modaverse_name != raw_name:
                             prod.modaverse_name = raw_name
                             changed_fields.append('modaverse_name')
@@ -428,7 +454,8 @@ class Command(BaseCommand):
             # Filtrar entradas informativas que no son productos reales
             if not raw_name or raw_name.lower() in _SKIP_NAMES:
                 continue
-            name = raw_name   # Guardar nombre exacto de Modaverse
+            # modaverse_name guarda el original (puede ser chino); display usa nombre limpio
+            name = _clean_name(raw_name) or cat_obj.name
 
             # Precio: usar el de la API; si es 0/None, usar default por categoría padre
             root_slug = slugify((cat_obj.parent or cat_obj).name)

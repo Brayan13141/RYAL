@@ -7,6 +7,7 @@
 <style>
   /* ── grid de cards ── */
   .pcard {
+    position: relative;
     background: #1a1a1a;
     border: 1px solid #2c2c2c;
     border-radius: 10px;
@@ -16,6 +17,7 @@
     transition: border-color .15s;
   }
   .pcard:hover { border-color: #D4AF37; }
+  .pcard.selected { border-color: #D4AF37 !important; box-shadow: 0 0 0 1px #D4AF37; }
 
   .pcard-img {
     width: 100%;
@@ -34,6 +36,72 @@
     color: #444;
     font-size: 2rem;
   }
+
+  /* ── checkbox de selección ── */
+  .pcard-check {
+    position: absolute;
+    top: 7px;
+    left: 7px;
+    z-index: 4;
+    width: 18px;
+    height: 18px;
+    accent-color: #D4AF37;
+    cursor: pointer;
+    background: rgba(0,0,0,.5);
+    border-radius: 3px;
+  }
+
+  /* ── barra de selección masiva ── */
+  .sel-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    background: #141414;
+    border: 1px solid #2a2a2a;
+    border-radius: 7px;
+    padding: 8px 14px;
+    margin-bottom: 12px;
+  }
+  .sel-bar label {
+    font-size: 12px;
+    color: #666;
+    cursor: pointer;
+    margin: 0;
+    user-select: none;
+  }
+  #sel-count-badge {
+    font-size: 12px;
+    color: #D4AF37;
+    font-weight: 600;
+    min-width: 60px;
+  }
+  .btn-bulk-approve {
+    background: rgba(40,167,69,.2);
+    border: 1px solid rgba(40,167,69,.5);
+    color: #5cb85c;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 6px;
+    padding: 5px 14px;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .btn-bulk-approve:hover { background: rgba(40,167,69,.35); }
+  .btn-bulk-approve:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-bulk-reject {
+    background: rgba(220,53,69,.15);
+    border: 1px solid rgba(220,53,69,.4);
+    color: #e05c6b;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 6px;
+    padding: 5px 14px;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .btn-bulk-reject:hover { background: rgba(220,53,69,.3); }
+  .btn-bulk-reject:disabled { opacity: .5; cursor: not-allowed; }
 
   .pcard-body {
     padding: 10px 12px;
@@ -185,18 +253,52 @@
   </div>
 </div>
 
-{# ── Tabs de estado ── #}
+{# ── Tabs de estado — preservan filtros ── #}
 <div class="status-tabs">
-  <a href="?status=pending"  class="status-tab {% if status_filter == 'pending'  %}active{% endif %}">
+  <a href="?status=pending{% if filter_qs %}&{{ filter_qs }}{% endif %}"
+     class="status-tab {% if status_filter == 'pending'  %}active{% endif %}">
     Pendientes <span class="badge-count">{{ counts.pending }}</span>
   </a>
-  <a href="?status=approved" class="status-tab {% if status_filter == 'approved' %}active{% endif %}">
+  <a href="?status=approved{% if filter_qs %}&{{ filter_qs }}{% endif %}"
+     class="status-tab {% if status_filter == 'approved' %}active{% endif %}">
     Aprobados <span class="badge-count">{{ counts.approved }}</span>
   </a>
-  <a href="?status=rejected" class="status-tab {% if status_filter == 'rejected' %}active{% endif %}">
+  <a href="?status=rejected{% if filter_qs %}&{{ filter_qs }}{% endif %}"
+     class="status-tab {% if status_filter == 'rejected' %}active{% endif %}">
     Rechazados <span class="badge-count">{{ counts.rejected }}</span>
   </a>
 </div>
+
+{# ── Filtros ── #}
+<form method="get" class="fbar mb-3" style="flex-wrap:wrap;gap:6px;">
+  <input type="hidden" name="status" value="{{ status_filter }}">
+  <input type="text" name="q" value="{{ q }}" placeholder="Nombre…" style="flex:1;min-width:130px;max-width:220px;">
+  <select name="cat" style="min-width:170px;">
+    <option value="">Todas las categorías</option>
+    {% for parent in parent_cats %}
+      {% if parent.subcategories.all %}
+        <optgroup label="{{ parent.name }}">
+          <option value="{{ parent.slug }}" {% if cat_filter == parent.slug %}selected{% endif %}>— Todo {{ parent.name }}</option>
+          {% for sub in parent.subcategories.all %}
+            <option value="{{ sub.slug }}" {% if cat_filter == sub.slug %}selected{% endif %}>&nbsp;&nbsp;{{ sub.name }}</option>
+          {% endfor %}
+        </optgroup>
+      {% else %}
+        <option value="{{ parent.slug }}" {% if cat_filter == parent.slug %}selected{% endif %}>{{ parent.name }}</option>
+      {% endif %}
+    {% endfor %}
+  </select>
+  <button type="submit" class="btn-g btn-sm"><i class="bi bi-search"></i> Filtrar</button>
+  {% if q or cat_filter %}
+  <a href="?status={{ status_filter }}" class="btn-o btn-sm"><i class="bi bi-x"></i> Limpiar</a>
+  {% endif %}
+  <select onchange="let p=new URLSearchParams(window.location.search);p.set('per_page',this.value);p.delete('page');window.location.search=p.toString();" style="margin-left:auto;">
+    <option value="24"   {% if per_page == '24'   %}selected{% endif %}>24 / pág.</option>
+    <option value="48"   {% if per_page == '48'   %}selected{% endif %}>48 / pág.</option>
+    <option value="96"   {% if per_page == '96'   %}selected{% endif %}>96 / pág.</option>
+    <option value="todos"{% if per_page == 'todos' %}selected{% endif %}>Todos</option>
+  </select>
+</form>
 
 {% if messages %}
   {% for msg in messages %}
@@ -206,11 +308,31 @@
   {% endfor %}
 {% endif %}
 
+{# ── Barra de selección masiva (solo en pendientes) ── #}
+{% if status_filter == 'pending' and page_obj.object_list %}
+<div class="sel-bar" id="sel-bar">
+  <input type="checkbox" id="check-all-pend"
+         style="width:16px;height:16px;accent-color:#D4AF37;cursor:pointer;flex-shrink:0;">
+  <label for="check-all-pend">Seleccionar todos</label>
+  <span id="sel-count-badge" style="display:none;"></span>
+  <div id="bulk-actions" style="display:none;" class="d-flex gap-2 ms-1">
+    <button id="bulk-approve-btn" class="btn-bulk-approve">✓ Aprobar</button>
+    <button id="bulk-reject-btn" class="btn-bulk-reject">✗ Rechazar</button>
+  </div>
+</div>
+{% endif %}
+
 {% if page_obj.object_list %}
 <div class="row g-3">
   {% for pp in page_obj %}
   <div class="col-6 col-sm-4 col-md-3 col-xl-2">
-    <div class="pcard h-100">
+    <div class="pcard h-100" id="pcard-{{ pp.pk }}">
+
+      {# ── Checkbox de selección (solo pendientes) ── #}
+      {% if status_filter == 'pending' %}
+      <input type="checkbox" class="pcard-check" value="{{ pp.pk }}" id="chk-{{ pp.pk }}">
+      {% endif %}
+
       {# ── Foto: primero imagen local, fallback CDN, fallback placeholder ── #}
       {% if pp.cover_image %}
         <img src="{{ pp.cover_image.url }}" alt="{{ pp.display_name }}" class="pcard-img" loading="lazy">
@@ -227,6 +349,14 @@
             data-pk="{{ pp.pk }}">
         {% csrf_token %}
 
+        {# Preservar filtros en el redirect post-approve #}
+        {% if status_filter == 'pending' %}
+        <input type="hidden" name="_q" value="{{ q }}">
+        <input type="hidden" name="_cat" value="{{ cat_filter }}">
+        <input type="hidden" name="_per_page" value="{{ per_page }}">
+        <input type="hidden" name="_page" value="{{ page_obj.number }}">
+        {% endif %}
+
         <div class="pcard-mv-name" title="{{ pp.modaverse_name }}">{{ pp.modaverse_name|truncatechars:40 }}</div>
 
         {% if status_filter == 'pending' %}
@@ -238,12 +368,18 @@
                 maxlength="500">
 
         <div class="pcard-row">
-          <input  type="number"
-                  name="base_price"
-                  value="{{ pp.base_price }}"
-                  class="pcard-price-input"
-                  step="0.01" min="0"
-                  placeholder="$">
+          <div style="display:flex;flex-direction:column;gap:2px;">
+            <input  type="number"
+                    name="base_price"
+                    value="{{ pp.base_price }}"
+                    class="pcard-price-input"
+                    step="0.01" min="0"
+                    placeholder="$"
+                    title="Precio costo proveedor">
+            <span style="font-size:10px;color:#D4AF37;padding-left:4px;" title="Precio de venta (costo + envío + ganancia)">
+              ↳ ${{ pp.final_price }} venta
+            </span>
+          </div>
           <select name="category" class="pcard-cat-select">
             <option value="">— categoría —</option>
             {% for root in root_cats %}
@@ -276,7 +412,8 @@
           {% if pp.category %}
             <div style="font-size:11px;color:#666;">{{ pp.category.name }}</div>
           {% endif %}
-          <div style="font-size:12px;color:#D4AF37;font-weight:600;">${{ pp.base_price }} MXN</div>
+          <div style="font-size:12px;color:#D4AF37;font-weight:600;">${{ pp.final_price }} MXN</div>
+          <div style="font-size:10px;color:#555;">${{ pp.base_price }} costo</div>
           <div style="font-size:10px;color:#555;margin-top:auto;">{{ pp.reviewed_at|date:"d/m/Y" }}</div>
         {% endif %}
       </form>
@@ -287,12 +424,12 @@
 </div>
 
 {# ── Paginación ── #}
-{% if page_obj.has_other_pages %}
+{% if page_obj.has_other_pages and per_page != 'todos' %}
 <nav class="mt-4">
   <ul class="pagination pagination-sm justify-content-center">
     {% if page_obj.has_previous %}
       <li class="page-item">
-        <a class="page-link" href="?status={{ status_filter }}&page={{ page_obj.previous_page_number }}">‹</a>
+        <a class="page-link" href="?status={{ status_filter }}&q={{ q }}&cat={{ cat_filter }}&per_page={{ per_page }}&page={{ page_obj.previous_page_number }}">‹</a>
       </li>
     {% endif %}
     {% for num in page_obj.paginator.page_range %}
@@ -300,13 +437,13 @@
         <li class="page-item active"><span class="page-link">{{ num }}</span></li>
       {% elif num|add:"-2" <= page_obj.number and page_obj.number <= num|add:"2" %}
         <li class="page-item">
-          <a class="page-link" href="?status={{ status_filter }}&page={{ num }}">{{ num }}</a>
+          <a class="page-link" href="?status={{ status_filter }}&q={{ q }}&cat={{ cat_filter }}&per_page={{ per_page }}&page={{ num }}">{{ num }}</a>
         </li>
       {% endif %}
     {% endfor %}
     {% if page_obj.has_next %}
       <li class="page-item">
-        <a class="page-link" href="?status={{ status_filter }}&page={{ page_obj.next_page_number }}">›</a>
+        <a class="page-link" href="?status={{ status_filter }}&q={{ q }}&cat={{ cat_filter }}&per_page={{ per_page }}&page={{ page_obj.next_page_number }}">›</a>
       </li>
     {% endif %}
   </ul>
@@ -326,14 +463,19 @@
 </div>
 {% endif %}
 
-{# ── Formulario oculto para rechazar ── #}
+{# ── Formulario oculto para rechazar (preserva filtros) ── #}
 <form id="reject-form" method="post" action="" style="display:none;">
   {% csrf_token %}
+  <input type="hidden" name="_q" value="{{ q }}">
+  <input type="hidden" name="_cat" value="{{ cat_filter }}">
+  <input type="hidden" name="_per_page" value="{{ per_page }}">
+  <input type="hidden" name="_page" value="{{ page_obj.number }}">
 </form>
 {% endblock %}
 
 {% block extra_js %}
 <script>
+// ─── Rechazar individual ──────────────────────────────────────────────────────
 function rejectProduct(pk, btn) {
   if (!confirm('¿Rechazar este producto?')) return;
   const form = document.getElementById('reject-form');
@@ -341,11 +483,11 @@ function rejectProduct(pk, btn) {
   form.submit();
 }
 
+// ─── Aprobar página completa ──────────────────────────────────────────────────
 (function(){
   const btn = document.getElementById('btn-approve-all');
   if (!btn) return;
 
-  // Recolecta los PKs de las tarjetas pendientes visibles en esta página
   const pks = [...document.querySelectorAll('.pcard-approve-form')].map(f => f.dataset.pk);
   if (!pks.length) { btn.style.display = 'none'; return; }
 
@@ -359,6 +501,7 @@ function rejectProduct(pk, btn) {
     const body = new FormData();
     body.append('csrfmiddlewaretoken', csrf);
     pks.forEach(pk => body.append('pks', pk));
+    body.append('action', 'approve');
 
     try {
       const res = await fetch('{% url "panel:pendientes_approve_all" %}', { method: 'POST', body });
@@ -366,15 +509,105 @@ function rejectProduct(pk, btn) {
       if (data.errors && data.errors.length) {
         alert(`Aprobados: ${data.approved}. Errores:\n${data.errors.join('\n')}`);
       }
-      // Recarga la misma página/status para actualizar conteos
+      // Preservar todos los filtros actuales, resetear a página 1
       const params = new URLSearchParams(window.location.search);
-      window.location.href = '?status=pending&page=' + (params.get('page') || '1');
+      params.set('page', '1');
+      window.location.search = params.toString();
     } catch(e) {
       alert('Error de red al aprobar. Intenta de nuevo.');
       btn.disabled = false;
       btn.textContent = '✓ Aprobar página ({{ page_obj|length }})';
     }
   });
+})();
+
+// ─── Selección masiva con checkboxes ─────────────────────────────────────────
+(function(){
+  const checkAll   = document.getElementById('check-all-pend');
+  if (!checkAll) return;  // solo aplica en status=pending
+
+  const csrf        = document.querySelector('[name=csrfmiddlewaretoken]').value;
+  const selBadge    = document.getElementById('sel-count-badge');
+  const bulkActions = document.getElementById('bulk-actions');
+  const approveBtn  = document.getElementById('bulk-approve-btn');
+  const rejectBtn   = document.getElementById('bulk-reject-btn');
+
+  function getBoxes()    { return [...document.querySelectorAll('.pcard-check')]; }
+  function getSelected() { return getBoxes().filter(c => c.checked); }
+
+  function updateUI() {
+    const sel = getSelected();
+    const all = getBoxes();
+
+    if (sel.length === 0) {
+      selBadge.style.display    = 'none';
+      bulkActions.style.display = 'none';
+      checkAll.checked      = false;
+      checkAll.indeterminate = false;
+    } else {
+      selBadge.style.display    = 'inline';
+      bulkActions.style.display = 'flex';
+      selBadge.textContent      = `${sel.length} seleccionado${sel.length !== 1 ? 's' : ''}`;
+      approveBtn.textContent    = `✓ Aprobar (${sel.length})`;
+      rejectBtn.textContent     = `✗ Rechazar (${sel.length})`;
+      checkAll.checked      = sel.length === all.length;
+      checkAll.indeterminate = sel.length > 0 && sel.length < all.length;
+    }
+  }
+
+  // Seleccionar / deseleccionar todos
+  checkAll.addEventListener('change', () => {
+    getBoxes().forEach(c => {
+      c.checked = checkAll.checked;
+      document.getElementById('pcard-' + c.value)
+               .classList.toggle('selected', checkAll.checked);
+    });
+    updateUI();
+  });
+
+  // Checkboxes individuales
+  document.querySelectorAll('.pcard-check').forEach(c => {
+    c.addEventListener('change', () => {
+      document.getElementById('pcard-' + c.value)
+               .classList.toggle('selected', c.checked);
+      updateUI();
+    });
+  });
+
+  // Acción masiva: aprobar o rechazar seleccionados
+  async function bulkAction(action) {
+    const sel = getSelected();
+    if (!sel.length) return;
+    const label = action === 'approve' ? 'aprobar' : 'rechazar';
+    if (!confirm(`¿${label.charAt(0).toUpperCase() + label.slice(1)} los ${sel.length} producto${sel.length !== 1 ? 's' : ''} seleccionado${sel.length !== 1 ? 's' : ''}?`)) return;
+
+    approveBtn.disabled = true;
+    rejectBtn.disabled  = true;
+
+    const body = new FormData();
+    body.append('csrfmiddlewaretoken', csrf);
+    body.append('action', action);
+    sel.forEach(c => body.append('pks', c.value));
+
+    try {
+      const res  = await fetch('{% url "panel:pendientes_approve_all" %}', { method: 'POST', body });
+      const data = await res.json();
+      if (data.errors && data.errors.length) {
+        alert(`Procesados: ${data.approved}. Errores:\n${data.errors.join('\n')}`);
+      }
+      // Preservar filtros actuales, volver a página 1
+      const params = new URLSearchParams(window.location.search);
+      params.set('page', '1');
+      window.location.search = params.toString();
+    } catch(e) {
+      alert('Error de red. Intenta de nuevo.');
+      approveBtn.disabled = false;
+      rejectBtn.disabled  = false;
+    }
+  }
+
+  approveBtn.addEventListener('click', () => bulkAction('approve'));
+  rejectBtn.addEventListener('click',  () => bulkAction('reject'));
 })();
 </script>
 {% endblock %}

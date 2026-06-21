@@ -1,0 +1,173 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Etiquetas{% endblock %}
+{% block page_title %}Imprimir Etiquetas{% endblock %}
+
+{% block extra_css %}
+<style>
+  .etiq-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px,1fr)); gap: 10px; }
+  .etiq-card {
+    background: #1a1a1a; border: 1px solid #2c2c2c; border-radius: 8px;
+    overflow: hidden; position: relative; cursor: pointer;
+  }
+  .etiq-card.selected { border-color: #D4AF37; }
+  .etiq-card img { width: 100%; aspect-ratio: 1/1; object-fit: cover; display: block; background: #111; }
+  .etiq-card-placeholder { width: 100%; aspect-ratio: 1/1; background: #111; display: flex; align-items: center; justify-content: center; color: #333; font-size: 1.5rem; }
+  .etiq-card-body { padding: 6px 8px; }
+  .etiq-card-name { font-size: 11px; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .etiq-card-sku  { font-size: 10px; color: #555; }
+  .etiq-card-price{ font-size: 12px; color: #D4AF37; font-weight: 700; }
+  .etiq-card-actions { display: flex; gap: 4px; padding: 4px 8px 8px; }
+  .etiq-check { position: absolute; top: 6px; left: 6px; width: 20px; height: 20px; accent-color: #D4AF37; cursor: pointer; }
+  .etiq-cat-badge { position: absolute; top: 6px; right: 6px; background: rgba(0,0,0,.65); color: #888; font-size: 9px; padding: 1px 5px; border-radius: 10px; }
+  .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; padding: 10px 14px; background: #111; border: 1px solid #1a1a1a; border-radius: 6px; }
+  .sel-count { font-size: 12px; color: #888; margin-left: auto; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h5 class="mb-0" style="color:#D4AF37;font-weight:700;">Imprimir Etiquetas</h5>
+  <small class="text-muted">
+    {% if total > 300 %}Mostrando 300 de {{ total }} productos{% else %}{{ total }} producto{{ total|pluralize }}{% endif %}
+  </small>
+</div>
+
+{# ── Filtros ── #}
+<form method="get" class="fbar mb-3" style="flex-wrap:wrap;gap:6px;">
+  <input type="text" name="q" value="{{ q }}" placeholder="Nombre o SKU…" style="flex:1;min-width:130px;max-width:220px;">
+  <select name="cat" style="min-width:180px;">
+    <option value="">Todas las categorías</option>
+    {% for parent in parent_cats %}
+      {% if parent.subcategories.all %}
+        <optgroup label="{{ parent.name }}">
+          <option value="{{ parent.slug }}" {% if cat_filter == parent.slug %}selected{% endif %}>— Todo {{ parent.name }}</option>
+          {% for sub in parent.subcategories.all %}
+            <option value="{{ sub.slug }}" {% if cat_filter == sub.slug %}selected{% endif %}>&nbsp;&nbsp;{{ sub.name }}</option>
+          {% endfor %}
+        </optgroup>
+      {% else %}
+        <option value="{{ parent.slug }}" {% if cat_filter == parent.slug %}selected{% endif %}>{{ parent.name }}</option>
+      {% endif %}
+    {% endfor %}
+  </select>
+  <button type="submit" class="btn-g btn-sm"><i class="bi bi-search"></i> Filtrar</button>
+  {% if q or cat_filter %}
+  <a href="{% url 'negocio:etiquetas_list' %}" class="btn-o btn-sm"><i class="bi bi-x"></i> Limpiar</a>
+  {% endif %}
+</form>
+
+{# ── Toolbar de acciones ── #}
+<div class="toolbar">
+  <button type="button" class="btn-g btn-sm" onclick="selectAll()"><i class="bi bi-check2-all"></i> Seleccionar todos</button>
+  <button type="button" class="btn-o btn-sm" onclick="clearAll()"><i class="bi bi-x"></i> Limpiar</button>
+  <button type="button" class="btn-g btn-sm" id="btn-print-usb" onclick="printUSB()" disabled>
+    <i class="bi bi-printer"></i> Imprimir seleccionados (USB)
+  </button>
+  <span class="sel-count" id="sel-count">0 seleccionados</span>
+</div>
+
+{# ── Grid ── #}
+{% if products %}
+<div class="etiq-grid" id="etiq-grid">
+  {% for p in products %}
+  <div class="etiq-card" id="card-{{ p.sku }}" onclick="toggleCard('{{ p.sku }}', event)">
+    <input type="checkbox" class="etiq-check etiq-sku-check" value="{{ p.sku }}"
+           id="chk-{{ p.sku }}" onclick="event.stopPropagation(); toggleCard('{{ p.sku }}', null, true)">
+    <span class="etiq-cat-badge">{{ p.category|truncatechars:12 }}</span>
+    {% if p.image_url %}
+      <img src="{{ p.image_url }}" alt="{{ p.name }}" loading="lazy">
+    {% else %}
+      <div class="etiq-card-placeholder"><i class="bi bi-image"></i></div>
+    {% endif %}
+    <div class="etiq-card-body">
+      <div class="etiq-card-name" title="{{ p.name }}">{{ p.name }}</div>
+      <div class="etiq-card-sku">{{ p.sku }}</div>
+      <div class="etiq-card-price">${{ p.final_price }}</div>
+    </div>
+    <div class="etiq-card-actions">
+      <a href="{{ p.usb_url }}" target="_blank" onclick="event.stopPropagation()"
+         class="btn btn-sm btn-outline-light flex-fill" title="Imprimir etiqueta USB">
+        <i class="bi bi-printer"></i> USB
+      </a>
+      <a href="{{ p.bprint_url }}" onclick="event.stopPropagation()"
+         class="btn btn-sm btn-outline-secondary" title="Bluetooth Print app">
+        <i class="bi bi-bluetooth"></i>
+      </a>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{# Formulario oculto para batch USB #}
+<form id="batch-form" method="post" action="{% url 'negocio:etiquetas_print' %}" target="_blank">
+  {% csrf_token %}
+  <div id="batch-skus"></div>
+</form>
+
+{% else %}
+<div class="text-center py-5" style="color:#555;">
+  <i class="bi bi-tag" style="font-size:2.5rem;display:block;margin-bottom:10px;color:#2c2c2c;"></i>
+  No hay productos{% if q or cat_filter %} con ese filtro{% endif %}.
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const selected = new Set();
+
+function updateUI() {
+  document.getElementById('sel-count').textContent = selected.size + ' seleccionado' + (selected.size !== 1 ? 's' : '');
+  document.getElementById('btn-print-usb').disabled = selected.size === 0;
+}
+
+function toggleCard(sku, event, fromCheck) {
+  if (!fromCheck && event && event.target.tagName === 'A') return;
+  const card = document.getElementById('card-' + sku);
+  const chk  = document.getElementById('chk-' + sku);
+  if (selected.has(sku)) {
+    selected.delete(sku);
+    card.classList.remove('selected');
+    chk.checked = false;
+  } else {
+    selected.add(sku);
+    card.classList.add('selected');
+    chk.checked = true;
+  }
+  updateUI();
+}
+
+function selectAll() {
+  document.querySelectorAll('.etiq-sku-check').forEach(function(chk) {
+    selected.add(chk.value);
+    document.getElementById('card-' + chk.value).classList.add('selected');
+    chk.checked = true;
+  });
+  updateUI();
+}
+
+function clearAll() {
+  selected.forEach(function(sku) {
+    document.getElementById('card-' + sku).classList.remove('selected');
+    document.getElementById('chk-' + sku).checked = false;
+  });
+  selected.clear();
+  updateUI();
+}
+
+function printUSB() {
+  if (selected.size === 0) return;
+  const container = document.getElementById('batch-skus');
+  container.innerHTML = '';
+  selected.forEach(function(sku) {
+    const inp = document.createElement('input');
+    inp.type  = 'hidden';
+    inp.name  = 'skus';
+    inp.value = sku;
+    container.appendChild(inp);
+  });
+  document.getElementById('batch-form').submit();
+}
+</script>
+{% endblock %}

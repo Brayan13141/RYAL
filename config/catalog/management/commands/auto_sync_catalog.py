@@ -110,14 +110,7 @@ class Command(BaseCommand):
         self.stdout.write(f'  ► Descargando imágenes de pendientes...')
         call_command('import_pending_images', workers=4, verbosity=options['verbosity'])
 
-        # ── Paso 4: limpiar productos que ya no existen en el proveedor ───────
-        self.stdout.write(f'  ► Limpiando productos eliminados del proveedor...')
-        try:
-            # 4a: detecta removidos (soft-delete) + reactiva los que reaparecieron
-            call_command('reconcile_catalog', category=keywords, verbosity=options['verbosity'])
-            # 4b: borra definitivamente los que quedaron soft-deleted en esta categoría
-            call_command('reconcile_catalog', prune=True, category=keywords, verbosity=options['verbosity'])
-        except Exception as e:
-            self.stdout.write(self.style.WARNING(f'  ⚠ Limpieza omitida: {e}'))
+        # La reconciliación (baja de productos eliminados) se ejecuta dentro
+        # de load_productos al recibir --category. No se repite aquí.
 
         self.stdout.write(self.style.SUCCESS(f'  ✓ {label} sincronizada.'))

@@ -7,6 +7,7 @@ import tempfile
 from datetime import timedelta
 from pathlib import Path
 from decimal import Decimal, InvalidOperation
+from urllib.parse import urlencode as _urlencode
 
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.paginator import Paginator
@@ -1532,17 +1533,30 @@ def supplier_order_status(request, pk):
 
 # ── Productos pendientes de aprobación ────────────────────────────────────────
 
+_PENDING_PER_PAGE = {'24': 24, '48': 48, '96': 96}
+
 @_staff
 def pendientes_list(request):
     status_filter = request.GET.get('status', 'pending')
     if status_filter not in ('pending', 'approved', 'rejected'):
         status_filter = 'pending'
 
+    q   = request.GET.get('q', '').strip()
+    cat = request.GET.get('cat', '').strip()
+
     qs = (PendingProduct.objects
           .select_related('category', 'category__parent')
           .order_by('-created_at'))
     if status_filter != 'all':
         qs = qs.filter(status=status_filter)
+    if q:
+        qs = qs.filter(
+            Q(display_name__icontains=q) | Q(modaverse_name__icontains=q)
+        )
+    if cat:
+        qs = qs.filter(
+            Q(category__slug=cat) | Q(category__parent__slug=cat)
+        )
 
     counts = {
         'pending':  PendingProduct.objects.filter(status='pending').count(),
@@ -1550,20 +1564,35 @@ def pendientes_list(request):
         'rejected': PendingProduct.objects.filter(status='rejected').count(),
     }
 
-    paginator = Paginator(qs, 24)
+    per_page_param = request.GET.get('per_page', '24')
+    if per_page_param not in _PENDING_PER_PAGE and per_page_param != 'todos':
+        per_page_param = '24'
+    per_page = qs.count() if per_page_param == 'todos' else _PENDING_PER_PAGE[per_page_param]
+
+    paginator = Paginator(qs, per_page or 24)
     page = paginator.get_page(request.GET.get('page'))
 
-    # Categorías raíz para el selector inline
     root_cats = (Category.objects
                  .filter(parent=None, is_active=True)
                  .prefetch_related('subcategories')
                  .order_by('name'))
+
+    _fparams = {}
+    if q: _fparams['q'] = q
+    if cat: _fparams['cat'] = cat
+    if per_page_param != '24': _fparams['per_page'] = per_page_param
+    filter_qs = _urlencode(_fparams)
 
     return render(request, 'panel/pendientes.html', {
         'page_obj':      page,
         'status_filter': status_filter,
         'counts':        counts,
         'root_cats':     root_cats,
+        'parent_cats':   root_cats,
+        'q':             q,
+        'cat_filter':    cat,
+        'per_page':      per_page_param,
+        'filter_qs':     filter_qs,
     })
 
 
@@ -1594,7 +1623,14 @@ def pendiente_approve(request, pk):
     except Exception as e:
         from django.contrib import messages
         messages.error(request, f'Error al aprobar {pending.display_name}: {e}')
-    return redirect('/panel/pendientes/?status=pending')
+
+    params = {'status': 'pending'}
+    if q := request.POST.get('_q', ''): params['q'] = q
+    if c := request.POST.get('_cat', ''): params['cat'] = c
+    pp = request.POST.get('_per_page', '24')
+    if pp != '24': params['per_page'] = pp
+    if pg := request.POST.get('_page', ''): params['page'] = pg
+    return redirect(f'/panel/pendientes/?{_urlencode(params)}')
 
 
 @_staff
@@ -1602,20 +1638,32 @@ def pendiente_approve(request, pk):
 def pendiente_reject(request, pk):
     pending = get_object_or_404(PendingProduct, pk=pk, status='pending')
     pending.reject(notes=request.POST.get('notes', ''))
-    return redirect('/panel/pendientes/?status=pending')
+
+    params = {'status': 'pending'}
+    if q := request.POST.get('_q', ''): params['q'] = q
+    if c := request.POST.get('_cat', ''): params['cat'] = c
+    pp = request.POST.get('_per_page', '24')
+    if pp != '24': params['per_page'] = pp
+    if pg := request.POST.get('_page', ''): params['page'] = pg
+    return redirect(f'/panel/pendientes/?{_urlencode(params)}')
 
 
 @_staff
 @require_POST
 def pendientes_approve_all(request):
-    """Aprueba en lote los PendingProducts cuyos PKs se envían (solo los de la página actual)."""
-    from django.http import JsonResponse
+    """Aprueba o rechaza en lote los PendingProducts cuyos PKs se envían."""
+    action = request.POST.get('action', 'approve')
+    if action not in ('approve', 'reject'):
+        action = 'approve'
     pks = [int(v) for v in request.POST.getlist('pks') if v.isdigit()]
-    approved, errors = 0, []
+    count, errors = 0, []
     for pending in PendingProduct.objects.filter(pk__in=pks, status='pending'):
         try:
-            pending.approve()
-            approved += 1
+            if action == 'approve':
+                pending.approve()
+            else:
+                pending.reject()
+            count += 1
         except Exception as e:
             errors.append(f'{pending.display_name}: {e}')
-    return JsonResponse({'approved': approved, 'errors': errors})
+    return JsonResponse({'approved': count, 'errors': errors})

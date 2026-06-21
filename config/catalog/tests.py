@@ -834,10 +834,11 @@ class LoadModaverseRawNameTest(TestCase):
                 existing_urls=set(), category=None,
             )
 
-    def test_nombre_raw_en_pending_name_y_modaverse_name(self):
-        """Nombre crudo '9026 白金' queda en display_name y modaverse_name del PendingProduct."""
+    def test_display_name_sin_chino_modaverse_name_con_raw(self):
+        """display_name recibe el nombre limpio (sin CJK); modaverse_name guarda el original."""
         raw_name = '9026 白金'
-        self.assertNotEqual(_clean_name(raw_name), raw_name)
+        clean = _clean_name(raw_name)
+        self.assertEqual(clean, '9026')  # verifica que _clean_name eliminó el CJK
 
         self._run([{
             'name': raw_name, 'sku': 'MTEST001', 'price_mxn': 500,
@@ -847,11 +848,28 @@ class LoadModaverseRawNameTest(TestCase):
 
         p = self.PendingProduct.objects.filter(supplier_url__contains='MTEST001').first()
         self.assertIsNotNone(p, 'PendingProduct no creado por _load_modaverse')
-        self.assertEqual(p.display_name,   raw_name)
+        self.assertEqual(p.display_name,   clean)     # nombre limpio, sin chino
+        self.assertEqual(p.modaverse_name, raw_name)  # original preservado
+
+    def test_nombre_completamente_chino_fallback_a_categoria(self):
+        """Si el productName es 100% chino, display_name cae al nombre de categoría."""
+        raw_name = '白金帽'
+        self.assertEqual(_clean_name(raw_name), '')  # queda vacío tras eliminar CJK
+
+        self._run([{
+            'name': raw_name, 'sku': 'MTEST003', 'price_mxn': 500,
+            'category': 'General', 'category_id': '__default__',
+            'images': [], 'sizes': [], 'colors': [],
+        }])
+
+        p = self.PendingProduct.objects.filter(supplier_url__contains='MTEST003').first()
+        self.assertIsNotNone(p)
+        self.assertFalse(bool(__import__('re').search(r'[一-鿿]', p.display_name)),
+                         'display_name no debe contener caracteres chinos')
         self.assertEqual(p.modaverse_name, raw_name)
 
     def test_raw_name_igual_cuando_clean_no_modifica(self):
-        """'HELL3004' queda igual en PendingProduct.modaverse_name."""
+        """'HELL3004' sin CJK: display_name y modaverse_name iguales al raw."""
         raw_name = 'HELL3004'
         self.assertEqual(_clean_name(raw_name), raw_name)
 
@@ -863,6 +881,7 @@ class LoadModaverseRawNameTest(TestCase):
 
         p = self.PendingProduct.objects.filter(supplier_url__contains='MTEST002').first()
         self.assertIsNotNone(p)
+        self.assertEqual(p.display_name,   raw_name)
         self.assertEqual(p.modaverse_name, raw_name)
 
 
@@ -962,3 +981,82 @@ class PendingProductApproveTests(TestCase):
         self.pending.reject()
         self.pending.refresh_from_db()
         self.assertEqual(self.pending.status, 'rejected')
+
+
+# ── load_productos: reconciliación automática al usar --category ──────────────
+
+class LoadProductosReconcileTests(TestCase):
+    """load_productos --category debe dar de baja productos que ya no están en el JSON."""
+
+    TREE = [{'id': 'CAP', 'name_es': 'Gorras', 'subcategories': [{'id': 'CAP-1', 'name_es': 'Dandy y Barbas'}]}]
+
+    def setUp(self):
+        self.root = Category.objects.create(name='Gorras', slug='gorras')
+        self.sub = Category.objects.create(name='Dandy y Barbas', slug='dandy-y-barbas', parent=self.root)
+        # Producto que vamos a probar (ausente del JSON en test_eliminado)
+        self.product = Product.objects.create(
+            sku='RYL-GEN-001', name='Gorra vieja',
+            category=self.sub, base_price=Decimal('150'),
+            supplier_url='https://www.modaverse.vip/#/proinfo/111111111111111',
+            is_active=True,
+        )
+        # Relleno: 3 productos más → bajar 1 de 4 = 25% < umbral 30% del guard
+        for pid in ['222222222222222', '333333333333333', '444444444444444']:
+            Product.objects.create(
+                sku=f'RYL-GEN-{pid[:3]}', name=f'Gorra {pid}',
+                category=self.sub, base_price=Decimal('150'),
+                supplier_url=f'https://www.modaverse.vip/#/proinfo/{pid}',
+                is_active=True,
+            )
+
+    def _json(self, pids):
+        return {
+            'categories': self.TREE,
+            'products': [
+                {'sku': pid, 'category_id': 'CAP-1', 'name_es': f'Gorra {pid}',
+                 'name': f'Gorra {pid}', 'images': [], 'sizes': [], 'colors': [], 'price_mxn': 150}
+                for pid in pids
+            ],
+        }
+
+    def _call(self, *args, json_data=None, **kwargs):
+        data = json_data if json_data is not None else self._json([])
+        with patch('catalog.management.commands.load_productos.read_modaverse_json', return_value=data), \
+             patch('catalog.management.commands.reconcile_catalog.read_modaverse_json', return_value=data):
+            call_command('load_productos', *args, **kwargs)
+
+    def test_product_eliminado_del_json_queda_inactivo(self):
+        """Producto en BD que desaparece del JSON debe quedar is_active=False.
+
+        El JSON tiene los otros 3 productos de la categoría pero no el '111...':
+        1 baja / 4 activos = 25% < umbral 30%, así el guard no bloquea.
+        """
+        json_data = self._json(['222222222222222', '333333333333333', '444444444444444'])
+        self._call('--category', 'gorra', '--no-images', json_data=json_data)
+        self.product.refresh_from_db()
+        self.assertFalse(self.product.is_active)
+        self.assertTrue(self.product.auto_deactivated)
+
+    def test_product_que_permanece_en_json_sigue_activo(self):
+        """Producto que sigue en el JSON no debe tocarse."""
+        self._call('--category', 'gorra', '--no-images',
+                   json_data=self._json(['111111111111111', '222222222222222', '333333333333333', '444444444444444']))
+        self.product.refresh_from_db()
+        self.assertTrue(self.product.is_active)
+        self.assertFalse(self.product.auto_deactivated)
+
+    def test_no_reconcile_desactiva_producto_eliminado(self):
+        """Con --no-reconcile el producto eliminado del JSON sigue activo."""
+        self._call('--category', 'gorra', '--no-images', '--no-reconcile',
+                   json_data=self._json([]))
+        self.product.refresh_from_db()
+        self.assertTrue(self.product.is_active)
+
+    def test_sin_category_no_reconcilia(self):
+        """Sin --category no se reconcilia aunque haya productos eliminados."""
+        data = self._json([])
+        with patch('catalog.management.commands.load_productos.read_modaverse_json', return_value=data), \
+             patch('catalog.management.commands.reconcile_catalog.read_modaverse_json', return_value=data):
+            call_command('load_productos', '--no-images')
+        self.product.refresh_from_db()
+        self.assertTrue(self.product.is_active)

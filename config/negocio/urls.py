@@ -19,4 +19,7 @@ urlpatterns = [
     path('pos/cobrar/',                        views.pos_cobrar,          name='pos_cobrar'),
     path('api/receipt/<int:pedido_id>/',       views.receipt_print_json,  name='receipt_print_json'),
     path('api/label/<str:sku>/',               views.label_print_json,    name='label_print_json'),
+    path('label/<str:sku>/',                   views.label_html,          name='label_html'),
+    path('etiquetas/',                         views.etiquetas_list,      name='etiquetas_list'),
+    path('etiquetas/print/',                   views.etiquetas_print,     name='etiquetas_print'),
 ]

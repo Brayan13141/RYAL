@@ -219,6 +219,9 @@ def pos_productos(request):
                 f"bprint://{request.scheme}://{request.get_host()}"
                 f"/panel/negocio/api/label/{p.sku}/?token={label_token}"
             ),
+            'label_usb_url': (
+                f"/panel/negocio/label/{p.sku}/?token={label_token}&print=1"
+            ),
         })
 
     return JsonResponse({'productos': productos, 'has_next': page.has_next()})
@@ -292,6 +295,110 @@ def pos_cobrar(request):
         'fecha': pedido_full.fecha.strftime('%d/%m/%Y'),
         'metodo_pago': metodo_display,
         'lineas': lineas_display,
+    })
+
+
+# ── Etiquetas — selección batch ───────────────────────────
+
+@staff_member_required
+def etiquetas_list(request):
+    """Panel de impresión de etiquetas: selección por categoría / búsqueda."""
+    cat = request.GET.get('cat', '').strip()
+    q   = request.GET.get('q',   '').strip()
+
+    qs = (Product.objects
+          .filter(is_active=True)
+          .select_related('category', 'category__parent')
+          .prefetch_related('images')
+          .order_by('category__name', 'name'))
+    if cat:
+        qs = qs.filter(Q(category__slug=cat) | Q(category__parent__slug=cat))
+    if q:
+        qs = qs.filter(Q(name__icontains=q) | Q(sku__icontains=q))
+
+    signer   = Signer(salt='negocio-label')
+    products = []
+    for p in qs[:300]:
+        cover = next((img for img in p.images.all() if img.is_cover), None) \
+                or next(iter(p.images.all()), None)
+        token = quote(signer.sign(p.sku), safe='')
+        products.append({
+            'sku':         p.sku,
+            'name':        p.name,
+            'final_price': p.final_price,
+            'image_url':   cover.image.url if cover and cover.image else '',
+            'category':    p.category.parent.name if p.category.parent_id else p.category.name,
+            'bprint_url':  (f"bprint://{request.scheme}://{request.get_host()}"
+                            f"/panel/negocio/api/label/{p.sku}/?token={token}"),
+            'usb_url':     f"/panel/negocio/label/{p.sku}/?token={token}&print=1",
+        })
+
+    parent_cats = (Category.objects
+                   .filter(parent=None, is_active=True)
+                   .prefetch_related('subcategories')
+                   .order_by('name'))
+
+    return render(request, 'negocio/etiquetas.html', {
+        'products':    products,
+        'parent_cats': parent_cats,
+        'cat_filter':  cat,
+        'q':           q,
+        'total':       qs.count(),
+    })
+
+
+@staff_member_required
+@require_POST
+def etiquetas_print(request):
+    """Renderiza página HTML multi-etiqueta para impresión USB batch."""
+    skus = request.POST.getlist('skus')
+    if not skus:
+        from django.http import HttpResponseBadRequest
+        return HttpResponseBadRequest('Sin SKUs')
+
+    labels = []
+    for p in (Product.objects
+              .filter(sku__in=skus, is_active=True)
+              .prefetch_related('images')):
+        cover = next((img for img in p.images.all() if img.is_cover), None) \
+                or next(iter(p.images.all()), None)
+        labels.append({
+            'sku':   p.sku,
+            'name':  p.name,
+            'price': p.final_price,
+            'image_url': request.build_absolute_uri(cover.image.url) if cover and cover.image else '',
+        })
+
+    return render(request, 'negocio/label_html.html', {'labels': labels, 'autoprint': True})
+
+
+# ── Etiqueta individual HTML (USB) ─────────────────────────
+
+@ratelimit(key='header:X-Forwarded-For', rate='60/m', block=True)
+def label_html(request, sku):
+    """Renderiza una etiqueta HTML optimizada para 58mm — impresión USB."""
+    token = request.GET.get('token', '')
+    signer = Signer(salt='negocio-label')
+    try:
+        value = signer.unsign(token)
+        if value != sku:
+            from django.http import HttpResponseForbidden
+            return HttpResponseForbidden()
+    except BadSignature:
+        from django.http import HttpResponseForbidden
+        return HttpResponseForbidden()
+
+    product = get_object_or_404(
+        Product.objects.prefetch_related('images'), sku=sku, is_active=True
+    )
+    cover = next((img for img in product.images.all() if img.is_cover), None) \
+            or next(iter(product.images.all()), None)
+    image_url = request.build_absolute_uri(cover.image.url) if cover and cover.image else ''
+
+    return render(request, 'negocio/label_html.html', {
+        'labels': [{'sku': product.sku, 'name': product.name,
+                    'price': product.final_price, 'image_url': image_url}],
+        'autoprint': request.GET.get('print') == '1',
     })
 
 

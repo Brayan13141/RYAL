@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Etiquetas RYAL</title>
+<style>
+  @page { size: 58mm auto; margin: 1.5mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Courier New', Courier, monospace; background: #fff; color: #000; }
+
+  .label {
+    width: 55mm;
+    padding: 1.5mm 2mm;
+    text-align: center;
+    page-break-after: always;
+  }
+  .label:last-child { page-break-after: avoid; }
+
+  .shop { font-weight: bold; font-size: 10pt; border-bottom: 1px solid #000; padding-bottom: 1mm; margin-bottom: 2mm; }
+  .label-img { width: 82%; margin: 0 auto 2mm; display: block; }
+  .label-name { font-weight: bold; font-size: 8.5pt; margin: 1mm 0; line-height: 1.2; }
+  .label-sku  { font-size: 7pt; color: #444; margin-bottom: 1mm; }
+  .label-price{ font-size: 13pt; font-weight: bold; margin: 1.5mm 0; }
+  .qr-wrap    { margin: 2mm auto 0; display: flex; justify-content: center; }
+  .qr-wrap canvas, .qr-wrap img { width: 32mm !important; height: 32mm !important; }
+
+  /* ocultar todo excepto las etiquetas al imprimir */
+  @media screen {
+    body { background: #f0f0f0; }
+    .label { background: #fff; margin: 6mm auto; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+    .no-print { display: block; }
+  }
+  @media print {
+    .no-print { display: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="no-print" style="text-align:center;padding:10px;font-family:sans-serif;">
+  <button onclick="window.print()" style="padding:8px 20px;font-size:14px;cursor:pointer;background:#D4AF37;border:none;border-radius:4px;font-weight:bold;">
+    🖨 Imprimir
+  </button>
+  <button onclick="window.close()" style="padding:8px 20px;font-size:14px;cursor:pointer;margin-left:8px;border:1px solid #ccc;border-radius:4px;">
+    ✕ Cerrar
+  </button>
+</div>
+
+{% for item in labels %}
+<div class="label" data-sku="{{ item.sku }}" data-idx="{{ forloop.counter }}">
+  <div class="shop">RYAL SNEAKERS</div>
+  {% if item.image_url %}
+    <img class="label-img" src="{{ item.image_url }}" alt="">
+  {% endif %}
+  <div class="label-name">{{ item.name }}</div>
+  <div class="label-sku">{{ item.sku }}</div>
+  <div class="label-price">${{ item.price }} MXN</div>
+  <div class="qr-wrap" id="qr-{{ forloop.counter }}"></div>
+</div>
+{% endfor %}
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"
+        integrity="sha384-3zSEDfvllQohrq0PHL1fOXJuC/jSOO34H46t6UQfobFOmxE5BpjjaIJY5F2/bMnU"
+        crossorigin="anonymous"></script>
+<script>
+  document.querySelectorAll('[data-sku]').forEach(function(el) {
+    var sku = el.getAttribute('data-sku');
+    var idx = el.getAttribute('data-idx');
+    new QRCode(document.getElementById('qr-' + idx), {
+      text: sku,
+      width: 121,
+      height: 121,
+      correctLevel: QRCode.CorrectLevel.M
+    });
+  });
+  {% if autoprint %}
+  window.addEventListener('load', function() {
+    setTimeout(function() { window.print(); }, 1200);
+  });
+  {% endif %}
+</script>
+</body>
+</html>
