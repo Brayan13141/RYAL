@@ -977,8 +977,7 @@
         {% with un=request.resolver_match.url_name %}
 
         <!-- Dropdown: Categorías -->
-        {% with cat_active='catalog_config category_create category_edit sections_config sizes_list size_group_create
-        size_group_edit' %}
+        {% with cat_active='catalog_config category_create category_edit sections_config sizes_list size_group_create size_group_edit' %}
         <div
           class="p-nav-group {% if un in cat_active.split or 'category' in un or 'section' in un or 'size' in un %}open{% endif %}"
           id="navGroupCat">
