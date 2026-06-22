@@ -541,3 +541,11 @@ def product_detail(request, pk):
 
 def nosotros(request):
     return render(request, 'catalog/nosotros.html')
+
+
+def terminos(request):
+    return render(request, 'catalog/terminos.html')
+
+
+def privacidad(request):
+    return render(request, 'catalog/privacidad.html')

@@ -7,13 +7,10 @@ load_dotenv(Path(__file__).resolve().parent.parent.parent / '.env')
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Sensitive values — override via environment variables in production
-SECRET_KEY = os.environ.get(
-    'SECRET_KEY',
-    'django-insecure-h&u57mh=6q6slzy9!duy!!dbu-3e(xsfd3z#a63uj25@qj3pci',
-)
+# Fail fast if required secrets are absent — prevents insecure fallback deploys
+SECRET_KEY = os.environ['SECRET_KEY']
 
-DEBUG = os.environ.get('DEBUG', 'True') == 'True'
+DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
 _raw_hosts = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,192.168.1.150')
 ALLOWED_HOSTS = [h.strip() for h in _raw_hosts.split(',') if h.strip()]
@@ -221,4 +218,4 @@ if not DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF     = True
     X_FRAME_OPTIONS                 = 'DENY'
 
-NEGOCIO_API_KEY = os.environ.get('NEGOCIO_API_KEY', 'dev-negocio-key-insecure')
+NEGOCIO_API_KEY = os.environ['NEGOCIO_API_KEY']
