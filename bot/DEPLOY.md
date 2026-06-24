@@ -100,6 +100,7 @@ FORWARD_TO_RYAL=false
 DJANGO_API_URL=http://localhost:8000
 DJANGO_API_KEY=<el mismo NEGOCIO_KEY>
 MARKUP=100
+ORDERS_GROUP_ID=<JID del Grupo Pedidos — obtener en Fase 4>
 ```
 
 ---
@@ -120,7 +121,9 @@ node get-jids.js
 2. Enviar un mensaje en el **grupo del proveedor** → copiar su `GROUP JID`.
 3. Enviar un mensaje en el **Grupo Ryal** → copiar su `GROUP JID`.
 4. `Ctrl+C`.
-5. Pegar los JIDs en `.env.persona1` y `.env.persona2` (Fase 3).
+5. Enviar un mensaje en el **Grupo Pedidos** → copiar su `GROUP JID`.
+6. Pegar el JID como `ORDERS_GROUP_ID` en `.env.persona2`.
+7. Pegar los demás JIDs en `.env.persona1` y `.env.persona2` (Fase 3).
 
 ---
 
@@ -216,6 +219,15 @@ systemctl stop bot-persona1
 rm -rf /root/app/bot/.baileys_auth
 cd /root/app/bot && node -e "require('dotenv').config({path:'.env.persona1'}); require('./bot.js')"
 # re-escanear QR → Ctrl+C → systemctl start bot-persona1
+```
+
+---
+
+### Verificación Grupo Pedidos
+```bash
+journalctl -u bot-persona2 -f
+# En el Grupo Pedidos, enviar: /pedido Test 5512345678
+# → esperado en logs: "Bot conectado ✓" y la persona responde "📋 Sesión iniciada — Test"
 ```
 
 ---
