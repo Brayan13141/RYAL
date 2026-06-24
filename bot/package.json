@@ -4,7 +4,7 @@
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js",
-    "test": "jest --testPathPattern=utils.test.js"
+    "test": "jest"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.9",
