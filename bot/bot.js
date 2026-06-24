@@ -183,7 +183,7 @@ async function handleOrdersMessage(sock, msg) {
     if (cmd === '/pedido') {
         const telefono = args[args.length - 1]
         const nombre = args.slice(0, -1).join(' ')
-        if (!nombre || !telefono || !/^\d{7,15}$/.test(telefono)) {
+        if (!nombre || !telefono || !/^\d{10,13}$/.test(telefono)) {
             await sock.sendMessage(ORDERS_GID, { text: 'Uso: /pedido Nombre Teléfono\nEjemplo: /pedido Bryan Sanchez 5512345678' })
             return
         }

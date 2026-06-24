@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 from django_ratelimit.decorators import ratelimit
 
@@ -43,6 +44,7 @@ def api_cliente(request, telefono):
     return JsonResponse({'descuento': descuento})
 
 
+@csrf_exempt
 @require_POST
 def api_pedido_create(request):
     if not _authorized(request):
