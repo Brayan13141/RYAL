@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 from django.db import transaction
 
 from catalog.models import Product
-from .models import Pedido, PedidoItem, Pago
+from .models import Pedido, PedidoItem, Pago, Cliente
 
 
 class VentaInvalida(Exception):
@@ -95,4 +95,48 @@ def crear_venta_tienda(*, lineas, cliente=None, metodo_pago='efectivo'):
         pedido=pedido, fecha=datetime.date.today(),
         monto=total_precio, metodo_pago=metodo_pago,
     )
+    return pedido
+
+
+@transaction.atomic
+def crear_pedido_bot(*, nombre, telefono, items, envio=Decimal('0')):
+    """Crea un pedido vía bot WhatsApp: encuentra-o-crea el cliente, luego crea pedido+ítems."""
+    from .phone import normalize_telefono
+    if not items:
+        raise VentaInvalida('La sesión no tiene ítems.')
+    telefono_norm = normalize_telefono(telefono)
+    cliente, _ = Cliente.objects.get_or_create(
+        telefono=telefono_norm,
+        defaults={'nombre': nombre},
+    )
+    envio_d = _parse_precio(envio)
+    pedido = Pedido.objects.create(
+        cliente=cliente,
+        descripcion='',
+        costo_producto=Decimal('0'),
+        precio_venta=Decimal('0'),
+        envio=envio_d,
+        estado=Pedido.PENDIENTE,
+        origen=Pedido.BOT,
+    )
+    total_precio = Decimal('0')
+    partes_desc = []
+    for item in items:
+        precio = _parse_precio(item.get('price', 0))
+        qty = _parse_cantidad(item.get('qty', 1))
+        nombre_snap = str(item.get('description', ''))[:200]
+        PedidoItem.objects.create(
+            pedido=pedido,
+            product=None,
+            sku_snapshot='BOT',
+            nombre_snapshot=nombre_snap,
+            cantidad=qty,
+            costo_unitario=Decimal('0'),
+            precio_unitario=precio,
+        )
+        total_precio += precio * qty
+        partes_desc.append(f'{nombre_snap[:30]} ×{qty}')
+    pedido.precio_venta = total_precio
+    pedido.descripcion = f'Bot: {", ".join(partes_desc)}'
+    pedido.save(update_fields=['precio_venta', 'descripcion'])
     return pedido

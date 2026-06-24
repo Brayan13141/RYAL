@@ -29,9 +29,11 @@ class Pedido(models.Model):
 
     WHATSAPP = 'whatsapp'
     TIENDA = 'tienda'
+    BOT = 'bot'
     ORIGEN_CHOICES = [
         (WHATSAPP, 'WhatsApp'),
         (TIENDA, 'Tienda física'),
+        (BOT, 'Bot'),
     ]
 
     cliente = models.ForeignKey(

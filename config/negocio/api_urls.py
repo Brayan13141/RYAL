@@ -3,4 +3,5 @@ from . import api_views
 
 urlpatterns = [
     path('cliente/<str:telefono>/', api_views.api_cliente, name='api_negocio_cliente'),
+    path('pedido/', api_views.api_pedido_create, name='api_negocio_pedido_create'),
 ]

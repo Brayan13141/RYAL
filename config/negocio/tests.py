@@ -993,3 +993,147 @@ class PosProductosLabelUrlTest(TestCase):
             parsed = urlparse(inner_url)
             token = parse_qs(parsed.query)['token'][0]
             self.assertEqual(Signer(salt='negocio-label').unsign(token), p['sku'])
+
+
+class CrearPedidoBotTest(TestCase):
+    def test_crea_pedido_pendiente_origen_bot(self):
+        from negocio.services import crear_pedido_bot
+        pedido = crear_pedido_bot(
+            nombre='Bryan', telefono='5512345678',
+            items=[{'description': 'Gorra azul $500 MXN', 'price': 500, 'qty': 1}],
+            envio=Decimal('0'),
+        )
+        self.assertEqual(pedido.origen, 'bot')
+        self.assertEqual(pedido.estado, Pedido.PENDIENTE)
+        self.assertEqual(pedido.precio_venta, Decimal('500'))
+        self.assertEqual(pedido.costo_producto, Decimal('0'))
+
+    def test_crea_cliente_si_no_existe(self):
+        from negocio.services import crear_pedido_bot
+        crear_pedido_bot(
+            nombre='Nuevo', telefono='5599991111',
+            items=[{'description': 'Tenis', 'price': 800, 'qty': 1}],
+            envio=Decimal('0'),
+        )
+        self.assertTrue(Cliente.objects.filter(telefono='5599991111').exists())
+
+    def test_reutiliza_cliente_existente(self):
+        from negocio.services import crear_pedido_bot
+        Cliente.objects.create(nombre='Ya existe', telefono='5512345678')
+        crear_pedido_bot(
+            nombre='Nombre nuevo', telefono='5512345678',
+            items=[{'description': 'x', 'price': 100, 'qty': 1}],
+            envio=Decimal('0'),
+        )
+        self.assertEqual(Cliente.objects.filter(telefono='5512345678').count(), 1)
+
+    def test_crea_pedido_item_sku_bot(self):
+        from negocio.services import crear_pedido_bot
+        pedido = crear_pedido_bot(
+            nombre='Bryan', telefono='5512345678',
+            items=[{'description': 'Gorra azul', 'price': 500, 'qty': 2}],
+            envio=Decimal('0'),
+        )
+        item = pedido.items.get()
+        self.assertEqual(item.sku_snapshot, 'BOT')
+        self.assertIsNone(item.product)
+        self.assertEqual(item.cantidad, 2)
+        self.assertEqual(item.precio_unitario, Decimal('500'))
+        self.assertEqual(item.costo_unitario, Decimal('0'))
+
+    def test_precio_venta_es_suma_de_items(self):
+        from negocio.services import crear_pedido_bot
+        pedido = crear_pedido_bot(
+            nombre='Bryan', telefono='5512345678',
+            items=[
+                {'description': 'A', 'price': 500, 'qty': 2},
+                {'description': 'B', 'price': 300, 'qty': 1},
+            ],
+            envio=Decimal('50'),
+        )
+        self.assertEqual(pedido.precio_venta, Decimal('1300'))  # 500*2 + 300*1
+        self.assertEqual(pedido.envio, Decimal('50'))
+        self.assertEqual(pedido.total_a_cobrar, Decimal('1350'))
+
+    def test_items_vacios_rechaza(self):
+        from negocio.services import crear_pedido_bot, VentaInvalida
+        with self.assertRaises(VentaInvalida):
+            crear_pedido_bot(
+                nombre='Bryan', telefono='5512345678',
+                items=[], envio=Decimal('0'),
+            )
+        self.assertEqual(Pedido.objects.count(), 0)
+
+    def test_normaliza_telefono(self):
+        from negocio.services import crear_pedido_bot
+        crear_pedido_bot(
+            nombre='Bryan', telefono='521 55 1234 5678',
+            items=[{'description': 'x', 'price': 100, 'qty': 1}],
+            envio=Decimal('0'),
+        )
+        self.assertTrue(Cliente.objects.filter(telefono='5512345678').exists())
+
+
+@override_settings(NEGOCIO_API_KEY='test-key-123')
+class ApiPedidoCreateTest(TestCase):
+    def _post(self, payload, key='test-key-123'):
+        import json
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {key}'} if key else {}
+        return self.client.post(
+            '/api/negocio/pedido/',
+            data=json.dumps(payload),
+            content_type='application/json',
+            **headers,
+        )
+
+    def test_crea_pedido_exitosamente(self):
+        res = self._post({
+            'nombre': 'Bryan',
+            'telefono': '5512345678',
+            'items': [{'description': 'Gorra azul', 'price': 500, 'qty': 1}],
+            'envio': 0,
+        })
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertTrue(data['ok'])
+        self.assertIn('pedido_id', data)
+        self.assertIn('total', data)
+        self.assertEqual(Pedido.objects.count(), 1)
+        self.assertEqual(Pedido.objects.get().origen, 'bot')
+
+    def test_sin_api_key_devuelve_401(self):
+        res = self._post({'nombre': 'x', 'telefono': '5512345678', 'items': [], 'envio': 0}, key=None)
+        self.assertEqual(res.status_code, 401)
+
+    def test_api_key_incorrecta_devuelve_401(self):
+        res = self._post({'nombre': 'x', 'telefono': '5512345678', 'items': [], 'envio': 0}, key='wrong')
+        self.assertEqual(res.status_code, 401)
+
+    def test_items_vacios_devuelve_400(self):
+        res = self._post({'nombre': 'Bryan', 'telefono': '5512345678', 'items': [], 'envio': 0})
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(Pedido.objects.count(), 0)
+
+    def test_sin_nombre_devuelve_400(self):
+        res = self._post({'nombre': '', 'telefono': '5512345678',
+                         'items': [{'description': 'x', 'price': 100, 'qty': 1}], 'envio': 0})
+        self.assertEqual(res.status_code, 400)
+
+    def test_json_malformado_devuelve_400(self):
+        res = self.client.post(
+            '/api/negocio/pedido/',
+            data='no-json',
+            content_type='application/json',
+            HTTP_AUTHORIZATION='Bearer test-key-123',
+        )
+        self.assertEqual(res.status_code, 400)
+
+    def test_total_correcto_con_envio(self):
+        res = self._post({
+            'nombre': 'Bryan',
+            'telefono': '5512345678',
+            'items': [{'description': 'Gorra', 'price': 500, 'qty': 2}],
+            'envio': 100,
+        })
+        data = res.json()
+        self.assertEqual(data['total'], '1100.00')  # 500*2 + 100 envio
