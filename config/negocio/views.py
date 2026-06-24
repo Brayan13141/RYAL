@@ -83,7 +83,7 @@ def pedido_create(request):
 @staff_member_required
 def pedido_detail(request, pk):
     pedido = get_object_or_404(
-        Pedido.objects.prefetch_related('pagos'), pk=pk
+        Pedido.objects.prefetch_related('pagos', 'items'), pk=pk
     )
     pago_form = PagoForm()
     return render(request, 'negocio/pedido_detail.html', {

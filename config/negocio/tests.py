@@ -1137,3 +1137,41 @@ class ApiPedidoCreateTest(TestCase):
         })
         data = res.json()
         self.assertEqual(data['total'], '1100.00')  # 500*2 + 100 envio
+
+
+class PedidoDetailBotTest(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user('bot_staff', password='pass', is_staff=True)
+        self.cliente = Cliente.objects.create(nombre='Bryan', telefono='5512345678')
+        self.pedido = Pedido.objects.create(
+            cliente=self.cliente,
+            descripcion='Bot: Gorra azul ×2',
+            costo_producto=Decimal('0'),
+            precio_venta=Decimal('1000'),
+            envio=Decimal('100'),
+            estado=Pedido.PENDIENTE,
+            origen=Pedido.BOT,
+        )
+        PedidoItem.objects.create(
+            pedido=self.pedido,
+            product=None,
+            sku_snapshot='BOT',
+            nombre_snapshot='Gorra azul $500 MXN',
+            cantidad=2,
+            costo_unitario=Decimal('0'),
+            precio_unitario=Decimal('500'),
+        )
+        self.client.login(username='bot_staff', password='pass')
+
+    def test_pedido_detail_muestra_badge_bot(self):
+        res = self.client.get(f'/panel/negocio/pedidos/{self.pedido.pk}/')
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, 'Bot')
+
+    def test_pedido_detail_muestra_items(self):
+        res = self.client.get(f'/panel/negocio/pedidos/{self.pedido.pk}/')
+        self.assertContains(res, 'Gorra azul $500 MXN')
+
+    def test_pedido_detail_muestra_cantidad(self):
+        res = self.client.get(f'/panel/negocio/pedidos/{self.pedido.pk}/')
+        self.assertContains(res, '500')  # precio unitario

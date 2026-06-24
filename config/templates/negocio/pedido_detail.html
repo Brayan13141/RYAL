@@ -21,9 +21,39 @@
         {% if pedido.estado == 'pagado' %}<span style="color:#4ade80;">Pagado</span>
         {% elif pedido.estado == 'cancelado' %}<span style="color:#555;">Cancelado</span>
         {% else %}<span style="color:#facc15;" id="estado-badge">Pendiente</span>{% endif %}
+        {% if pedido.origen == 'bot' %}<span style="background:#1e3a5f;color:#60a5fa;font-size:10px;padding:2px 7px;border-radius:10px;margin-left:8px;font-weight:600;letter-spacing:.5px;">Bot</span>{% endif %}
       </p>
     </div>
   </div>
+
+  {% if pedido.items.all %}
+  <!-- Ítems del pedido (bot / tienda) -->
+  <div class="p-card" style="flex:2;min-width:280px;">
+    <div class="p-card-head"><h2>Ítems</h2></div>
+    <div style="overflow-x:auto;">
+      <table class="p-table">
+        <thead>
+          <tr>
+            <th>Descripción</th>
+            <th style="text-align:right;">Precio unit.</th>
+            <th style="text-align:center;">Cant.</th>
+            <th style="text-align:right;">Subtotal</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in pedido.items.all %}
+          <tr>
+            <td style="color:#ddd;max-width:220px;word-break:break-word;">{{ item.nombre_snapshot }}</td>
+            <td style="text-align:right;">${{ item.precio_unitario }}</td>
+            <td style="text-align:center;">{{ item.cantidad }}</td>
+            <td style="text-align:right;color:#D4AF37;">${{ item.subtotal }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
 
   <!-- Pagos -->
   <div style="flex:1;min-width:260px;display:flex;flex-direction:column;gap:16px;">
