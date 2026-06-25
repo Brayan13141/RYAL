@@ -91,7 +91,7 @@ function computeTotal(price, descuento) {
  * Mantiene el flujo del cliente intacto (reenvía la imagen → trae precio).
  */
 function buildImageCaption(finalPrice) {
-    return `$${finalPrice} MXN\n\n${RYAL_FOOTER}`
+    return `$${finalPrice} MXN`
 }
 
 module.exports = { extractPrice, markupCaption, cleanCaption, buildRyalForward, buildImageCaption, computeTotal }

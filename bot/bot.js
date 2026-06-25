@@ -77,8 +77,7 @@ async function flushBatch(sock, text, price) {
     }
 
     try {
-        const descripcion = cleanCaption(markupCaption(text, MARKUP))
-        await sock.sendMessage(RYAL_GID, { text: descripcion })
+        await sock.sendMessage(RYAL_GID, { text: buildRyalForward(text, MARKUP) })
     } catch (err) {
         logger.error({ err: err.message }, 'No se pudo enviar la descripción del lote')
     }
@@ -320,10 +319,15 @@ async function connect() {
         if (type !== 'notify') return
 
         for (const msg of messages) {
-            if (msg.key.fromMe || !msg.message) continue
+            if (!msg.message) continue
 
             const jid     = msg.key.remoteJid
             const isGroup = jid?.endsWith('@g.us')
+
+            // fromMe = true cuando el dueño del número manda desde su teléfono personal.
+            // Lo permitimos solo en ORDERS_GID para que pueda dar comandos desde su propio número.
+            const isOwnerOrdersMsg = msg.key.fromMe && ORDERS_GID && isGroup && jid === ORDERS_GID
+            if (msg.key.fromMe && !isOwnerOrdersMsg) continue
 
             try {
                 if (isGroup && jid === SUPPLIER_GID) {
