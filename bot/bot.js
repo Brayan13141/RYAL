@@ -150,6 +150,23 @@ async function handleClientMessage(sock, msg) {
 }
 
 
+async function buscarCliente(q) {
+    try {
+        const { data } = await axios.get(
+            `${DJANGO_URL}/api/negocio/clientes/buscar/`,
+            {
+                params: { q },
+                headers: { Authorization: `Bearer ${DJANGO_KEY}` },
+                timeout: 5000,
+            }
+        )
+        return data.clientes || []
+    } catch (err) {
+        logger.warn({ err: err.message }, 'buscarCliente falló — devuelve vacío')
+        return []
+    }
+}
+
 async function handleOrdersMessage(sock, msg) {
     const image = msg.message?.imageMessage
     const text = getText(msg)
@@ -180,15 +197,62 @@ async function handleOrdersMessage(sock, msg) {
     const args = parts.slice(1)
 
     if (cmd === '/pedido') {
-        const telefono = args[args.length - 1]
-        const nombre = args.slice(0, -1).join(' ')
-        if (!nombre || !telefono || !/^\d{10,13}$/.test(telefono)) {
-            await sock.sendMessage(ORDERS_GID, { text: 'Uso: /pedido Nombre Teléfono\nEjemplo: /pedido Bryan Sanchez 5512345678' })
+        const query = args.join(' ').trim()
+        if (!query) {
+            await sock.sendMessage(ORDERS_GID, {
+                text: 'Uso: /pedido <teléfono>  o  /pedido <nombre>\nEjemplo: /pedido 5512345678\nEjemplo: /pedido Juan García',
+            })
             return
         }
-        orders.startSession(ORDERS_GID, nombre, telefono)
+
+        const isPhone = /^\d{10,13}$/.test(query.replace(/\s/g, ''))
+        const clientes = await buscarCliente(query)
+
+        let clienteNombre, clienteTelefono
+
+        if (isPhone) {
+            const digits = query.replace(/\s/g, '')
+            if (clientes.length > 0) {
+                clienteNombre   = clientes[0].nombre
+                clienteTelefono = clientes[0].telefono
+            } else {
+                // Nuevo cliente — nombre temporal; Bryan puede editarlo desde el panel
+                clienteNombre   = `Tel. ${digits}`
+                clienteTelefono = digits
+            }
+        } else {
+            if (clientes.length === 0) {
+                await sock.sendMessage(ORDERS_GID, {
+                    text: `⚠️ No encontré ningún cliente con ese nombre.\nBusca por teléfono (/pedido <número>) o regístralo en el panel.`,
+                })
+                return
+            }
+            if (clientes.length > 1) {
+                const lines = clientes.map((c, i) => `${i + 1}. ${c.nombre} — ${c.telefono}`)
+                orders.setPending(ORDERS_GID, 'disambig', clientes)
+                await sock.sendMessage(ORDERS_GID, {
+                    text: `🔍 Varios resultados:\n${lines.join('\n')}\nResponde con el número de la opción.`,
+                })
+                return
+            }
+            clienteNombre   = clientes[0].nombre
+            clienteTelefono = clientes[0].telefono
+        }
+
+        // Verificar si hay sesión activa antes de abrir
+        const sesionActiva = orders.getSession(ORDERS_GID)
+        if (sesionActiva) {
+            const total = sesionActiva.items.reduce((s, i) => s + i.price * i.qty, 0)
+            orders.setPending(ORDERS_GID, 'conflict', { nombre: clienteNombre, telefono: clienteTelefono })
+            await sock.sendMessage(ORDERS_GID, {
+                text: `⚠️ Ya hay una sesión abierta — ${sesionActiva.cliente.nombre} (${sesionActiva.items.length} ítem(s), $${total} MXN).\nResponde:\n1️⃣ Continuar con este pedido\n2️⃣ Cerrar este pedido y abrir uno nuevo\n3️⃣ Cancelar y abrir uno nuevo`,
+            })
+            return
+        }
+
+        orders.startSession(ORDERS_GID, clienteNombre, clienteTelefono)
         await sock.sendMessage(ORDERS_GID, {
-            text: `📋 Sesión iniciada — ${nombre} (${telefono})\nReenvía fotos con precio para agregar ítems.`,
+            text: `📋 Sesión iniciada — ${clienteNombre} (${clienteTelefono})\nReenvía fotos con precio para agregar ítems.`,
         })
         return
     }
