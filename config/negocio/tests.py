@@ -1175,3 +1175,62 @@ class PedidoDetailBotTest(TestCase):
     def test_pedido_detail_muestra_cantidad(self):
         res = self.client.get(f'/panel/negocio/pedidos/{self.pedido.pk}/')
         self.assertContains(res, '500')  # precio unitario
+
+
+@override_settings(NEGOCIO_API_KEY='test-key-123')
+class ApiClientesBuscarTest(TestCase):
+    def setUp(self):
+        self.ana   = Cliente.objects.create(nombre='Ana López',  telefono='5551111111')
+        self.pedro = Cliente.objects.create(nombre='Pedro Ríos', telefono='5552222222')
+        self.ana2  = Cliente.objects.create(nombre='Ana García', telefono='5553333333')
+
+    def _get(self, q, key='test-key-123'):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {key}'} if key else {}
+        return self.client.get(f'/api/negocio/clientes/buscar/?q={q}', **headers)
+
+    def test_busca_por_nombre_exacto(self):
+        res = self._get('Pedro')
+        self.assertEqual(res.status_code, 200)
+        data = res.json()['clientes']
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]['nombre'], 'Pedro Ríos')
+        self.assertEqual(data[0]['telefono'], '5552222222')
+        self.assertIn('id', data[0])
+        self.assertIn('descuento', data[0])
+
+    def test_busca_por_nombre_parcial_devuelve_varios(self):
+        res = self._get('Ana')
+        self.assertEqual(res.status_code, 200)
+        data = res.json()['clientes']
+        self.assertEqual(len(data), 2)
+
+    def test_busca_por_telefono(self):
+        res = self._get('5551111111')
+        self.assertEqual(res.status_code, 200)
+        data = res.json()['clientes']
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]['nombre'], 'Ana López')
+
+    def test_busca_por_telefono_jid_521(self):
+        res = self._get('5215551111111')
+        self.assertEqual(res.status_code, 200)
+        data = res.json()['clientes']
+        self.assertEqual(len(data), 1)
+
+    def test_sin_resultados_devuelve_lista_vacia(self):
+        res = self._get('ZzzNadaNada999')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['clientes'], [])
+
+    def test_q_vacio_devuelve_lista_vacia(self):
+        res = self._get('')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['clientes'], [])
+
+    def test_sin_api_key_devuelve_401(self):
+        res = self._get('Ana', key=None)
+        self.assertEqual(res.status_code, 401)
+
+    def test_api_key_incorrecta_devuelve_401(self):
+        res = self._get('Ana', key='wrong')
+        self.assertEqual(res.status_code, 401)
