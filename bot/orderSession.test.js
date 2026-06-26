@@ -184,4 +184,20 @@ describe('comportamiento existente sin cambios', () => {
         store.startSession('g1', 'A', '5551111111')
         expect(store.getSession('g2')).toBeNull()
     })
+
+    test('startSession tipo por defecto es pedido', () => {
+        store.startSession('g1', 'X', '5550000000')
+        expect(store.getSession('g1').tipo).toBe('pedido')
+    })
+
+    test('startSession tipo tienda', () => {
+        store.startSession('g1', 'Mostrador', 'TIENDA-MOSTRADOR', 'tienda')
+        expect(store.getSession('g1').tipo).toBe('tienda')
+    })
+
+    test('startSession reemplaza tipo al reabrir sesión', () => {
+        store.startSession('g1', 'X', '5550000000', 'pedido')
+        store.startSession('g1', 'Mostrador', 'TIENDA-MOSTRADOR', 'tienda')
+        expect(store.getSession('g1').tipo).toBe('tienda')
+    })
 })

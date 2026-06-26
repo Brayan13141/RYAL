@@ -2,8 +2,8 @@ function createOrderSessionStore() {
     const sessions = {}
     const pendings = {}
 
-    function startSession(groupJid, nombre, telefono) {
-        sessions[groupJid] = { cliente: { nombre, telefono }, items: [] }
+    function startSession(groupJid, nombre, telefono, tipo = 'pedido') {
+        sessions[groupJid] = { cliente: { nombre, telefono }, items: [], tipo }
         delete pendings[groupJid]
     }
 
