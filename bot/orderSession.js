@@ -1,8 +1,10 @@
 function createOrderSessionStore() {
     const sessions = {}
+    const pendings = {}
 
     function startSession(groupJid, nombre, telefono) {
         sessions[groupJid] = { cliente: { nombre, telefono }, items: [] }
+        delete pendings[groupJid]
     }
 
     function addItem(groupJid, description, price) {
@@ -32,13 +34,26 @@ function createOrderSessionStore() {
 
     function cancelSession(groupJid) {
         delete sessions[groupJid]
+        delete pendings[groupJid]
     }
 
     function getSession(groupJid) {
         return sessions[groupJid] || null
     }
 
-    return { startSession, addItem, removeItem, setQty, cancelSession, getSession }
+    function setPending(groupJid, type, payload) {
+        pendings[groupJid] = { type, payload }
+    }
+
+    function getPending(groupJid) {
+        return pendings[groupJid] || null
+    }
+
+    function clearPending(groupJid) {
+        delete pendings[groupJid]
+    }
+
+    return { startSession, addItem, removeItem, setQty, cancelSession, getSession, setPending, getPending, clearPending }
 }
 
 module.exports = { createOrderSessionStore }
