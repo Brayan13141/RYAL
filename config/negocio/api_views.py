@@ -55,9 +55,9 @@ def api_clientes_buscar(request):
     digits = ''.join(c for c in q if c.isdigit())
     if len(digits) >= 7:
         telefono_norm = normalize_telefono(digits)
-        qs = Cliente.objects.filter(telefono__contains=telefono_norm)
+        qs = Cliente.objects.filter(telefono__contains=telefono_norm).order_by('nombre')
     else:
-        qs = Cliente.objects.filter(nombre__icontains=q)
+        qs = Cliente.objects.filter(nombre__icontains=q).order_by('nombre')
     clientes = [
         {'id': c.pk, 'nombre': c.nombre, 'telefono': c.telefono, 'descuento': float(c.descuento)}
         for c in qs[:10]
