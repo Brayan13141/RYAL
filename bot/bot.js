@@ -150,6 +150,28 @@ async function handleClientMessage(sock, msg) {
 }
 
 
+const MOSTRADOR_NOMBRE = 'Mostrador'
+const MOSTRADOR_TEL    = 'TIENDA-MOSTRADOR'
+
+function parseItemText(text) {
+    const tokens = (text || '').trim().split(/\s+/).filter(Boolean)
+    if (tokens.length === 0) return null
+    const lastToken = tokens[tokens.length - 1]
+    const price = parseFloat(lastToken)
+    if (isNaN(price) || price <= 0) return null
+    const rest = tokens.slice(0, -1)
+    let qty = 1
+    let description = ''
+    if (rest.length > 0 && /^\d+$/.test(rest[0])) {
+        qty = parseInt(rest[0], 10)
+        description = rest.slice(1).join(' ')
+    } else {
+        description = rest.join(' ')
+    }
+    if (qty < 1) return null
+    return { qty, description, price }
+}
+
 async function buscarCliente(q) {
     try {
         const { data } = await axios.get(
@@ -170,6 +192,25 @@ async function buscarCliente(q) {
 async function handleOrdersMessage(sock, msg) {
     const image = msg.message?.imageMessage
     const text = getText(msg)
+
+    // Ítem de tienda: texto libre cuando hay sesión tienda activa
+    const tiendaSess = orders.getSession(ORDERS_GID)
+    if (tiendaSess && tiendaSess.tipo === 'tienda' && text && !text.startsWith('/')) {
+        const parsed = parseItemText(text)
+        if (parsed) {
+            const result = orders.addItem(ORDERS_GID, parsed.description || 'ítem tienda', parsed.price)
+            if (result) {
+                if (parsed.qty > 1) orders.setQty(ORDERS_GID, result.index, parsed.qty)
+                const sess2 = orders.getSession(ORDERS_GID)
+                const total = sess2.items.reduce((s, i) => s + i.price * i.qty, 0)
+                const desc = parsed.description ? ` — ${parsed.description}` : ''
+                await sock.sendMessage(ORDERS_GID, {
+                    text: `✅ Ítem ${result.index}: ${parsed.qty}× $${parsed.price}${desc} — Total: $${total} MXN`,
+                })
+            }
+            return
+        }
+    }
 
     if (image) {
         const caption = image.caption || ''
@@ -226,7 +267,7 @@ async function handleOrdersMessage(sock, msg) {
                         return
                     }
                 }
-                orders.startSession(ORDERS_GID, nombre, telefono)
+                orders.startSession(ORDERS_GID, nombre, telefono, pending.payload.tipo || 'pedido')
                 await sock.sendMessage(ORDERS_GID, {
                     text: `📋 Sesión iniciada — ${nombre} (${telefono})\nReenvía fotos con precio para agregar ítems.`,
                 })
@@ -236,7 +277,7 @@ async function handleOrdersMessage(sock, msg) {
             if (bareNum === 3) {
                 // Cancelar pedido actual y abrir sesión nueva
                 orders.cancelSession(ORDERS_GID)
-                orders.startSession(ORDERS_GID, nombre, telefono)
+                orders.startSession(ORDERS_GID, nombre, telefono, pending.payload.tipo || 'pedido')
                 await sock.sendMessage(ORDERS_GID, {
                     text: `❌ Sesión anterior cancelada.\n📋 Sesión iniciada — ${nombre} (${telefono})\nReenvía fotos con precio para agregar ítems.`,
                 })
@@ -283,6 +324,23 @@ async function handleOrdersMessage(sock, msg) {
     const parts = text.trim().split(/\s+/)
     const cmd = parts[0].toLowerCase()
     const args = parts.slice(1)
+
+    if (cmd === '/venta') {
+        const sesionActiva = orders.getSession(ORDERS_GID)
+        if (sesionActiva) {
+            const total = sesionActiva.items.reduce((s, i) => s + i.price * i.qty, 0)
+            orders.setPending(ORDERS_GID, 'conflict', { nombre: MOSTRADOR_NOMBRE, telefono: MOSTRADOR_TEL, tipo: 'tienda' })
+            await sock.sendMessage(ORDERS_GID, {
+                text: `⚠️ Ya hay una sesión abierta — ${sesionActiva.cliente.nombre} (${sesionActiva.items.length} ítem(s), $${total} MXN).\nResponde:\n1️⃣ Continuar con este pedido\n2️⃣ Cerrar este pedido y abrir uno nuevo\n3️⃣ Cancelar y abrir uno nuevo`,
+            })
+            return
+        }
+        orders.startSession(ORDERS_GID, MOSTRADOR_NOMBRE, MOSTRADOR_TEL, 'tienda')
+        await sock.sendMessage(ORDERS_GID, {
+            text: `🏪 Venta tienda iniciada — Mostrador\nIngresa ítems: <cantidad> <precio>  o  <descripción> <precio>  o  <cantidad> <descripción> <precio>`,
+        })
+        return
+    }
 
     if (cmd === '/pedido') {
         const query = args.join(' ').trim()
@@ -405,19 +463,24 @@ async function handleOrdersMessage(sock, msg) {
         }
         const envioArg = args.find(a => /^envio=\d+(\.\d+)?$/.test(a))
         const envio = envioArg ? parseFloat(envioArg.split('=')[1]) : 0
+        const isTienda = sess.tipo === 'tienda'
+        const endpoint = isTienda
+            ? `${DJANGO_URL}/api/negocio/tienda/`
+            : `${DJANGO_URL}/api/negocio/pedido/`
+        const payload = isTienda
+            ? {
+                items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty })),
+                envio,
+            }
+            : {
+                nombre: sess.cliente.nombre,
+                telefono: sess.cliente.telefono,
+                items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty })),
+                envio,
+            }
         try {
             const { data } = await axios.post(
-                `${DJANGO_URL}/api/negocio/pedido/`,
-                {
-                    nombre: sess.cliente.nombre,
-                    telefono: sess.cliente.telefono,
-                    items: sess.items.map(i => ({
-                        description: i.description,
-                        price: i.price,
-                        qty: i.qty,
-                    })),
-                    envio,
-                },
+                endpoint, payload,
                 { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 10000 },
             )
             orders.cancelSession(ORDERS_GID)
