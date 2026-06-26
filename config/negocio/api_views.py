@@ -10,7 +10,7 @@ from django_ratelimit.decorators import ratelimit
 
 from .models import Cliente
 from .phone import normalize_telefono
-from .services import crear_pedido_bot, VentaInvalida
+from .services import crear_pedido_bot, crear_pedido_tienda_bot, VentaInvalida
 
 
 def _authorized(request):
@@ -95,4 +95,28 @@ def api_pedido_create(request):
         'ok': True,
         'pedido_id': pedido.pk,
         'total': f'{pedido.total_a_cobrar:.2f}',
+    })
+
+
+@csrf_exempt
+@ratelimit(key=_client_ip, rate='30/m', block=True)
+def api_tienda_create(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'method not allowed'}, status=405)
+    if not _authorized(request):
+        return JsonResponse({'error': 'unauthorized'}, status=401)
+    try:
+        body = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'invalid json'}, status=400)
+    items = body.get('items') or []
+    envio = Decimal(str(body.get('envio', 0)))
+    try:
+        pedido = crear_pedido_tienda_bot(items=items, envio=envio)
+    except VentaInvalida as e:
+        return JsonResponse({'error': str(e)}, status=400)
+    return JsonResponse({
+        'ok': True,
+        'pedido_id': pedido.pk,
+        'total': f'{pedido.precio_venta + pedido.envio:.2f}',
     })

@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from negocio.models import Cliente, Pedido, Pago, Gasto, PedidoItem
 from catalog.models import Category, Product
-from negocio.services import crear_venta_tienda, VentaInvalida
+from negocio.services import crear_venta_tienda, VentaInvalida, crear_pedido_tienda_bot
 
 
 class ClienteModelTest(TestCase):
@@ -1234,3 +1234,81 @@ class ApiClientesBuscarTest(TestCase):
     def test_api_key_incorrecta_devuelve_401(self):
         res = self._get('Ana', key='wrong')
         self.assertEqual(res.status_code, 401)
+
+
+from decimal import Decimal
+
+
+class CrearPedidoTiendaBotTest(TestCase):
+    def test_crea_pedido_origen_tienda(self):
+        items = [{'description': 'tenis rojo', 'price': 450, 'qty': 2}]
+        pedido = crear_pedido_tienda_bot(items=items)
+        self.assertEqual(pedido.origen, Pedido.TIENDA)
+        self.assertEqual(pedido.estado, Pedido.PENDIENTE)
+        self.assertEqual(pedido.precio_venta, Decimal('900'))
+        self.assertEqual(pedido.costo_producto, Decimal('0'))
+
+    def test_crea_cliente_mostrador_get_or_create(self):
+        items = [{'description': 'gorra', 'price': 200, 'qty': 1}]
+        crear_pedido_tienda_bot(items=items)
+        crear_pedido_tienda_bot(items=items)
+        from negocio.services import MOSTRADOR_TELEFONO
+        self.assertEqual(Cliente.objects.filter(telefono=MOSTRADOR_TELEFONO).count(), 1)
+
+    def test_pedido_items_creados(self):
+        items = [
+            {'description': 'tenis', 'price': 450, 'qty': 2},
+            {'description': 'gorra', 'price': 200, 'qty': 1},
+        ]
+        pedido = crear_pedido_tienda_bot(items=items)
+        self.assertEqual(pedido.items.count(), 2)
+        item1 = pedido.items.order_by('precio_unitario').last()
+        self.assertEqual(item1.precio_unitario, Decimal('450'))
+        self.assertEqual(item1.cantidad, 2)
+        self.assertIsNone(item1.product)
+        self.assertEqual(item1.sku_snapshot, 'TIENDA-BOT')
+
+    def test_item_sin_descripcion_usa_fallback(self):
+        items = [{'description': '', 'price': 300, 'qty': 1}]
+        pedido = crear_pedido_tienda_bot(items=items)
+        item = pedido.items.first()
+        self.assertEqual(item.nombre_snapshot, 'ítem tienda')
+
+    def test_envio_incluido_en_pedido(self):
+        items = [{'description': 'tenis', 'price': 400, 'qty': 1}]
+        pedido = crear_pedido_tienda_bot(items=items, envio=Decimal('80'))
+        self.assertEqual(pedido.envio, Decimal('80'))
+
+    def test_lista_vacia_lanza_error(self):
+        from negocio.services import VentaInvalida
+        with self.assertRaises(VentaInvalida):
+            crear_pedido_tienda_bot(items=[])
+
+
+@override_settings(NEGOCIO_API_KEY='test-key-123')
+class ApiTiendaCreateTest(TestCase):
+    def _post(self, body, key='test-key-123'):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {key}', 'content_type': 'application/json'}
+        return self.client.post('/api/negocio/tienda/', data=json.dumps(body), **headers)
+
+    def test_crea_pedido_y_devuelve_id(self):
+        res = self._post({'items': [{'description': 'tenis', 'price': 450, 'qty': 2}]})
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertTrue(data['ok'])
+        self.assertIn('pedido_id', data)
+        self.assertEqual(data['total'], '900.00')
+
+    def test_sin_api_key_devuelve_401(self):
+        res = self._post({'items': [{'description': 'x', 'price': 100, 'qty': 1}]}, key=None)
+        self.assertEqual(res.status_code, 401)
+
+    def test_items_vacios_devuelve_400(self):
+        res = self._post({'items': []})
+        self.assertEqual(res.status_code, 400)
+
+    def test_con_envio(self):
+        res = self._post({'items': [{'description': 'tenis', 'price': 400, 'qty': 1}], 'envio': 80})
+        self.assertEqual(res.status_code, 200)
+        pedido = Pedido.objects.get(pk=res.json()['pedido_id'])
+        self.assertEqual(pedido.envio, Decimal('80'))
