@@ -249,15 +249,16 @@ async function handleOrdersMessage(sock, msg) {
                 // Cerrar pedido actual en Django y abrir sesión nueva
                 const sess = orders.getSession(ORDERS_GID)
                 if (sess && sess.items.length > 0) {
+                    const closingTienda = sess.tipo === 'tienda'
+                    const closeEndpoint = closingTienda
+                        ? `${DJANGO_URL}/api/negocio/tienda/`
+                        : `${DJANGO_URL}/api/negocio/pedido/`
+                    const closePayload = closingTienda
+                        ? { items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty })), envio: 0 }
+                        : { nombre: sess.cliente.nombre, telefono: sess.cliente.telefono, items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty })), envio: 0 }
                     try {
                         const { data } = await axios.post(
-                            `${DJANGO_URL}/api/negocio/pedido/`,
-                            {
-                                nombre: sess.cliente.nombre,
-                                telefono: sess.cliente.telefono,
-                                items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty })),
-                                envio: 0,
-                            },
+                            closeEndpoint, closePayload,
                             { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 10000 },
                         )
                         await sock.sendMessage(ORDERS_GID, { text: `✅ Pedido #${data.pedido_id} cerrado — Total: $${data.total} MXN` })
