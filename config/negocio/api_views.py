@@ -44,6 +44,27 @@ def api_cliente(request, telefono):
     return JsonResponse({'descuento': descuento})
 
 
+@require_GET
+@ratelimit(key=_client_ip, rate='30/m', block=True)
+def api_clientes_buscar(request):
+    if not _authorized(request):
+        return JsonResponse({'error': 'unauthorized'}, status=401)
+    q = (request.GET.get('q') or '').strip()
+    if not q:
+        return JsonResponse({'clientes': []})
+    digits = ''.join(c for c in q if c.isdigit())
+    if len(digits) >= 7:
+        telefono_norm = normalize_telefono(digits)
+        qs = Cliente.objects.filter(telefono__contains=telefono_norm).order_by('nombre')
+    else:
+        qs = Cliente.objects.filter(nombre__icontains=q).order_by('nombre')
+    clientes = [
+        {'id': c.pk, 'nombre': c.nombre, 'telefono': c.telefono, 'descuento': float(c.descuento)}
+        for c in qs[:10]
+    ]
+    return JsonResponse({'clientes': clientes})
+
+
 @csrf_exempt
 @require_POST
 def api_pedido_create(request):

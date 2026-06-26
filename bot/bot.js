@@ -150,6 +150,23 @@ async function handleClientMessage(sock, msg) {
 }
 
 
+async function buscarCliente(q) {
+    try {
+        const { data } = await axios.get(
+            `${DJANGO_URL}/api/negocio/clientes/buscar/`,
+            {
+                params: { q },
+                headers: { Authorization: `Bearer ${DJANGO_KEY}` },
+                timeout: 5000,
+            }
+        )
+        return data.clientes || []
+    } catch (err) {
+        logger.warn({ err: err.message }, 'buscarCliente falló — devuelve vacío')
+        return []
+    }
+}
+
 async function handleOrdersMessage(sock, msg) {
     const image = msg.message?.imageMessage
     const text = getText(msg)
@@ -173,6 +190,94 @@ async function handleOrdersMessage(sock, msg) {
         return
     }
 
+    // Respuesta numérica suelta → puede resolver pending de conflict o disambig
+    const pending = orders.getPending(ORDERS_GID)
+    const bareNum = (text && /^\s*\d+\s*$/.test(text)) ? parseInt(text.trim(), 10) : null
+
+    if (pending && bareNum !== null) {
+        if (pending.type === 'conflict') {
+            const { nombre, telefono } = pending.payload
+            orders.clearPending(ORDERS_GID)
+
+            if (bareNum === 1) {
+                await sock.sendMessage(ORDERS_GID, { text: '↩️ Continuando con el pedido actual.' })
+                return
+            }
+
+            if (bareNum === 2) {
+                // Cerrar pedido actual en Django y abrir sesión nueva
+                const sess = orders.getSession(ORDERS_GID)
+                if (sess && sess.items.length > 0) {
+                    try {
+                        const { data } = await axios.post(
+                            `${DJANGO_URL}/api/negocio/pedido/`,
+                            {
+                                nombre: sess.cliente.nombre,
+                                telefono: sess.cliente.telefono,
+                                items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty })),
+                                envio: 0,
+                            },
+                            { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 10000 },
+                        )
+                        await sock.sendMessage(ORDERS_GID, { text: `✅ Pedido #${data.pedido_id} cerrado — Total: $${data.total} MXN` })
+                    } catch (err) {
+                        logger.error({ err: err.message }, 'Error al cerrar pedido anterior (opción 2)')
+                        await sock.sendMessage(ORDERS_GID, { text: '❌ Error al cerrar el pedido anterior. Usa /cerrar manualmente primero.' })
+                        return
+                    }
+                }
+                orders.startSession(ORDERS_GID, nombre, telefono)
+                await sock.sendMessage(ORDERS_GID, {
+                    text: `📋 Sesión iniciada — ${nombre} (${telefono})\nReenvía fotos con precio para agregar ítems.`,
+                })
+                return
+            }
+
+            if (bareNum === 3) {
+                // Cancelar pedido actual y abrir sesión nueva
+                orders.cancelSession(ORDERS_GID)
+                orders.startSession(ORDERS_GID, nombre, telefono)
+                await sock.sendMessage(ORDERS_GID, {
+                    text: `❌ Sesión anterior cancelada.\n📋 Sesión iniciada — ${nombre} (${telefono})\nReenvía fotos con precio para agregar ítems.`,
+                })
+                return
+            }
+
+            // Número fuera de 1-3 → restaurar pending y avisar
+            orders.setPending(ORDERS_GID, 'conflict', pending.payload)
+            await sock.sendMessage(ORDERS_GID, { text: '⚠️ Responde 1, 2 o 3.' })
+            return
+        }
+
+        if (pending.type === 'disambig') {
+            const results = pending.payload
+            if (bareNum < 1 || bareNum > results.length) {
+                orders.setPending(ORDERS_GID, 'disambig', results)
+                await sock.sendMessage(ORDERS_GID, { text: `⚠️ Responde un número del 1 al ${results.length}.` })
+                return
+            }
+            const elegido = results[bareNum - 1]
+            orders.clearPending(ORDERS_GID)
+
+            // Verificar conflicto de sesión después de la selección
+            const sesionActiva = orders.getSession(ORDERS_GID)
+            if (sesionActiva) {
+                const total = sesionActiva.items.reduce((s, i) => s + i.price * i.qty, 0)
+                orders.setPending(ORDERS_GID, 'conflict', { nombre: elegido.nombre, telefono: elegido.telefono })
+                await sock.sendMessage(ORDERS_GID, {
+                    text: `⚠️ Ya hay una sesión abierta — ${sesionActiva.cliente.nombre} (${sesionActiva.items.length} ítem(s), $${total} MXN).\nResponde:\n1️⃣ Continuar con este pedido\n2️⃣ Cerrar este pedido y abrir uno nuevo\n3️⃣ Cancelar y abrir uno nuevo`,
+                })
+                return
+            }
+
+            orders.startSession(ORDERS_GID, elegido.nombre, elegido.telefono)
+            await sock.sendMessage(ORDERS_GID, {
+                text: `📋 Sesión iniciada — ${elegido.nombre} (${elegido.telefono})\nReenvía fotos con precio para agregar ítems.`,
+            })
+            return
+        }
+    }
+
     if (!text || !text.startsWith('/')) return
 
     const parts = text.trim().split(/\s+/)
@@ -180,15 +285,62 @@ async function handleOrdersMessage(sock, msg) {
     const args = parts.slice(1)
 
     if (cmd === '/pedido') {
-        const telefono = args[args.length - 1]
-        const nombre = args.slice(0, -1).join(' ')
-        if (!nombre || !telefono || !/^\d{10,13}$/.test(telefono)) {
-            await sock.sendMessage(ORDERS_GID, { text: 'Uso: /pedido Nombre Teléfono\nEjemplo: /pedido Bryan Sanchez 5512345678' })
+        const query = args.join(' ').trim()
+        if (!query) {
+            await sock.sendMessage(ORDERS_GID, {
+                text: 'Uso: /pedido <teléfono>  o  /pedido <nombre>\nEjemplo: /pedido 5512345678\nEjemplo: /pedido Juan García',
+            })
             return
         }
-        orders.startSession(ORDERS_GID, nombre, telefono)
+
+        const isPhone = /^\d{10,13}$/.test(query.replace(/\s/g, ''))
+        const clientes = await buscarCliente(query)
+
+        let clienteNombre, clienteTelefono
+
+        if (isPhone) {
+            const digits = query.replace(/\s/g, '')
+            if (clientes.length > 0) {
+                clienteNombre   = clientes[0].nombre
+                clienteTelefono = clientes[0].telefono
+            } else {
+                // Nuevo cliente — nombre temporal; Bryan puede editarlo desde el panel
+                clienteNombre   = `Tel. ${digits}`
+                clienteTelefono = digits
+            }
+        } else {
+            if (clientes.length === 0) {
+                await sock.sendMessage(ORDERS_GID, {
+                    text: `⚠️ No encontré ningún cliente con ese nombre.\nBusca por teléfono (/pedido <número>) o regístralo en el panel.`,
+                })
+                return
+            }
+            if (clientes.length > 1) {
+                const lines = clientes.map((c, i) => `${i + 1}. ${c.nombre} — ${c.telefono}`)
+                orders.setPending(ORDERS_GID, 'disambig', clientes)
+                await sock.sendMessage(ORDERS_GID, {
+                    text: `🔍 Varios resultados:\n${lines.join('\n')}\nResponde con el número de la opción.`,
+                })
+                return
+            }
+            clienteNombre   = clientes[0].nombre
+            clienteTelefono = clientes[0].telefono
+        }
+
+        // Verificar si hay sesión activa antes de abrir
+        const sesionActiva = orders.getSession(ORDERS_GID)
+        if (sesionActiva) {
+            const total = sesionActiva.items.reduce((s, i) => s + i.price * i.qty, 0)
+            orders.setPending(ORDERS_GID, 'conflict', { nombre: clienteNombre, telefono: clienteTelefono })
+            await sock.sendMessage(ORDERS_GID, {
+                text: `⚠️ Ya hay una sesión abierta — ${sesionActiva.cliente.nombre} (${sesionActiva.items.length} ítem(s), $${total} MXN).\nResponde:\n1️⃣ Continuar con este pedido\n2️⃣ Cerrar este pedido y abrir uno nuevo\n3️⃣ Cancelar y abrir uno nuevo`,
+            })
+            return
+        }
+
+        orders.startSession(ORDERS_GID, clienteNombre, clienteTelefono)
         await sock.sendMessage(ORDERS_GID, {
-            text: `📋 Sesión iniciada — ${nombre} (${telefono})\nReenvía fotos con precio para agregar ítems.`,
+            text: `📋 Sesión iniciada — ${clienteNombre} (${clienteTelefono})\nReenvía fotos con precio para agregar ítems.`,
         })
         return
     }
