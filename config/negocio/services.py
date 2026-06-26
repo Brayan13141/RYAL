@@ -34,6 +34,55 @@ def _parse_precio(valor):
     return precio
 
 
+MOSTRADOR_TELEFONO = 'TIENDA-MOSTRADOR'
+
+
+@transaction.atomic
+def crear_pedido_tienda_bot(*, items, envio=Decimal('0')):
+    """Crea un pedido de tienda física via bot. Sin SKU, sin normalize_telefono.
+
+    `items`: lista de {description, price, qty}
+    """
+    if not items:
+        raise VentaInvalida('La venta no tiene ítems.')
+
+    cliente, _ = Cliente.objects.get_or_create(
+        telefono=MOSTRADOR_TELEFONO,
+        defaults={'nombre': 'Mostrador'},
+    )
+
+    precio_total = sum(Decimal(str(i['price'])) * int(i['qty']) for i in items)
+    partes_desc = []
+    pedido = Pedido.objects.create(
+        cliente=cliente,
+        descripcion='',
+        costo_producto=Decimal('0'),
+        precio_venta=precio_total,
+        envio=Decimal(str(envio)),
+        estado=Pedido.PENDIENTE,
+        origen=Pedido.TIENDA,
+    )
+
+    for item in items:
+        nombre_snap = (str(item.get('description') or '').strip() or 'ítem tienda')[:200]
+        qty = int(item['qty'])
+        precio_u = Decimal(str(item['price']))
+        PedidoItem.objects.create(
+            pedido=pedido,
+            product=None,
+            sku_snapshot='TIENDA-BOT',
+            nombre_snapshot=nombre_snap,
+            cantidad=qty,
+            costo_unitario=Decimal('0'),
+            precio_unitario=precio_u,
+        )
+        partes_desc.append(f'{nombre_snap[:30]} ×{qty}')
+
+    pedido.descripcion = f'{len(items)} art.: ' + ', '.join(partes_desc)
+    pedido.save(update_fields=['descripcion'])
+    return pedido
+
+
 @transaction.atomic
 def crear_venta_tienda(*, lineas, cliente=None, metodo_pago='efectivo'):
     """Crea una venta de tienda física: Pedido PAGADO + PedidoItem + Pago completo.
