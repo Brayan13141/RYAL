@@ -96,4 +96,92 @@ describe('comportamiento existente sin cambios', () => {
         store.cancelSession('g1')
         expect(store.getSession('g1')).toBeNull()
     })
+
+    test('startSession reemplaza sesión existente con items', () => {
+        store.startSession('g1', 'A', '5551111111')
+        store.addItem('g1', 'cap', 100)
+        store.startSession('g1', 'B', '5552222222')
+        const sess = store.getSession('g1')
+        expect(sess.cliente.nombre).toBe('B')
+        expect(sess.items).toHaveLength(0)
+    })
+
+    test('addItem segundo ítem suma total', () => {
+        store.startSession('g1', 'X', '5550000000')
+        store.addItem('g1', 'a', 200)
+        const r = store.addItem('g1', 'b', 300)
+        expect(r.total).toBe(500)
+    })
+
+    test('addItem qty inicial es 1', () => {
+        store.startSession('g1', 'X', '5550000000')
+        store.addItem('g1', 'a', 100)
+        expect(store.getSession('g1').items[0].qty).toBe(1)
+    })
+
+    test('addItem total refleja qty modificada', () => {
+        store.startSession('g1', 'X', '5550000000')
+        store.addItem('g1', 'a', 100)
+        store.setQty('g1', 1, 3)
+        const r = store.addItem('g1', 'b', 200)
+        expect(r.total).toBe(500)
+    })
+
+    test('removeItem retorna true al eliminar', () => {
+        store.startSession('g1', 'X', '5550000000')
+        store.addItem('g1', 'a', 100)
+        expect(store.removeItem('g1', 1)).toBe(true)
+    })
+
+    test('removeItem retorna false para índice 0', () => {
+        store.startSession('g1', 'X', '5550000000')
+        store.addItem('g1', 'a', 100)
+        expect(store.removeItem('g1', 0)).toBe(false)
+    })
+
+    test('removeItem retorna false para índice mayor al length', () => {
+        store.startSession('g1', 'X', '5550000000')
+        store.addItem('g1', 'a', 100)
+        expect(store.removeItem('g1', 2)).toBe(false)
+    })
+
+    test('removeItem retorna false sin sesión', () => {
+        expect(store.removeItem('g1', 1)).toBe(false)
+    })
+
+    test('setQty retorna true al actualizar', () => {
+        store.startSession('g1', 'X', '5550000000')
+        store.addItem('g1', 'a', 100)
+        expect(store.setQty('g1', 1, 5)).toBe(true)
+    })
+
+    test('setQty retorna false para índice fuera de rango', () => {
+        store.startSession('g1', 'X', '5550000000')
+        store.addItem('g1', 'a', 100)
+        expect(store.setQty('g1', 2, 1)).toBe(false)
+    })
+
+    test('setQty retorna false para cantidad 0 o negativa', () => {
+        store.startSession('g1', 'X', '5550000000')
+        store.addItem('g1', 'a', 100)
+        expect(store.setQty('g1', 1, 0)).toBe(false)
+        expect(store.setQty('g1', 1, -1)).toBe(false)
+    })
+
+    test('setQty retorna false sin sesión', () => {
+        expect(store.setQty('g1', 1, 1)).toBe(false)
+    })
+
+    test('cancelSession en sesión inexistente no lanza error', () => {
+        expect(() => store.cancelSession('g1')).not.toThrow()
+    })
+
+    test('getSession retorna null sin sesión', () => {
+        expect(store.getSession('g1')).toBeNull()
+    })
+
+    test('getSession no mezcla sesiones de diferentes grupos', () => {
+        store.startSession('g1', 'A', '5551111111')
+        expect(store.getSession('g2')).toBeNull()
+    })
 })
