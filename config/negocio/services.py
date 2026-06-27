@@ -59,7 +59,7 @@ def crear_pedido_tienda_bot(*, items, envio=Decimal('0')):
         costo_producto=Decimal('0'),
         precio_venta=precio_total,
         envio=Decimal(str(envio)),
-        estado=Pedido.PENDIENTE,
+        estado=Pedido.PAGADO,
         origen=Pedido.TIENDA,
     )
 
@@ -165,7 +165,7 @@ def crear_pedido_bot(*, nombre, telefono, items, envio=Decimal('0')):
         costo_producto=Decimal('0'),
         precio_venta=Decimal('0'),
         envio=envio_d,
-        estado=Pedido.PENDIENTE,
+        estado=Pedido.PAGADO,
         origen=Pedido.BOT,
     )
     total_precio = Decimal('0')

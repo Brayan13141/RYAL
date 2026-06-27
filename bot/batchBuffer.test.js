@@ -64,3 +64,34 @@ test('addImage respeta el cap maxPerGroup', () => {
     b.addImage('g1', { id: 3 }, T0) // excede el cap → no se agrega
     expect(b.size('g1')).toBe(2)
 })
+
+test('getPrice devuelve el precio del último addImage con precio', () => {
+    const b = createBatchBuffer()
+    expect(b.getPrice('g1')).toBeNull()
+    b.addImage('g1', { id: 1 }, T0, 300, '$300 Nike Rojo')
+    expect(b.getPrice('g1')).toBe(300)
+    b.addImage('g1', { id: 2 }, T0, 300, '$300 Nike Azul')
+    expect(b.getPrice('g1')).toBe(300)
+})
+
+test('getCaption devuelve el caption del último addImage con caption', () => {
+    const b = createBatchBuffer()
+    b.addImage('g1', { id: 1 }, T0, 300, '$300 Nike Rojo')
+    b.addImage('g1', { id: 2 }, T0, 300, '$300 Nike Azul')
+    expect(b.getCaption('g1')).toBe('$300 Nike Azul')
+})
+
+test('getPrice y getCaption se resetean tras flush', () => {
+    const b = createBatchBuffer()
+    b.addImage('g1', { id: 1 }, T0, 300, '$300 Nike')
+    b.flush('g1')
+    expect(b.getPrice('g1')).toBeNull()
+    expect(b.getCaption('g1')).toBe('')
+})
+
+test('imágenes sin precio no sobreescriben el precio del lote', () => {
+    const b = createBatchBuffer()
+    b.addImage('g1', { id: 1 }, T0, 300, '$300 Nike Rojo')
+    b.addImage('g1', { id: 2 }, T0, null, '') // sin precio
+    expect(b.getPrice('g1')).toBe(300)
+})

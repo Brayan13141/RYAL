@@ -65,6 +65,10 @@ class Command(BaseCommand):
         supplier_order.status = 'running'
         supplier_order.save(update_fields=['status'])
 
+        results     = {}
+        cart_script = ''
+        _final_status = 'failed'   # sobreescrito al final si todo va bien
+
         # Extraer todo a dicts planos — no se toca ORM dentro de Playwright
         def _cat_path(item):
             try:
@@ -116,86 +120,93 @@ class Command(BaseCommand):
             item_groups.setdefault(key, []).append(data)
 
         try:
-            from playwright.sync_api import sync_playwright
-        except ImportError:
-            raise CommandError(
-                'playwright no está instalado.\n'
-                'Ejecuta: pip install playwright && playwright install chromium'
-            )
-
-        # ── PLAYWRIGHT (sin ORM) ──────────────────────────────────────────────
-        results     = {}   # {item_id: {'status': str, 'notes': str}}
-        cart_script = ''
-
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=headless,
-                args=['--no-sandbox', '--disable-blink-features=AutomationControlled'],
-            )
-            ctx = browser.new_context(
-                viewport={'width': 1280, 'height': 900},
-                user_agent=(
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                    'AppleWebKit/537.36 (KHTML, like Gecko) '
-                    'Chrome/124.0.0.0 Safari/537.36'
-                ),
-            )
-            # Ocultar navigator.webdriver para evitar detección headless
-            ctx.add_init_script(
-                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-            )
-            page = ctx.new_page()
-
-            self.stdout.write(f'Abriendo {MODAVERSE_BASE}...')
-            self._bootstrap_to_product_page(page)
-
             try:
-                for group in item_groups.values():
-                    try:
-                        group_results = self._add_item_group(page, group)
-                    except Exception as exc:
-                        first = group[0]
-                        self.stdout.write(self.style.WARNING(f'  [{first["sku"]}] Error inesperado: {exc}'))
-                        group_results = {
-                            d['id']: {'status': 'variant_not_found', 'notes': f'Error inesperado: {exc}'}
-                            for d in group
-                        }
-                    results.update(group_results)
-                    self._debug_cart_size(page, group[0]['sku'])
+                from playwright.sync_api import sync_playwright
+            except ImportError:
+                self.stdout.write(self.style.ERROR(
+                    'playwright no está instalado.\n'
+                    'Ejecuta: pip install playwright && playwright install chromium'
+                ))
+                return   # finally guarda _final_status = 'failed'
 
-                if qty_map:
-                    self._fix_all_qtys(page, qty_map)
+            # ── PLAYWRIGHT (sin ORM) ──────────────────────────────────────────
+            with sync_playwright() as p:
+                browser = p.chromium.launch(
+                    headless=headless,
+                    args=['--no-sandbox', '--disable-blink-features=AutomationControlled'],
+                )
+                ctx = browser.new_context(
+                    viewport={'width': 1280, 'height': 900},
+                    user_agent=(
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                        'AppleWebKit/537.36 (KHTML, like Gecko) '
+                        'Chrome/124.0.0.0 Safari/537.36'
+                    ),
+                )
+                # Ocultar navigator.webdriver para evitar detección headless
+                ctx.add_init_script(
+                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+                )
+                page = ctx.new_page()
 
-                self.stdout.write('\n[pre-export] Estado final del carrito:')
-                self._debug_cart_size(page, 'FINAL')
-                cart_script = self._extract_cart_script(page)
-                if cart_script:
-                    self.stdout.write(self.style.SUCCESS('Script de carrito generado OK'))
-                else:
-                    self.stdout.write(self.style.WARNING('No se pudo exportar el carrito'))
-            except Exception as exc:
-                self.stdout.write(self.style.ERROR(f'Error inesperado en Playwright: {exc}'))
+                self.stdout.write(f'Abriendo {MODAVERSE_BASE}...')
+                self._bootstrap_to_product_page(page)
 
-            browser.close()
+                try:
+                    for group in item_groups.values():
+                        try:
+                            group_results = self._add_item_group(page, group)
+                        except Exception as exc:
+                            first = group[0]
+                            self.stdout.write(self.style.WARNING(f'  [{first["sku"]}] Error inesperado: {exc}'))
+                            group_results = {
+                                d['id']: {'status': 'variant_not_found', 'notes': f'Error inesperado: {exc}'}
+                                for d in group
+                            }
+                        results.update(group_results)
+                        self._debug_cart_size(page, group[0]['sku'])
 
-        # ── GUARDAR RESULTADOS (Django ORM — fuera de Playwright) ────────────
-        for item in pending_items:
-            r = results.get(item.id)
-            if r:
-                item.status = r['status']
-                item.notes  = r['notes']
-                item.save(update_fields=['status', 'notes'])
+                    if qty_map:
+                        self._fix_all_qtys(page, qty_map)
 
-        statuses = {results[i.id]['status'] for i in pending_items if i.id in results}
-        if statuses <= {'added', 'no_url'}:
-            supplier_order.status = 'done'
-        elif 'added' in statuses:
-            supplier_order.status = 'partial'
-        else:
-            supplier_order.status = 'failed'
+                    self.stdout.write('\n[pre-export] Estado final del carrito:')
+                    self._debug_cart_size(page, 'FINAL')
+                    cart_script = self._extract_cart_script(page)
+                    if cart_script:
+                        self.stdout.write(self.style.SUCCESS('Script de carrito generado OK'))
+                    else:
+                        self.stdout.write(self.style.WARNING('No se pudo exportar el carrito'))
+                except Exception as exc:
+                    self.stdout.write(self.style.ERROR(f'Error inesperado en Playwright: {exc}'))
 
-        supplier_order.cart_script = cart_script
-        supplier_order.save(update_fields=['status', 'cart_script', 'updated_at'])
+                browser.close()
+
+            # ── GUARDAR RESULTADOS (Django ORM — fuera de Playwright) ────────
+            for item in pending_items:
+                r = results.get(item.id)
+                if r:
+                    item.status = r['status']
+                    item.notes  = r['notes']
+                    item.save(update_fields=['status', 'notes'])
+
+            statuses = {results[i.id]['status'] for i in pending_items if i.id in results}
+            if statuses <= {'added', 'no_url'}:
+                _final_status = 'done'
+            elif 'added' in statuses:
+                _final_status = 'partial'
+            else:
+                _final_status = 'failed'
+
+        except Exception as exc:
+            import traceback
+            self.stdout.write(self.style.ERROR(f'Error fatal: {exc}'))
+            self.stdout.write(traceback.format_exc())
+            _final_status = 'failed'
+
+        finally:
+            supplier_order.status     = _final_status
+            supplier_order.cart_script = cart_script
+            supplier_order.save(update_fields=['status', 'cart_script', 'updated_at'])
 
         items_final = list(supplier_order.items.select_related('order_item').all())
         self._print_summary(items_final, cart_script)
@@ -479,15 +490,14 @@ class Command(BaseCommand):
         Siempre navega al homepage primero para garantizar estado limpio.
         """
         try:
-            page.goto(MODAVERSE_BASE, timeout=TIMEOUT)
-            page.wait_for_load_state('networkidle', timeout=TIMEOUT)
+            page.goto(MODAVERSE_BASE, wait_until='load', timeout=TIMEOUT)
             page.wait_for_timeout(1500)
 
             first_cat = page.locator('.product_item').first
             if not first_cat.is_visible():
                 return False
             first_cat.click()
-            page.wait_for_load_state('networkidle', timeout=TIMEOUT)
+            page.wait_for_load_state('load', timeout=TIMEOUT)
             page.wait_for_timeout(1200)
 
             if '/zifenlei/' in page.url:
@@ -495,7 +505,7 @@ class Command(BaseCommand):
                 if not first_sub.is_visible():
                     return False
                 first_sub.click()
-                page.wait_for_load_state('networkidle', timeout=TIMEOUT)
+                page.wait_for_load_state('load', timeout=TIMEOUT)
                 page.wait_for_timeout(1200)
 
             ok = '/product/' in page.url
@@ -571,14 +581,16 @@ class Command(BaseCommand):
             self._try_capture_pids(resp, pids_buf)
 
         page.on('response', _on_response)
-        option.click()
-        page.wait_for_load_state('networkidle', timeout=TIMEOUT)
         try:
-            page.wait_for_selector('.product_item', timeout=8000)
-        except Exception:
-            pass
-        page.wait_for_timeout(800)
-        page.remove_listener('response', _on_response)
+            option.click()
+            page.wait_for_load_state('load', timeout=TIMEOUT)
+            try:
+                page.wait_for_selector('.product_item', timeout=8000)
+            except Exception:
+                pass
+            page.wait_for_timeout(800)
+        finally:
+            page.remove_listener('response', _on_response)
 
         if pids_buf:
             self._page_product_pids = list(pids_buf)
@@ -635,14 +647,16 @@ class Command(BaseCommand):
                     self._try_capture_pids(resp, buf)
 
                 page.on('response', _on_resp)
-                opt.click()
-                page.wait_for_load_state('networkidle', timeout=TIMEOUT)
                 try:
-                    page.wait_for_selector('.product_item', timeout=5000)
-                except Exception:
-                    pass
-                page.wait_for_timeout(800)
-                page.remove_listener('response', _on_resp)
+                    opt.click()
+                    page.wait_for_load_state('load', timeout=TIMEOUT)
+                    try:
+                        page.wait_for_selector('.product_item', timeout=5000)
+                    except Exception:
+                        pass
+                    page.wait_for_timeout(800)
+                finally:
+                    page.remove_listener('response', _on_resp)
 
                 if target_pid in pids_buf:
                     self._page_product_pids = list(pids_buf)

@@ -216,7 +216,10 @@ async function handleOrdersMessage(sock, msg) {
         const caption = image.caption || ''
         const price = extractPrice(caption)
         if (!price) return
-        const result = orders.addItem(ORDERS_GID, caption, price)
+        // Tomar solo la primera línea no vacía del caption para que no se guarde el
+        // footer de Ryal ("↪️ Reenvía...") ni texto largo como descripción del ítem.
+        const description = caption.split('\n').map(l => l.trim()).find(l => l) || ''
+        const result = orders.addItem(ORDERS_GID, description, price)
         if (!result) {
             await sock.sendMessage(ORDERS_GID, {
                 text: '⚠️ Sin sesión activa. Usa /pedido Nombre Teléfono para iniciar.',

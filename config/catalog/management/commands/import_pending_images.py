@@ -26,6 +26,7 @@ _ALLOWED_HOSTS = {
     'img.modaverse.vip',
     'modaverse.vip',
     'kkd-file.oss-cn-hangzhou.aliyuncs.com',  # CDN alternativo que usa Modaverse
+    'cdn.poizon.com',                          # Poizon CDN embebido en URLs de proxy Modaverse
 }
 _HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',

@@ -1023,9 +1023,7 @@
             onclick="toggleNavGroup('navGroupProd')">
             <i class="bi bi-box-seam"></i>
             <span class="nav-label">Productos</span>
-            {% if n_pending %}<span
-              style="margin-left:auto;margin-right:4px;background:rgba(212,175,55,.2);color:#D4AF37;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;flex-shrink:0;">{{
-              n_pending }}</span>{% endif %}
+            {% if n_pending %}<span style="margin-left:auto;margin-right:4px;background:rgba(212,175,55,.2);color:#D4AF37;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;flex-shrink:0;">{{ n_pending }}</span>{% endif %}
             <i class="bi bi-chevron-down nav-chevron"></i>
           </button>
           <div class="p-nav-sub">
@@ -1043,9 +1041,7 @@
               <i class="bi bi-hourglass-split"></i>
               <span class="nav-label">
                 Pendientes
-                {% if n_pending %}<span
-                  style="background:rgba(212,175,55,.25);color:#D4AF37;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;display:inline-block;">{{
-                  n_pending }}</span>{% endif %}
+                {% if n_pending %}<span style="background:rgba(212,175,55,.25);color:#D4AF37;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;display:inline-block;">{{ n_pending }}</span>{% endif %}
               </span>
             </a>
           </div>
