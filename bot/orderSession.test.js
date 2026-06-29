@@ -201,3 +201,51 @@ describe('comportamiento existente sin cambios', () => {
         expect(store.getSession('g1').tipo).toBe('tienda')
     })
 })
+
+describe('costo y descuento', () => {
+    let store
+    beforeEach(() => { store = createOrderSessionStore() })
+
+    test('addItem guarda costo=0 por defecto', () => {
+        store.startSession('g1', 'X', '5550000000')
+        store.addItem('g1', 'Gorra', 400)
+        expect(store.getSession('g1').items[0].costo).toBe(0)
+    })
+
+    test('addItem guarda costo explícito', () => {
+        store.startSession('g1', 'X', '5550000000')
+        store.addItem('g1', 'Gorra', 400, 300)
+        expect(store.getSession('g1').items[0].costo).toBe(300)
+    })
+
+    test('total no cambia por costo', () => {
+        store.startSession('g1', 'X', '5550000000')
+        const r = store.addItem('g1', 'Gorra', 400, 300)
+        expect(r.total).toBe(400)
+    })
+
+    test('setDescuento guarda codigo y monto', () => {
+        store.startSession('g1', 'X', '5550000000')
+        store.setDescuento('g1', 'GORRA50', 50, 7)
+        const d = store.getDescuento('g1')
+        expect(d.codigo).toBe('GORRA50')
+        expect(d.monto).toBe(50)
+        expect(d.codigoId).toBe(7)
+    })
+
+    test('getDescuento retorna null sin descuento', () => {
+        store.startSession('g1', 'X', '5550000000')
+        expect(store.getDescuento('g1')).toBeNull()
+    })
+
+    test('setDescuento retorna false sin sesión', () => {
+        expect(store.setDescuento('g1', 'X', 50, 1)).toBe(false)
+    })
+
+    test('startSession resetea descuento', () => {
+        store.startSession('g1', 'X', '5550000000')
+        store.setDescuento('g1', 'PROMO', 100, 1)
+        store.startSession('g1', 'Y', '5551111111')
+        expect(store.getDescuento('g1')).toBeNull()
+    })
+})

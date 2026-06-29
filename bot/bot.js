@@ -219,7 +219,8 @@ async function handleOrdersMessage(sock, msg) {
         // Tomar solo la primera línea no vacía del caption para que no se guarde el
         // footer de Ryal ("↪️ Reenvía...") ni texto largo como descripción del ítem.
         const description = caption.split('\n').map(l => l.trim()).find(l => l) || ''
-        const result = orders.addItem(ORDERS_GID, description, price)
+        const costo = Math.max(0, price - MARKUP)
+        const result = orders.addItem(ORDERS_GID, description, price, costo)
         if (!result) {
             await sock.sendMessage(ORDERS_GID, {
                 text: '⚠️ Sin sesión activa. Usa /pedido Nombre Teléfono para iniciar.',
@@ -258,7 +259,7 @@ async function handleOrdersMessage(sock, msg) {
                         : `${DJANGO_URL}/api/negocio/pedido/`
                     const closePayload = closingTienda
                         ? { items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty })), envio: 0 }
-                        : { nombre: sess.cliente.nombre, telefono: sess.cliente.telefono, items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty })), envio: 0 }
+                        : { nombre: sess.cliente.nombre, telefono: sess.cliente.telefono, items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty, costo: i.costo || 0 })), envio: 0, descuento_monto: orders.getDescuento(ORDERS_GID)?.monto || 0, codigo_descuento_id: orders.getDescuento(ORDERS_GID)?.codigoId || null }
                     try {
                         const { data } = await axios.post(
                             closeEndpoint, closePayload,
@@ -329,7 +330,7 @@ async function handleOrdersMessage(sock, msg) {
     const cmd = parts[0].toLowerCase()
     const args = parts.slice(1)
 
-    if (cmd === '/venta') {
+    if (cmd === '/tienda') {
         const sesionActiva = orders.getSession(ORDERS_GID)
         if (sesionActiva) {
             const total = sesionActiva.items.reduce((s, i) => s + i.price * i.qty, 0)
@@ -455,6 +456,119 @@ async function handleOrdersMessage(sock, msg) {
         return
     }
 
+    if (cmd === '/precios') {
+        try {
+            const { data } = await axios.get(
+                `${DJANGO_URL}/api/negocio/tipos/`,
+                { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 5000 },
+            )
+            if (!data.tipos || data.tipos.length === 0) {
+                await sock.sendMessage(ORDERS_GID, {
+                    text: '📋 Sin tipos registrados. Agrégalos en el panel → Tipos de artículo.',
+                })
+                return
+            }
+            const lines = data.tipos.map(t =>
+                `• *${t.nombre}* — costo $${t.costo} MXN\n  _Keywords: ${t.keywords}_`
+            )
+            await sock.sendMessage(ORDERS_GID, {
+                text: `📋 *Tipos de artículo registrados:*\n\n${lines.join('\n\n')}`,
+            })
+        } catch (err) {
+            logger.error({ err: err.message }, '/precios falló')
+            await sock.sendMessage(ORDERS_GID, { text: '❌ Error al obtener tipos.' })
+        }
+        return
+    }
+
+    if (cmd === '/venta') {
+        const sess = orders.getSession(ORDERS_GID)
+        if (!sess) {
+            await sock.sendMessage(ORDERS_GID, {
+                text: '⚠️ Sin sesión activa. Usa /pedido Nombre Teléfono para iniciar.',
+            })
+            return
+        }
+        // Formato: /venta Descripcion precio
+        // Ej: /venta Gorra NY negra 500
+        const partes = text.trim().split(/\s+/)
+        if (partes.length < 3) {
+            await sock.sendMessage(ORDERS_GID, {
+                text: 'Uso: /venta <descripcion> <precio>\nEj: /venta Gorra NY 500',
+            })
+            return
+        }
+        const precio = parseFloat(partes[partes.length - 1])
+        if (isNaN(precio) || precio <= 0) {
+            await sock.sendMessage(ORDERS_GID, {
+                text: '❌ Precio inválido. Ej: /venta Gorra NY 500',
+            })
+            return
+        }
+        const descripcion = partes.slice(1, -1).join(' ')
+
+        let costo = 0
+        let tipoNombre = null
+        try {
+            const { data } = await axios.post(
+                `${DJANGO_URL}/api/negocio/articulo/buscar/`,
+                { descripcion },
+                { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 5000 },
+            )
+            if (data.match) {
+                costo = data.costo
+                tipoNombre = data.nombre
+            }
+        } catch (err) {
+            logger.warn({ err: err.message }, '/venta articulo/buscar falló')
+        }
+
+        const result = orders.addItem(ORDERS_GID, descripcion, precio, costo)
+        const ganancia = precio - costo
+        const matchMsg = tipoNombre
+            ? `Tipo: ${tipoNombre} — costo $${costo} — ganancia $${ganancia}`
+            : '⚠️ Sin tipo registrado. Costo $0. Agrega el tipo en el panel o usa /precios.'
+        await sock.sendMessage(ORDERS_GID, {
+            text: `✅ Ítem ${result.index}: ${descripcion} $${precio}\n${matchMsg}\nTotal acumulado: $${result.total} MXN`,
+        })
+        return
+    }
+
+    if (cmd === '/descuento') {
+        const sess = orders.getSession(ORDERS_GID)
+        if (!sess) {
+            await sock.sendMessage(ORDERS_GID, { text: '⚠️ Sin sesión activa.' })
+            return
+        }
+        const codigoStr = (parts[1] || '').trim().toUpperCase()
+        if (!codigoStr) {
+            await sock.sendMessage(ORDERS_GID, { text: 'Uso: /descuento <CODIGO>\nEj: /descuento GORRA50' })
+            return
+        }
+        const descriptions = sess.items.map(i => i.description)
+        try {
+            const { data } = await axios.post(
+                `${DJANGO_URL}/api/negocio/codigos/validar/`,
+                { codigo: codigoStr, descriptions },
+                { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 5000 },
+            )
+            if (!data.valido) {
+                await sock.sendMessage(ORDERS_GID, { text: `❌ ${data.mensaje}` })
+                return
+            }
+            orders.setDescuento(ORDERS_GID, codigoStr, data.descuento, data.codigo_id)
+            const totalBruto = sess.items.reduce((s, i) => s + i.price * i.qty, 0)
+            const totalNeto = Math.max(0, totalBruto - data.descuento)
+            await sock.sendMessage(ORDERS_GID, {
+                text: `✅ ${data.mensaje}\nTotal: $${totalBruto} − $${data.descuento} = *$${totalNeto} MXN*`,
+            })
+        } catch (err) {
+            logger.error({ err: err.message }, '/descuento codigos/validar falló')
+            await sock.sendMessage(ORDERS_GID, { text: '❌ Error al validar el código.' })
+        }
+        return
+    }
+
     if (cmd === '/cerrar') {
         const sess = orders.getSession(ORDERS_GID)
         if (!sess) {
@@ -479,8 +593,10 @@ async function handleOrdersMessage(sock, msg) {
             : {
                 nombre: sess.cliente.nombre,
                 telefono: sess.cliente.telefono,
-                items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty })),
+                items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty, costo: i.costo || 0 })),
                 envio,
+                descuento_monto: orders.getDescuento(ORDERS_GID)?.monto || 0,
+                codigo_descuento_id: orders.getDescuento(ORDERS_GID)?.codigoId || null,
             }
         try {
             const { data } = await axios.post(

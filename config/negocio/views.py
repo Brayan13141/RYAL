@@ -347,6 +347,86 @@ def etiquetas_list(request):
     })
 
 
+from catalog.models import TipoArticulo, CodigoDescuento
+from .forms import TipoArticuloForm, CodigoDescuentoForm
+
+
+# ── TipoArticulo CRUD ────────────────────────────────────────────────────────
+
+@staff_member_required
+def tipos_list(request):
+    tipos = TipoArticulo.objects.all()
+    return render(request, 'negocio/tipo_articulo_list.html', {'tipos': tipos})
+
+
+@staff_member_required
+def tipo_create(request):
+    form = TipoArticuloForm(request.POST or None)
+    if form.is_valid():
+        form.save()
+        return redirect('negocio:tipos_list')
+    return render(request, 'negocio/tipo_articulo_form.html', {'form': form, 'titulo': 'Nuevo tipo de artículo'})
+
+
+@staff_member_required
+def tipo_edit(request, pk):
+    tipo = get_object_or_404(TipoArticulo, pk=pk)
+    form = TipoArticuloForm(request.POST or None, instance=tipo)
+    if form.is_valid():
+        form.save()
+        return redirect('negocio:tipos_list')
+    return render(request, 'negocio/tipo_articulo_form.html', {'form': form, 'titulo': f'Editar — {tipo.nombre}'})
+
+
+@staff_member_required
+def tipo_delete(request, pk):
+    tipo = get_object_or_404(TipoArticulo, pk=pk)
+    if request.method == 'POST':
+        tipo.delete()
+        return redirect('negocio:tipos_list')
+    return render(request, 'negocio/tipo_articulo_form.html', {
+        'form': None, 'titulo': f'Eliminar — {tipo.nombre}', 'objeto': tipo, 'confirm_delete': True,
+    })
+
+
+# ── CodigoDescuento CRUD ─────────────────────────────────────────────────────
+
+@staff_member_required
+def codigos_list(request):
+    codigos = CodigoDescuento.objects.select_related('tipo_articulo').all()
+    return render(request, 'negocio/codigo_descuento_list.html', {'codigos': codigos})
+
+
+@staff_member_required
+def codigo_create(request):
+    form = CodigoDescuentoForm(request.POST or None)
+    if form.is_valid():
+        form.save()
+        return redirect('negocio:codigos_list')
+    return render(request, 'negocio/codigo_descuento_form.html', {'form': form, 'titulo': 'Nuevo código'})
+
+
+@staff_member_required
+def codigo_edit(request, pk):
+    codigo = get_object_or_404(CodigoDescuento, pk=pk)
+    form = CodigoDescuentoForm(request.POST or None, instance=codigo)
+    if form.is_valid():
+        form.save()
+        return redirect('negocio:codigos_list')
+    return render(request, 'negocio/codigo_descuento_form.html', {'form': form, 'titulo': f'Editar — {codigo.codigo}'})
+
+
+@staff_member_required
+def codigo_delete(request, pk):
+    codigo = get_object_or_404(CodigoDescuento, pk=pk)
+    if request.method == 'POST':
+        codigo.delete()
+        return redirect('negocio:codigos_list')
+    return render(request, 'negocio/codigo_descuento_form.html', {
+        'form': None, 'titulo': f'Eliminar — {codigo.codigo}', 'objeto': codigo, 'confirm_delete': True,
+    })
+
+
 @staff_member_required
 @require_POST
 def etiquetas_print(request):

@@ -501,6 +501,8 @@ def checkout_confirm(request):
 
     nombre   = request.POST.get('nombre', '').strip()
     telefono = request.POST.get('telefono', '').strip()
+    codigo_descuento_str = request.POST.get('codigo_descuento', '').strip().upper()
+    descuento_monto_str  = request.POST.get('descuento_monto', '0')
 
     if not nombre or not telefono:
         return redirect('orders:checkout')
@@ -556,6 +558,28 @@ def checkout_confirm(request):
             )
         except Product.DoesNotExist:
             continue
+
+    if codigo_descuento_str:
+        from decimal import Decimal, InvalidOperation
+        from catalog.services import validar_codigo
+        try:
+            monto = Decimal(descuento_monto_str)
+        except InvalidOperation:
+            monto = Decimal('0')
+        if monto > 0:
+            cart_names = [
+                item_obj.name_snapshot
+                for item_obj in order.items.select_related().all()
+            ]
+            resultado = validar_codigo(codigo_descuento_str, cart_names)
+            if resultado['valido']:
+                order.notes = f'Código de descuento: {codigo_descuento_str} (−${resultado["descuento"]:.0f} MXN)'
+                order.save(update_fields=['notes'])
+                from django.db.models import F
+                from catalog.models import CodigoDescuento
+                CodigoDescuento.objects.filter(
+                    codigo__iexact=codigo_descuento_str
+                ).update(usos_actuales=F('usos_actuales') + 1)
 
     _save_cart(request, {})
     if request.user.is_authenticated:

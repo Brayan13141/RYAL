@@ -45,6 +45,13 @@ class Pedido(models.Model):
     costo_producto = models.DecimalField(max_digits=10, decimal_places=2)
     precio_venta = models.DecimalField(max_digits=10, decimal_places=2)
     envio = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0'))
+    descuento_aplicado = models.DecimalField(
+        max_digits=8, decimal_places=2, default=Decimal('0'),
+    )
+    codigo_descuento = models.ForeignKey(
+        'catalog.CodigoDescuento', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='pedidos_aplicados',
+    )
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default=PENDIENTE)
     origen = models.CharField(max_length=20, choices=ORIGEN_CHOICES, default=WHATSAPP)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -58,11 +65,11 @@ class Pedido(models.Model):
 
     @property
     def total_a_cobrar(self):
-        return self.precio_venta + self.envio
+        return self.precio_venta + self.envio - self.descuento_aplicado
 
     @property
     def ganancia(self):
-        return self.precio_venta - self.costo_producto
+        return self.precio_venta - self.costo_producto - self.descuento_aplicado
 
     @property
     def balance_pendiente(self):

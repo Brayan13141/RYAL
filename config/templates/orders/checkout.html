@@ -98,6 +98,8 @@
                 style="font-family:var(--f-mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;border-radius:0;">
           Confirmar pedido →
         </button>
+        <input type="hidden" name="codigo_descuento" id="codigo-hidden" value="">
+        <input type="hidden" name="descuento_monto" id="descuento-monto-hidden" value="0">
       </form>
 
       {% else %}
@@ -153,6 +155,8 @@
                 style="font-family:var(--f-mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;border-radius:0;">
           Confirmar pedido →
         </button>
+        <input type="hidden" name="codigo_descuento" id="codigo-hidden" value="">
+        <input type="hidden" name="descuento_monto" id="descuento-monto-hidden" value="0">
       </form>
 
       {% endif %}
@@ -168,7 +172,7 @@
 
           <ul class="list-unstyled mb-0">
             {% for item in cart_items %}
-            <li class="d-flex gap-3 mb-3 pb-3" style="border-bottom:1px solid var(--line);">
+            <li class="d-flex gap-3 mb-3 pb-3" style="border-bottom:1px solid var(--line);" data-product-name="{{ item.name_snapshot }}">
               <div style="width:56px;height:56px;flex-shrink:0;background:var(--bg-3);border:1px solid var(--line);">
                 {% if item.cover_image %}
                   <img src="{{ item.cover_image.image.url }}" alt="{{ item.name_snapshot }}"
@@ -211,6 +215,25 @@
               <span style="color:var(--gold);font-family:var(--f-mono);">−${{ total_savings|floatformat:0 }} MXN</span>
             </div>
             {% endif %}
+            <!-- ── Código de descuento ──────────────────────────────────────── -->
+            <div class="mb-3" id="descuento-section">
+              <label class="form-label small" style="font-family:var(--f-mono);letter-spacing:.08em;color:var(--ink-2);">
+                Código de descuento
+              </label>
+              <div class="input-group input-group-sm">
+                <input type="text" id="codigo-input" class="form-control bg-transparent text-white border-secondary"
+                       placeholder="CODIGO10" style="text-transform:uppercase;" maxlength="50">
+                <button class="btn btn-outline-secondary" type="button" id="btn-aplicar-codigo">Aplicar</button>
+              </div>
+              <div id="codigo-msg" class="small mt-1" style="font-family:var(--f-mono);min-height:1.2em;"></div>
+            </div>
+
+            <!-- Fila de descuento (oculta hasta aplicar) -->
+            <div id="descuento-row" class="d-flex justify-content-between mb-1 d-none">
+              <span class="small" style="color:var(--ink-2);font-family:var(--f-mono);">Descuento</span>
+              <span id="descuento-display" class="small text-success">−$0 MXN</span>
+            </div>
+
             <div class="d-flex justify-content-between pt-2 mt-2" style="border-top:1px solid var(--line);">
               <span class="fw-medium" style="color:var(--ink);">Total</span>
               <span class="fw-medium" style="color:var(--gold);font-family:var(--f-mono);font-size:1.1rem;">
@@ -230,6 +253,61 @@
 
   </div>
 </div>
+
+<script>
+(function () {
+  const btnAplicar = document.getElementById('btn-aplicar-codigo')
+  const codigoInput = document.getElementById('codigo-input')
+  const codigoMsg = document.getElementById('codigo-msg')
+  const descuentoRow = document.getElementById('descuento-row')
+  const descuentoDisplay = document.getElementById('descuento-display')
+  const codigoHidden = document.getElementById('codigo-hidden')
+  const descuentoMontoHidden = document.getElementById('descuento-monto-hidden')
+
+  // Recolectar nombres de productos del carrito para validación por tipo
+  const cartDescriptions = Array.from(
+    document.querySelectorAll('[data-product-name]')
+  ).map(el => el.dataset.productName)
+
+  btnAplicar.addEventListener('click', async () => {
+    const codigo = codigoInput.value.trim().toUpperCase()
+    if (!codigo) return
+    btnAplicar.disabled = true
+    codigoMsg.textContent = 'Validando...'
+    codigoMsg.style.color = 'var(--ink-2)'
+
+    try {
+      const res = await fetch('/api/negocio/codigos/validar-publico/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo, descriptions: cartDescriptions }),
+      })
+      const data = await res.json()
+      if (data.valido) {
+        codigoMsg.textContent = data.mensaje
+        codigoMsg.style.color = '#28a745'
+        descuentoRow.classList.remove('d-none')
+        descuentoDisplay.textContent = `−$${data.descuento} MXN`
+        codigoHidden.value = codigo
+        descuentoMontoHidden.value = data.descuento
+      } else {
+        codigoMsg.textContent = data.mensaje
+        codigoMsg.style.color = '#dc3545'
+        descuentoRow.classList.add('d-none')
+        codigoHidden.value = ''
+        descuentoMontoHidden.value = '0'
+      }
+    } catch (e) {
+      codigoMsg.textContent = 'Error al validar. Intenta de nuevo.'
+      codigoMsg.style.color = '#dc3545'
+    } finally {
+      btnAplicar.disabled = false
+    }
+  })
+
+  codigoInput.addEventListener('keydown', e => { if (e.key === 'Enter') btnAplicar.click() })
+})()
+</script>
 {% endif %}
 {% endblock %}
 

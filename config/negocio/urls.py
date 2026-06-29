@@ -22,4 +22,14 @@ urlpatterns = [
     path('label/<str:sku>/',                   views.label_html,          name='label_html'),
     path('etiquetas/',                         views.etiquetas_list,      name='etiquetas_list'),
     path('etiquetas/print/',                   views.etiquetas_print,     name='etiquetas_print'),
+    # TipoArticulo
+    path('tipos/',                             views.tipos_list,          name='tipos_list'),
+    path('tipos/nuevo/',                       views.tipo_create,         name='tipo_create'),
+    path('tipos/<int:pk>/editar/',             views.tipo_edit,           name='tipo_edit'),
+    path('tipos/<int:pk>/eliminar/',           views.tipo_delete,         name='tipo_delete'),
+    # CodigoDescuento
+    path('codigos/',                           views.codigos_list,        name='codigos_list'),
+    path('codigos/nuevo/',                     views.codigo_create,       name='codigo_create'),
+    path('codigos/<int:pk>/editar/',           views.codigo_edit,         name='codigo_edit'),
+    path('codigos/<int:pk>/eliminar/',         views.codigo_delete,       name='codigo_delete'),
 ]

@@ -1,0 +1,47 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Códigos de descuento{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="mb-0" style="font-family:var(--f-display)">Códigos de descuento</h4>
+  <a href="{% url 'negocio:codigo_create' %}" class="btn btn-sm btn-gold">+ Nuevo código</a>
+</div>
+<div class="table-responsive">
+  <table class="table table-dark table-hover align-middle">
+    <thead>
+      <tr>
+        <th>Código</th>
+        <th>Descripción</th>
+        <th>Descuento</th>
+        <th>Tipo</th>
+        <th>Usos</th>
+        <th>Válido hasta</th>
+        <th>Activo</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in codigos %}
+      <tr>
+        <td><code>{{ c.codigo }}</code></td>
+        <td class="small text-muted">{{ c.descripcion|default:"—" }}</td>
+        <td>${{ c.descuento }} MXN</td>
+        <td>{{ c.tipo_articulo.nombre|default:"Global" }}</td>
+        <td>{{ c.usos_actuales }}{% if c.usos_max %}/{{ c.usos_max }}{% endif %}</td>
+        <td>{{ c.valid_hasta|default:"Sin límite" }}</td>
+        <td>
+          {% if c.is_active %}<span class="badge bg-success">Activo</span>
+          {% else %}<span class="badge bg-secondary">Inactivo</span>{% endif %}
+        </td>
+        <td class="text-end">
+          <a href="{% url 'negocio:codigo_edit' c.pk %}" class="btn btn-sm btn-outline-secondary me-1">Editar</a>
+          <a href="{% url 'negocio:codigo_delete' c.pk %}" class="btn btn-sm btn-outline-danger">Eliminar</a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="8" class="text-center text-muted py-4">Sin códigos registrados.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

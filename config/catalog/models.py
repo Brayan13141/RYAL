@@ -484,3 +484,53 @@ class SubcategorySection(models.Model):
 
     def __str__(self):
         return f'{self.subcategory.name} / {self.name}'
+
+
+class TipoArticulo(models.Model):
+    nombre   = models.CharField(max_length=100)
+    keywords = models.TextField(
+        help_text='Palabras clave separadas por coma. Ej: gorra,cap,ny,la,za'
+    )
+    costo    = models.DecimalField(max_digits=8, decimal_places=2)
+
+    class Meta:
+        ordering = ['nombre']
+        verbose_name = 'Tipo de artículo'
+        verbose_name_plural = 'Tipos de artículo'
+
+    def __str__(self):
+        return self.nombre
+
+    def matches(self, texto: str) -> bool:
+        """True si alguna keyword aparece en texto (case-insensitive)."""
+        texto = texto.lower()
+        return any(kw.strip().lower() in texto for kw in self.keywords.split(',') if kw.strip())
+
+
+class CodigoDescuento(models.Model):
+    codigo         = models.CharField(max_length=50, unique=True)
+    descripcion    = models.CharField(max_length=200, blank=True,
+                                      help_text='Para qué clientes o promoción es este código.')
+    descuento      = models.DecimalField(max_digits=8, decimal_places=2,
+                                         help_text='Monto fijo en MXN a descontar.')
+    tipo_articulo  = models.ForeignKey(
+        TipoArticulo, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='codigos',
+        help_text='Dejar vacío para código global (aplica a cualquier artículo).',
+    )
+    is_active      = models.BooleanField(default=True)
+    usos_max       = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text='Máximo de usos. Dejar vacío para ilimitado.',
+    )
+    usos_actuales  = models.PositiveIntegerField(default=0)
+    valid_hasta    = models.DateField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['codigo']
+        verbose_name = 'Código de descuento'
+        verbose_name_plural = 'Códigos de descuento'
+
+    def __str__(self):
+        tipo = f' ({self.tipo_articulo.nombre})' if self.tipo_articulo_id else ' (global)'
+        return f'{self.codigo} — ${self.descuento} MXN{tipo}'

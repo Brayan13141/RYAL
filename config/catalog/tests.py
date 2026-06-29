@@ -6,13 +6,16 @@ from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+import datetime
+
 from catalog.management.commands.import_images import _pid_from_url
 from catalog.modaverse import parse_specifications
 from catalog.management.commands.load_productos import (
     _category_filter_ids,
     _build_existing_pids,
 )
-from catalog.models import Category, Product, Tag
+from catalog.models import Category, Product, Tag, TipoArticulo, CodigoDescuento
+from catalog.services import buscar_tipo_articulo, validar_codigo
 from catalog.views import _annotate_final
 
 
@@ -1060,3 +1063,139 @@ class LoadProductosReconcileTests(TestCase):
             call_command('load_productos', '--no-images')
         self.product.refresh_from_db()
         self.assertTrue(self.product.is_active)
+
+
+class TipoArticuloMatchesTest(TestCase):
+    def setUp(self):
+        self.gorras = TipoArticulo.objects.create(
+            nombre='Gorras', keywords='gorra,cap,ny,la,za', costo=Decimal('280')
+        )
+
+    def test_keyword_exacta_hace_match(self):
+        self.assertTrue(self.gorras.matches('Gorra NY negra $450 MXN'))
+
+    def test_keyword_case_insensitive(self):
+        self.assertTrue(self.gorras.matches('GORRA NY'))
+
+    def test_keyword_parcial_hace_match(self):
+        # 'ny' está en el texto
+        self.assertTrue(self.gorras.matches('Azul NY $400'))
+
+    def test_sin_keyword_no_hace_match(self):
+        self.assertFalse(self.gorras.matches('Camiseta Jordan $350'))
+
+    def test_texto_vacio_no_hace_match(self):
+        self.assertFalse(self.gorras.matches(''))
+
+    def test_keywords_con_espacios_se_trimean(self):
+        tipo = TipoArticulo(nombre='X', keywords=' camiseta , playera ', costo=Decimal('150'))
+        self.assertTrue(tipo.matches('Camiseta Lakers'))
+
+
+class CodigoDescuentoStrTest(TestCase):
+    def test_str_global(self):
+        code = CodigoDescuento(codigo='PROMO10', descuento=Decimal('50'))
+        self.assertIn('global', str(code))
+
+    def test_str_con_tipo(self):
+        tipo = TipoArticulo.objects.create(nombre='Gorras', keywords='gorra', costo=Decimal('280'))
+        code = CodigoDescuento.objects.create(
+            codigo='GORRA10', descuento=Decimal('50'), tipo_articulo=tipo
+        )
+        self.assertIn('Gorras', str(code))
+
+
+class BuscarTipoArticuloTest(TestCase):
+    def setUp(self):
+        self.gorras = TipoArticulo.objects.create(
+            nombre='Gorras', keywords='gorra,cap,ny,la', costo=Decimal('280')
+        )
+        self.camisetas = TipoArticulo.objects.create(
+            nombre='Camisetas', keywords='camiseta,playera,jersey', costo=Decimal('150')
+        )
+
+    def test_encuentra_por_keyword(self):
+        result = buscar_tipo_articulo('Gorra NY negra')
+        self.assertEqual(result, self.gorras)
+
+    def test_encuentra_por_segunda_keyword(self):
+        result = buscar_tipo_articulo('playera Lakers L')
+        self.assertEqual(result, self.camisetas)
+
+    def test_sin_match_retorna_none(self):
+        result = buscar_tipo_articulo('Tenis Nike Air Max')
+        self.assertIsNone(result)
+
+    def test_texto_vacio_retorna_none(self):
+        result = buscar_tipo_articulo('')
+        self.assertIsNone(result)
+
+    def test_case_insensitive(self):
+        result = buscar_tipo_articulo('GORRA NY $450 MXN')
+        self.assertEqual(result, self.gorras)
+
+
+class ValidarCodigoTest(TestCase):
+    def setUp(self):
+        self.gorras = TipoArticulo.objects.create(
+            nombre='Gorras', keywords='gorra,cap', costo=Decimal('280')
+        )
+        self.code_global = CodigoDescuento.objects.create(
+            codigo='GLOBAL10', descuento=Decimal('100'), is_active=True
+        )
+        self.code_gorras = CodigoDescuento.objects.create(
+            codigo='GORRA50', descuento=Decimal('50'),
+            tipo_articulo=self.gorras, is_active=True
+        )
+
+    def test_codigo_global_siempre_valido(self):
+        result = validar_codigo('GLOBAL10', ['Camiseta Lakers'])
+        self.assertTrue(result['valido'])
+        self.assertEqual(result['descuento'], 100.0)
+
+    def test_codigo_tipo_valido_con_match(self):
+        result = validar_codigo('GORRA50', ['Gorra NY negra $450', 'Camiseta Lakers'])
+        self.assertTrue(result['valido'])
+        self.assertEqual(result['descuento'], 50.0)
+
+    def test_codigo_tipo_invalido_sin_match(self):
+        result = validar_codigo('GORRA50', ['Camiseta Lakers', 'Tenis Nike'])
+        self.assertFalse(result['valido'])
+        self.assertIn('Gorras', result['mensaje'])
+
+    def test_codigo_inexistente(self):
+        result = validar_codigo('NOEXISTE', [])
+        self.assertFalse(result['valido'])
+
+    def test_codigo_inactivo(self):
+        self.code_global.is_active = False
+        self.code_global.save()
+        result = validar_codigo('GLOBAL10', [])
+        self.assertFalse(result['valido'])
+
+    def test_codigo_expirado(self):
+        self.code_global.valid_hasta = datetime.date(2020, 1, 1)
+        self.code_global.save()
+        result = validar_codigo('GLOBAL10', [])
+        self.assertFalse(result['valido'])
+        self.assertIn('expirado', result['mensaje'].lower())
+
+    def test_codigo_agotado(self):
+        self.code_global.usos_max = 5
+        self.code_global.usos_actuales = 5
+        self.code_global.save()
+        result = validar_codigo('GLOBAL10', [])
+        self.assertFalse(result['valido'])
+        self.assertIn('agotado', result['mensaje'].lower())
+
+    def test_codigo_case_insensitive(self):
+        result = validar_codigo('global10', [])
+        self.assertTrue(result['valido'])
+
+    def test_retorna_codigo_id_cuando_valido(self):
+        result = validar_codigo('GLOBAL10', [])
+        self.assertEqual(result['codigo_id'], self.code_global.pk)
+
+    def test_retorna_tipo_nombre_cuando_aplica(self):
+        result = validar_codigo('GORRA50', ['Gorra NY'])
+        self.assertEqual(result['tipo_nombre'], 'Gorras')

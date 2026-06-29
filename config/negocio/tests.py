@@ -1,9 +1,10 @@
 import datetime
 from decimal import Decimal
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from negocio.models import Cliente, Pedido, Pago, Gasto, PedidoItem
-from catalog.models import Category, Product
+from catalog.models import Category, Product, TipoArticulo, CodigoDescuento
 from negocio.services import crear_venta_tienda, VentaInvalida, crear_pedido_tienda_bot
 
 
@@ -1312,3 +1313,195 @@ class ApiTiendaCreateTest(TestCase):
         self.assertEqual(res.status_code, 200)
         pedido = Pedido.objects.get(pk=res.json()['pedido_id'])
         self.assertEqual(pedido.envio, Decimal('80'))
+
+
+class PedidoDescuentoPropertyTest(TestCase):
+    def setUp(self):
+        self.cliente = Cliente.objects.create(nombre='Test', telefono='5550000001')
+        self.pedido = Pedido.objects.create(
+            cliente=self.cliente,
+            costo_producto=Decimal('300'),
+            precio_venta=Decimal('500'),
+            envio=Decimal('50'),
+            descuento_aplicado=Decimal('50'),
+        )
+
+    def test_total_a_cobrar_resta_descuento(self):
+        # 500 + 50 - 50 = 500
+        self.assertEqual(self.pedido.total_a_cobrar, Decimal('500'))
+
+    def test_ganancia_resta_descuento(self):
+        # 500 - 300 - 50 = 150
+        self.assertEqual(self.pedido.ganancia, Decimal('150'))
+
+    def test_sin_descuento_ganancia_original(self):
+        self.pedido.descuento_aplicado = Decimal('0')
+        self.assertEqual(self.pedido.ganancia, Decimal('200'))
+
+
+@override_settings(NEGOCIO_API_KEY='test-key-123')
+class ApiTiposListTest(TestCase):
+    def setUp(self):
+        self.tipo = TipoArticulo.objects.create(
+            nombre='Gorras', keywords='gorra,cap', costo=Decimal('280')
+        )
+
+    def test_lista_tipos(self):
+        r = self.client.get(
+            '/api/negocio/tipos/',
+            HTTP_AUTHORIZATION=f'Bearer {settings.NEGOCIO_API_KEY}',
+        )
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertEqual(len(data['tipos']), 1)
+        self.assertEqual(data['tipos'][0]['nombre'], 'Gorras')
+
+    def test_sin_api_key_devuelve_401(self):
+        r = self.client.get('/api/negocio/tipos/')
+        self.assertEqual(r.status_code, 401)
+
+
+@override_settings(NEGOCIO_API_KEY='test-key-123')
+class ApiArticuloBuscarTest(TestCase):
+    def setUp(self):
+        TipoArticulo.objects.create(nombre='Gorras', keywords='gorra,cap,ny', costo=Decimal('280'))
+
+    def test_encuentra_tipo(self):
+        r = self.client.post(
+            '/api/negocio/articulo/buscar/',
+            data='{"descripcion": "Gorra NY negra"}',
+            content_type='application/json',
+            HTTP_AUTHORIZATION=f'Bearer {settings.NEGOCIO_API_KEY}',
+        )
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertTrue(data['match'])
+        self.assertEqual(data['nombre'], 'Gorras')
+        self.assertEqual(data['costo'], 280.0)
+
+    def test_sin_match(self):
+        r = self.client.post(
+            '/api/negocio/articulo/buscar/',
+            data='{"descripcion": "Tenis Nike"}',
+            content_type='application/json',
+            HTTP_AUTHORIZATION=f'Bearer {settings.NEGOCIO_API_KEY}',
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(r.json()['match'])
+
+    def test_sin_api_key_devuelve_401(self):
+        r = self.client.post('/api/negocio/articulo/buscar/', data='{}', content_type='application/json')
+        self.assertEqual(r.status_code, 401)
+
+
+@override_settings(NEGOCIO_API_KEY='test-key-123')
+class ApiCodigosValidarTest(TestCase):
+    def setUp(self):
+        CodigoDescuento.objects.create(codigo='TEST50', descuento=Decimal('50'), is_active=True)
+
+    def test_codigo_valido(self):
+        r = self.client.post(
+            '/api/negocio/codigos/validar/',
+            data='{"codigo": "TEST50", "descriptions": []}',
+            content_type='application/json',
+            HTTP_AUTHORIZATION=f'Bearer {settings.NEGOCIO_API_KEY}',
+        )
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertTrue(data['valido'])
+        self.assertEqual(data['descuento'], 50.0)
+
+    def test_codigo_invalido(self):
+        r = self.client.post(
+            '/api/negocio/codigos/validar/',
+            data='{"codigo": "NOEXISTE", "descriptions": []}',
+            content_type='application/json',
+            HTTP_AUTHORIZATION=f'Bearer {settings.NEGOCIO_API_KEY}',
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(r.json()['valido'])
+
+    def test_sin_codigo_devuelve_400(self):
+        r = self.client.post(
+            '/api/negocio/codigos/validar/',
+            data='{"descriptions": []}',
+            content_type='application/json',
+            HTTP_AUTHORIZATION=f'Bearer {settings.NEGOCIO_API_KEY}',
+        )
+        self.assertEqual(r.status_code, 400)
+
+
+@override_settings(NEGOCIO_API_KEY='test-key-123')
+class CrearPedidoBotConCostoTest(TestCase):
+    def setUp(self):
+        self.url = '/api/negocio/pedido/'
+        self.auth = {'HTTP_AUTHORIZATION': f'Bearer {settings.NEGOCIO_API_KEY}'}
+
+    def _post(self, payload):
+        import json
+        return self.client.post(
+            self.url, data=json.dumps(payload),
+            content_type='application/json', **self.auth
+        )
+
+    def test_costo_por_item_se_guarda(self):
+        r = self._post({
+            'nombre': 'Ana', 'telefono': '5551111111',
+            'items': [{'description': 'Gorra NY', 'price': 450, 'qty': 1, 'costo': 350}],
+        })
+        self.assertEqual(r.status_code, 200)
+        from negocio.models import PedidoItem
+        item = PedidoItem.objects.get(nombre_snapshot='Gorra NY')
+        self.assertEqual(item.costo_unitario, Decimal('350'))
+
+    def test_costo_producto_total_en_pedido(self):
+        r = self._post({
+            'nombre': 'Ana', 'telefono': '5551112222',
+            'items': [
+                {'description': 'Gorra', 'price': 450, 'qty': 2, 'costo': 350},
+                {'description': 'Cap',   'price': 400, 'qty': 1, 'costo': 300},
+            ],
+        })
+        self.assertEqual(r.status_code, 200)
+        from negocio.models import Pedido
+        pedido = Pedido.objects.get(cliente__telefono='5551112222')
+        # 350*2 + 300*1 = 1000
+        self.assertEqual(pedido.costo_producto, Decimal('1000'))
+
+    def test_descuento_se_aplica(self):
+        code = CodigoDescuento.objects.create(codigo='DESC100', descuento=Decimal('100'), is_active=True)
+        r = self._post({
+            'nombre': 'Luis', 'telefono': '5553333333',
+            'items': [{'description': 'Gorra NY', 'price': 500, 'qty': 1, 'costo': 400}],
+            'descuento_monto': 100,
+            'codigo_descuento_id': code.pk,
+        })
+        self.assertEqual(r.status_code, 200)
+        from negocio.models import Pedido
+        pedido = Pedido.objects.get(cliente__telefono='5553333333')
+        self.assertEqual(pedido.descuento_aplicado, Decimal('100'))
+        self.assertEqual(pedido.codigo_descuento, code)
+        # ganancia = 500 - 400 - 100 = 0
+        self.assertEqual(pedido.ganancia, Decimal('0'))
+
+    def test_descuento_incrementa_usos(self):
+        code = CodigoDescuento.objects.create(
+            codigo='USOTEST', descuento=Decimal('50'), is_active=True, usos_actuales=3
+        )
+        self._post({
+            'nombre': 'Pedro', 'telefono': '5554444444',
+            'items': [{'description': 'Cap', 'price': 400, 'qty': 1, 'costo': 300}],
+            'descuento_monto': 50, 'codigo_descuento_id': code.pk,
+        })
+        code.refresh_from_db()
+        self.assertEqual(code.usos_actuales, 4)
+
+    def test_sin_costo_usa_cero(self):
+        r = self._post({
+            'nombre': 'Rosa', 'telefono': '5555555555',
+            'items': [{'description': 'Artículo', 'price': 300, 'qty': 1}],
+        })
+        self.assertEqual(r.status_code, 200)
+        from negocio.models import PedidoItem
+        item = PedidoItem.objects.get(nombre_snapshot='Artículo')
+        self.assertEqual(item.costo_unitario, Decimal('0'))

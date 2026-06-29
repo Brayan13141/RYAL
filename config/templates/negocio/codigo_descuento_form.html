@@ -1,0 +1,37 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}{{ titulo }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <h4 class="mb-4" style="font-family:var(--f-display)">{{ titulo }}</h4>
+
+    {% if confirm_delete %}
+    <div class="alert alert-danger">
+      ¿Eliminar el código <strong>{{ objeto.codigo }}</strong>?
+    </div>
+    <form method="post">
+      {% csrf_token %}
+      <a href="{% url 'negocio:codigos_list' %}" class="btn btn-secondary me-2">Cancelar</a>
+      <button type="submit" class="btn btn-danger">Eliminar</button>
+    </form>
+    {% else %}
+    <form method="post">
+      {% csrf_token %}
+      {% for field in form %}
+      <div class="mb-3">
+        <label class="form-label small text-muted" style="font-family:var(--f-mono)">{{ field.label }}</label>
+        {{ field }}
+        {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+        {% if field.errors %}<div class="text-danger small">{{ field.errors }}</div>{% endif %}
+      </div>
+      {% endfor %}
+      <div class="d-flex gap-2 mt-4">
+        <a href="{% url 'negocio:codigos_list' %}" class="btn btn-secondary">Cancelar</a>
+        <button type="submit" class="btn btn-gold">Guardar</button>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

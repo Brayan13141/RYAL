@@ -976,6 +976,16 @@
           <i class="bi bi-shop"></i>
           <span class="nav-label">Venta rápida</span>
         </a>
+        <a href="{% url 'negocio:tipos_list' %}" title="Tipos de artículo"
+          class="{% if request.resolver_match.url_name == 'tipos_list' or request.resolver_match.url_name == 'tipo_create' or request.resolver_match.url_name == 'tipo_edit' or request.resolver_match.url_name == 'tipo_delete' %}on{% endif %}">
+          <i class="bi bi-tag"></i>
+          <span class="nav-label">Tipos de artículo</span>
+        </a>
+        <a href="{% url 'negocio:codigos_list' %}" title="Códigos de descuento"
+          class="{% if request.resolver_match.url_name == 'codigos_list' or request.resolver_match.url_name == 'codigo_create' or request.resolver_match.url_name == 'codigo_edit' or request.resolver_match.url_name == 'codigo_delete' %}on{% endif %}">
+          <i class="bi bi-percent"></i>
+          <span class="nav-label">Códigos de descuento</span>
+        </a>
 
         <div class="p-nav-sec">Catálogo</div>
 

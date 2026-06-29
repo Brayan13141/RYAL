@@ -78,6 +78,8 @@ def api_pedido_create(request):
     telefono = str(payload.get('telefono', '')).strip()
     items = payload.get('items', [])
     envio = payload.get('envio', 0)
+    descuento_monto = payload.get('descuento_monto', 0)
+    codigo_descuento_id = payload.get('codigo_descuento_id')
     if not nombre or not telefono:
         return JsonResponse({'error': 'nombre y telefono requeridos'}, status=400)
     if not items:
@@ -88,6 +90,8 @@ def api_pedido_create(request):
             telefono=telefono,
             items=items,
             envio=Decimal(str(envio)),
+            descuento_aplicado=Decimal(str(descuento_monto)),
+            codigo_descuento_id=codigo_descuento_id,
         )
     except (VentaInvalida, Exception) as e:
         return JsonResponse({'error': str(e)}, status=400)
@@ -120,3 +124,64 @@ def api_tienda_create(request):
         'pedido_id': pedido.pk,
         'total': f'{pedido.precio_venta + pedido.envio:.2f}',
     })
+
+
+@csrf_exempt
+@require_GET
+def api_tipos_list(request):
+    if not _authorized(request):
+        return JsonResponse({'error': 'unauthorized'}, status=401)
+    from catalog.models import TipoArticulo
+    tipos = [{'id': t.pk, 'nombre': t.nombre, 'keywords': t.keywords, 'costo': float(t.costo)}
+             for t in TipoArticulo.objects.all()]
+    return JsonResponse({'tipos': tipos})
+
+
+@csrf_exempt
+@require_POST
+def api_articulo_buscar(request):
+    if not _authorized(request):
+        return JsonResponse({'error': 'unauthorized'}, status=401)
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'json inválido'}, status=400)
+    descripcion = str(payload.get('descripcion', ''))
+    from catalog.services import buscar_tipo_articulo
+    tipo = buscar_tipo_articulo(descripcion)
+    if tipo:
+        return JsonResponse({'match': True, 'nombre': tipo.nombre, 'costo': float(tipo.costo), 'id': tipo.pk})
+    return JsonResponse({'match': False, 'nombre': None, 'costo': 0, 'id': None})
+
+
+@csrf_exempt
+@require_POST
+def api_codigos_validar(request):
+    if not _authorized(request):
+        return JsonResponse({'error': 'unauthorized'}, status=401)
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'json inválido'}, status=400)
+    codigo = str(payload.get('codigo', '')).strip()
+    if not codigo:
+        return JsonResponse({'error': 'codigo requerido'}, status=400)
+    descriptions = list(payload.get('descriptions', []))
+    from catalog.services import validar_codigo
+    return JsonResponse(validar_codigo(codigo, descriptions))
+
+
+@csrf_exempt
+@require_POST
+@ratelimit(key=_client_ip, rate='10/m', block=True)
+def api_codigos_validar_publico(request):
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'json inválido'}, status=400)
+    codigo = str(payload.get('codigo', '')).strip()
+    if not codigo:
+        return JsonResponse({'error': 'codigo requerido'}, status=400)
+    descriptions = list(payload.get('descriptions', []))
+    from catalog.services import validar_codigo
+    return JsonResponse(validar_codigo(codigo, descriptions))

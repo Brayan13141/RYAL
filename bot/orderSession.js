@@ -3,14 +3,14 @@ function createOrderSessionStore() {
     const pendings = {}
 
     function startSession(groupJid, nombre, telefono, tipo = 'pedido') {
-        sessions[groupJid] = { cliente: { nombre, telefono }, items: [], tipo }
+        sessions[groupJid] = { cliente: { nombre, telefono }, items: [], tipo, descuento: null }
         delete pendings[groupJid]
     }
 
-    function addItem(groupJid, description, price) {
+    function addItem(groupJid, description, price, costo = 0) {
         const sess = sessions[groupJid]
         if (!sess) return null
-        sess.items.push({ description, price, qty: 1 })
+        sess.items.push({ description, price, qty: 1, costo })
         const total = sess.items.reduce((s, i) => s + i.price * i.qty, 0)
         return { index: sess.items.length, total }
     }
@@ -30,6 +30,17 @@ function createOrderSessionStore() {
         if (!Number.isInteger(qty) || qty < 1) return false
         sess.items[index - 1].qty = qty
         return true
+    }
+
+    function setDescuento(groupJid, codigo, monto, codigoId) {
+        const sess = sessions[groupJid]
+        if (!sess) return false
+        sess.descuento = { codigo, monto, codigoId }
+        return true
+    }
+
+    function getDescuento(groupJid) {
+        return sessions[groupJid]?.descuento ?? null
     }
 
     function cancelSession(groupJid) {
@@ -53,7 +64,12 @@ function createOrderSessionStore() {
         delete pendings[groupJid]
     }
 
-    return { startSession, addItem, removeItem, setQty, cancelSession, getSession, setPending, getPending, clearPending }
+    return {
+        startSession, addItem, removeItem, setQty,
+        setDescuento, getDescuento,
+        cancelSession, getSession,
+        setPending, getPending, clearPending,
+    }
 }
 
 module.exports = { createOrderSessionStore }
