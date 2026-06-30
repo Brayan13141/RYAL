@@ -839,7 +839,7 @@
     }
 
     .p-nav-group.open .p-nav-sub {
-      max-height: 200px;
+      max-height: 420px;
     }
 
     .p-nav-sub a {
@@ -950,42 +950,55 @@
           <span class="nav-label">Pedidos</span>
         </a>
 
-        <div class="p-nav-sec">Negocio</div>
-        <a href="{% url 'negocio:resumen' %}" title="Resumen"
-          class="{% if request.resolver_match.url_name == 'resumen' %}on{% endif %}">
-          <i class="bi bi-wallet2"></i>
-          <span class="nav-label">Resumen</span>
-        </a>
-        <a href="{% url 'negocio:clientes_list' %}" title="Clientes"
-          class="{% if request.resolver_match.url_name == 'clientes_list' or request.resolver_match.url_name == 'cliente_detail' or request.resolver_match.url_name == 'cliente_create' or request.resolver_match.url_name == 'cliente_edit' %}on{% endif %}">
-          <i class="bi bi-people"></i>
-          <span class="nav-label">Clientes</span>
-        </a>
-        <a href="{% url 'negocio:pedidos_list' %}" title="Pedidos negocio"
-          class="{% if request.resolver_match.url_name == 'pedidos_list' or request.resolver_match.url_name == 'pedido_detail' or request.resolver_match.url_name == 'pedido_create' %}on{% endif %}">
-          <i class="bi bi-bag"></i>
-          <span class="nav-label">Pedidos</span>
-        </a>
-        <a href="{% url 'negocio:gastos_list' %}" title="Gastos"
-          class="{% if request.resolver_match.url_name == 'gastos_list' %}on{% endif %}">
-          <i class="bi bi-cash-stack"></i>
-          <span class="nav-label">Gastos</span>
-        </a>
-        <a href="{% url 'negocio:pos' %}" title="Venta rápida"
-          class="{% if request.resolver_match.url_name == 'pos' %}on{% endif %}">
-          <i class="bi bi-shop"></i>
-          <span class="nav-label">Venta rápida</span>
-        </a>
-        <a href="{% url 'negocio:tipos_list' %}" title="Tipos de artículo"
-          class="{% if request.resolver_match.url_name == 'tipos_list' or request.resolver_match.url_name == 'tipo_create' or request.resolver_match.url_name == 'tipo_edit' or request.resolver_match.url_name == 'tipo_delete' %}on{% endif %}">
-          <i class="bi bi-tag"></i>
-          <span class="nav-label">Tipos de artículo</span>
-        </a>
-        <a href="{% url 'negocio:codigos_list' %}" title="Códigos de descuento"
-          class="{% if request.resolver_match.url_name == 'codigos_list' or request.resolver_match.url_name == 'codigo_create' or request.resolver_match.url_name == 'codigo_edit' or request.resolver_match.url_name == 'codigo_delete' %}on{% endif %}">
-          <i class="bi bi-percent"></i>
-          <span class="nav-label">Códigos de descuento</span>
-        </a>
+        <!-- Dropdown: Negocio -->
+        {% with neg_ns=request.resolver_match.namespace %}
+        <div class="p-nav-group {% if neg_ns == 'negocio' %}open{% endif %}" id="navGroupNeg">
+          <button
+            class="p-nav-group-btn {% if neg_ns == 'negocio' %}on{% endif %}"
+            title="Negocio" onclick="toggleNavGroup('navGroupNeg')">
+            <i class="bi bi-briefcase"></i>
+            <span class="nav-label">Negocio</span>
+            <i class="bi bi-chevron-down nav-chevron"></i>
+          </button>
+          <div class="p-nav-sub">
+            <a href="{% url 'negocio:resumen' %}" title="Resumen"
+              class="{% if request.resolver_match.url_name == 'resumen' %}on{% endif %}">
+              <i class="bi bi-wallet2"></i>
+              <span class="nav-label">Resumen</span>
+            </a>
+            <a href="{% url 'negocio:clientes_list' %}" title="Clientes"
+              class="{% if request.resolver_match.url_name in 'clientes_list cliente_detail cliente_create cliente_edit' %}on{% endif %}">
+              <i class="bi bi-people"></i>
+              <span class="nav-label">Clientes</span>
+            </a>
+            <a href="{% url 'negocio:pedidos_list' %}" title="Pedidos"
+              class="{% if request.resolver_match.url_name in 'pedidos_list pedido_detail pedido_create pago_edit pedido_item_edit' %}on{% endif %}">
+              <i class="bi bi-bag"></i>
+              <span class="nav-label">Pedidos</span>
+            </a>
+            <a href="{% url 'negocio:gastos_list' %}" title="Gastos"
+              class="{% if request.resolver_match.url_name == 'gastos_list' %}on{% endif %}">
+              <i class="bi bi-cash-stack"></i>
+              <span class="nav-label">Gastos</span>
+            </a>
+            <a href="{% url 'negocio:pos' %}" title="Venta rápida"
+              class="{% if request.resolver_match.url_name == 'pos' %}on{% endif %}">
+              <i class="bi bi-shop"></i>
+              <span class="nav-label">Venta rápida</span>
+            </a>
+            <a href="{% url 'negocio:tipos_list' %}" title="Tipos de artículo"
+              class="{% if request.resolver_match.url_name in 'tipos_list tipo_create tipo_edit tipo_delete' %}on{% endif %}">
+              <i class="bi bi-tag"></i>
+              <span class="nav-label">Tipos</span>
+            </a>
+            <a href="{% url 'negocio:codigos_list' %}" title="Códigos de descuento"
+              class="{% if request.resolver_match.url_name in 'codigos_list codigo_create codigo_edit codigo_delete' %}on{% endif %}">
+              <i class="bi bi-percent"></i>
+              <span class="nav-label">Descuentos</span>
+            </a>
+          </div>
+        </div>
+        {% endwith %}
 
         <div class="p-nav-sec">Catálogo</div>
 

@@ -10,7 +10,7 @@
     <div class="p-card-body" style="font-size:13px;color:#888;line-height:1.8;">
       <p>Cliente: {% if pedido.cliente %}<a href="{% url 'negocio:cliente_detail' pedido.cliente.pk %}" style="color:#ddd;">{{ pedido.cliente.nombre }}</a>{% else %}Mostrador{% endif %}</p>
       <p>Fecha: <span style="color:#ddd;">{{ pedido.fecha }}</span></p>
-      <p>Descripción: <span style="color:#ddd;">{{ pedido.descripcion }}</span></p>
+      <p>Descripción: <span style="color:#ddd;">{{ pedido.descripcion|linebreaksbr }}</span></p>
       <hr style="border-color:#1a1a1a;margin:12px 0;">
       <p>Costo producto: <span style="color:#ddd;">${{ pedido.costo_producto }}</span></p>
       <p>Precio venta: <span style="color:#ddd;">${{ pedido.precio_venta }}</span></p>
@@ -95,7 +95,7 @@
       </div>
     </div>
 
-    {% if pedido.estado == 'pendiente' %}
+    {% if pedido.estado != 'cancelado' %}
     <div class="p-card">
       <div class="p-card-head"><h2>Registrar pago</h2></div>
       <div class="p-card-body">
