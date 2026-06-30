@@ -4,7 +4,8 @@ from urllib.parse import quote
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.paginator import Paginator
 from django.core.signing import Signer, BadSignature
-from django.db.models import Q, Count, Sum
+import datetime
+from django.db.models import Q, Count, Sum, F, ExpressionWrapper, DecimalField as DjDecimalField
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404, redirect
 from django.views.decorators.http import require_POST
@@ -25,6 +26,15 @@ def _sync_estado_pedido(pedido):
     elif pedido.balance_pendiente > 0 and pedido.estado == Pedido.PAGADO:
         pedido.estado = Pedido.PENDIENTE
         pedido.save(update_fields=['estado'])
+
+
+def _sync_totales_pedido(pedido):
+    """Recalcula precio_venta y costo_producto desde los PedidoItems."""
+    items = list(pedido.items.all())
+    if items:
+        pedido.precio_venta = sum(i.precio_unitario * i.cantidad for i in items)
+        pedido.costo_producto = sum(i.costo_unitario * i.cantidad for i in items)
+        pedido.save(update_fields=['precio_venta', 'costo_producto'])
 from .print_utils import _build_label_json, _build_receipt_json
 from .services import crear_venta_tienda, VentaInvalida
 
@@ -97,8 +107,18 @@ def pedido_detail(request, pk):
         Pedido.objects.prefetch_related('pagos', 'items'), pk=pk
     )
     pago_form = PagoForm()
+    gasto_form = GastoForm(initial={
+        'fecha': pedido.fecha,
+        'monto': pedido.costo_producto,
+        'categoria': Gasto.COMPRA_PROVEEDOR,
+        'descripcion': f'Compra proveedor — Pedido #{pedido.pk}',
+    })
+    gastos = Gasto.objects.filter(descripcion__icontains=f'Pedido #{pedido.pk}').order_by('-fecha')
     return render(request, 'negocio/pedido_detail.html', {
-        'pedido': pedido, 'pago_form': pago_form
+        'pedido': pedido,
+        'pago_form': pago_form,
+        'gasto_form': gasto_form,
+        'gastos': gastos,
     })
 
 
@@ -144,6 +164,8 @@ def pedido_item_edit(request, pk):
     form = PedidoItemForm(request.POST or None, instance=item)
     if form.is_valid():
         form.save()
+        _sync_totales_pedido(item.pedido)
+        _sync_estado_pedido(item.pedido)
         return redirect('negocio:pedido_detail', pk=item.pedido_id)
     return render(request, 'negocio/pedido_item_form.html', {
         'form': form,
@@ -153,6 +175,16 @@ def pedido_item_edit(request, pk):
 
 
 # ── Gastos ────────────────────────────────────────────────
+
+@staff_member_required
+@require_POST
+def pedido_gasto_add(request, pk):
+    pedido = get_object_or_404(Pedido, pk=pk)
+    form = GastoForm(request.POST)
+    if form.is_valid():
+        form.save()
+    return redirect('negocio:pedido_detail', pk=pk)
+
 
 @staff_member_required
 def gastos_list(request):
@@ -166,28 +198,134 @@ def gastos_list(request):
 
 # ── Resumen ───────────────────────────────────────────────
 
+_MESES_ES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
+_GANANCIA_EXPR = ExpressionWrapper(
+    F('precio_venta') - F('costo_producto') - F('descuento_aplicado'),
+    output_field=DjDecimalField(max_digits=12, decimal_places=2),
+)
+
+
+def _mes_range(year, month):
+    """Devuelve (fecha_ini, fecha_fin) para el mes dado."""
+    ini = datetime.date(year, month, 1)
+    fin = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
+    return ini, fin
+
+
 @staff_member_required
 def resumen(request):
-    pedidos_pagados = list(
-        Pedido.objects.filter(estado=Pedido.PAGADO).prefetch_related('pagos')
-    )
-    total_vendido = sum(p.precio_venta for p in pedidos_pagados)
-    total_ganancia = sum(p.ganancia for p in pedidos_pagados)
-    total_gastos = Gasto.objects.aggregate(t=Sum('monto'))['t'] or Decimal('0')
-    ganancia_neta = total_ganancia - total_gastos
+    hoy = datetime.date.today()
+    mes = request.GET.get('mes', f"{hoy.year}-{hoy.month:02d}")
+    todo = (mes == 'todo')
 
+    if not todo:
+        try:
+            y, m = map(int, mes.split('-'))
+            fecha_ini, fecha_fin = _mes_range(y, m)
+            periodo_label = f"{_MESES_ES[m-1]} {y}"
+        except (ValueError, AttributeError):
+            mes = f"{hoy.year}-{hoy.month:02d}"
+            todo = False
+            y, m = hoy.year, hoy.month
+            fecha_ini, fecha_fin = _mes_range(y, m)
+            periodo_label = f"{_MESES_ES[m-1]} {y}"
+        pedido_base = Pedido.objects.filter(fecha__gte=fecha_ini, fecha__lt=fecha_fin)
+        gastos_base = Gasto.objects.filter(fecha__gte=fecha_ini, fecha__lt=fecha_fin)
+        pagos_base = Pago.objects.filter(fecha__gte=fecha_ini, fecha__lt=fecha_fin)
+    else:
+        periodo_label = 'Todo el tiempo'
+        pedido_base = Pedido.objects.all()
+        gastos_base = Gasto.objects.all()
+        pagos_base = Pago.objects.all()
+
+    # KPIs principales
+    agg_ventas = pedido_base.filter(estado=Pedido.PAGADO).aggregate(
+        vendido=Sum('precio_venta'),
+        ganancia=Sum(_GANANCIA_EXPR),
+        costo=Sum('costo_producto'),
+    )
+    total_vendido = agg_ventas['vendido'] or Decimal('0')
+    total_ganancia = agg_ventas['ganancia'] or Decimal('0')
+    total_costo = agg_ventas['costo'] or Decimal('0')
+
+    total_cobrado = pagos_base.aggregate(t=Sum('monto'))['t'] or Decimal('0')
+
+    total_gastos = gastos_base.aggregate(t=Sum('monto'))['t'] or Decimal('0')
+    ganancia_neta = total_ganancia - total_gastos
+    margen_pct = round(total_ganancia / total_vendido * 100, 1) if total_vendido > 0 else Decimal('0')
+
+    # Cobros por método de pago
+    cobros_metodo = list(
+        pagos_base.values('metodo_pago').annotate(total=Sum('monto')).order_by('-total')
+    )
+    metodo_labels = dict(Pago.METODO_CHOICES)
+    for row in cobros_metodo:
+        row['label'] = metodo_labels.get(row['metodo_pago'], row['metodo_pago'].title())
+
+    # Gastos por categoría
+    gastos_cat = list(
+        gastos_base.values('categoria').annotate(total=Sum('monto')).order_by('-total')
+    )
+    cat_labels = dict(Gasto.CATEGORIA_CHOICES)
+    for row in gastos_cat:
+        row['label'] = cat_labels.get(row['categoria'], row['categoria'])
+
+    # Pedidos pendientes (siempre todos, sin filtro de período)
     pedidos_pendientes = list(
-        Pedido.objects.filter(estado=Pedido.PENDIENTE).prefetch_related('pagos')
+        Pedido.objects.filter(estado=Pedido.PENDIENTE)
+        .select_related('cliente')
+        .prefetch_related('pagos')
     )
     total_por_cobrar = sum(p.balance_pendiente for p in pedidos_pendientes)
 
+    # Tendencia últimos 6 meses
+    trend_labels, trend_vendido, trend_ganancia_list, trend_gastos_list = [], [], [], []
+    for i in range(5, -1, -1):
+        tm = hoy.month - i
+        ty = hoy.year
+        while tm <= 0:
+            tm += 12
+            ty -= 1
+        t_ini, t_fin = _mes_range(ty, tm)
+        trend_labels.append(f"{_MESES_ES[tm-1]} {str(ty)[2:]}")
+        agg = Pedido.objects.filter(
+            estado=Pedido.PAGADO, fecha__gte=t_ini, fecha__lt=t_fin
+        ).aggregate(v=Sum('precio_venta'), g=Sum(_GANANCIA_EXPR))
+        g_val = Gasto.objects.filter(fecha__gte=t_ini, fecha__lt=t_fin).aggregate(t=Sum('monto'))['t'] or Decimal('0')
+        trend_vendido.append(float(agg['v'] or 0))
+        trend_ganancia_list.append(float(agg['g'] or 0))
+        trend_gastos_list.append(float(g_val))
+
+    # Meses disponibles para el selector (12 meses hacia atrás + opción "todo")
+    meses_disponibles = []
+    for i in range(11, -1, -1):
+        tm = hoy.month - i
+        ty = hoy.year
+        while tm <= 0:
+            tm += 12
+            ty -= 1
+        meses_disponibles.append({'valor': f"{ty}-{tm:02d}", 'label': f"{_MESES_ES[tm-1]} {ty}"})
+
     return render(request, 'negocio/resumen.html', {
         'total_vendido': total_vendido,
+        'total_costo': total_costo,
+        'total_cobrado': total_cobrado,
         'total_ganancia': total_ganancia,
         'total_gastos': total_gastos,
         'ganancia_neta': ganancia_neta,
+        'margen_pct': margen_pct,
+        'cobros_metodo': cobros_metodo,
+        'gastos_cat': gastos_cat,
+        'pedidos_pendientes': pedidos_pendientes,
         'total_por_cobrar': total_por_cobrar,
         'n_pendientes': len(pedidos_pendientes),
+        'mes': mes,
+        'periodo_label': periodo_label,
+        'meses_disponibles': meses_disponibles,
+        'trend_labels': json.dumps(trend_labels),
+        'trend_vendido': json.dumps(trend_vendido),
+        'trend_ganancia': json.dumps(trend_ganancia_list),
+        'trend_gastos': json.dumps(trend_gastos_list),
     })
 
 
@@ -432,7 +570,7 @@ def tipo_delete(request, pk):
 
 @staff_member_required
 def codigos_list(request):
-    codigos = CodigoDescuento.objects.select_related('tipo_articulo').all()
+    codigos = CodigoDescuento.objects.select_related('tipo_articulo', 'categoria_web').all()
     return render(request, 'negocio/codigo_descuento_list.html', {'codigos': codigos})
 
 

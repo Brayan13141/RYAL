@@ -6,7 +6,8 @@
   <div>
     <h4 class="mb-0" style="font-family:var(--f-display)">Códigos de descuento</h4>
     <p class="small mb-0 mt-1" style="color:var(--pm)">
-      <i class="bi bi-ticket-perforated me-1"></i>Usa <code>/descuento CODIGO</code> en el bot para aplicar en una sesión.
+      <i class="bi bi-ticket-perforated me-1"></i>Bot: <code>/descuento CODIGO</code> &nbsp;·&nbsp;
+      <i class="bi bi-globe2 me-1"></i>Web: ingreso manual en el checkout.
     </p>
   </div>
   <a href="{% url 'negocio:codigo_create' %}" class="btn-g">
@@ -20,7 +21,8 @@
     <thead>
       <tr style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--pm)">
         <th style="padding:0 12px 8px;background:transparent;border:none">Código</th>
-        <th style="padding:0 12px 8px;background:transparent;border:none">Tipo</th>
+        <th style="padding:0 12px 8px;background:transparent;border:none">Canal</th>
+        <th style="padding:0 12px 8px;background:transparent;border:none">Alcance</th>
         <th style="padding:0 12px 8px;background:transparent;border:none">Descuento</th>
         <th style="padding:0 12px 8px;background:transparent;border:none">Usos</th>
         <th style="padding:0 12px 8px;background:transparent;border:none">Vence</th>
@@ -38,10 +40,24 @@
         </td>
 
         <td style="background:var(--ps);border-top:1px solid var(--pl);border-bottom:1px solid var(--pl);padding:12px 14px">
+          {% if c.canal == 'negocio' %}
+          <span style="background:rgba(100,150,255,.12);color:#6496ff;font-size:11px;padding:2px 8px;border-radius:4px"><i class="bi bi-briefcase me-1"></i>Negocio</span>
+          {% elif c.canal == 'web' %}
+          <span style="background:rgba(80,200,120,.12);color:#50c878;font-size:11px;padding:2px 8px;border-radius:4px"><i class="bi bi-globe2 me-1"></i>Web</span>
+          {% else %}
+          <span style="background:rgba(212,175,55,.1);color:var(--pg);font-size:11px;padding:2px 8px;border-radius:4px"><i class="bi bi-layers me-1"></i>Ambos</span>
+          {% endif %}
+        </td>
+
+        <td style="background:var(--ps);border-top:1px solid var(--pl);border-bottom:1px solid var(--pl);padding:12px 14px">
           {% if c.tipo_articulo %}
           <span style="background:var(--pl);color:var(--pt);font-size:11px;padding:2px 8px;border-radius:4px"><i class="bi bi-tag me-1"></i>{{ c.tipo_articulo.nombre }}</span>
-          {% else %}
-          <span style="font-size:12px;color:var(--pm)"><i class="bi bi-globe2 me-1"></i>Global</span>
+          {% endif %}
+          {% if c.categoria_web %}
+          <span style="background:var(--pl);color:var(--pt);font-size:11px;padding:2px 8px;border-radius:4px"><i class="bi bi-grid me-1"></i>{{ c.categoria_web.name }}</span>
+          {% endif %}
+          {% if not c.tipo_articulo and not c.categoria_web %}
+          <span style="font-size:12px;color:var(--pm)"><i class="bi bi-asterisk me-1"></i>Global</span>
           {% endif %}
         </td>
 
@@ -96,7 +112,7 @@
 <div class="text-center py-5" style="color:var(--pm)">
   <i class="bi bi-ticket-perforated" style="font-size:2rem;display:block;margin-bottom:12px;opacity:.4"></i>
   <p class="mb-1">Sin códigos registrados.</p>
-  <p class="small">Crea un código para aplicar descuentos en el checkout o en el bot.</p>
+  <p class="small">Crea un código para el bot, la tienda web, o ambos.</p>
 </div>
 {% endif %}
 {% endblock %}

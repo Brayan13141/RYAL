@@ -452,6 +452,7 @@ def _build_cart_items(cart):
             i.cover_image      = cover
             i.name_snapshot    = product.name
             i.variant_snapshot = item.get('variant_name', '')
+            i.category_name    = product.category.name if product.category_id else ''
             i.quantity         = item['quantity']
             i.price_snapshot   = price_snapshot
             i.original_price   = original_price
@@ -567,14 +568,18 @@ def checkout_confirm(request):
         except InvalidOperation:
             monto = Decimal('0')
         if monto > 0:
-            cart_names = [
-                item_obj.name_snapshot
-                for item_obj in order.items.select_related().all()
+            order_items_qs = order.items.select_related('product__category').all()
+            cart_names = [i.name_snapshot for i in order_items_qs]
+            cart_categories = [
+                i.product.category.name for i in order_items_qs
+                if i.product_id and i.product.category_id
             ]
-            resultado = validar_codigo(codigo_descuento_str, cart_names)
+            resultado = validar_codigo(codigo_descuento_str, cart_names, canal='web', categories=cart_categories)
             if resultado['valido']:
+                descuento_decimal = Decimal(str(resultado['descuento']))
+                order.descuento_aplicado = descuento_decimal
                 order.notes = f'Código de descuento: {codigo_descuento_str} (−${resultado["descuento"]:.0f} MXN)'
-                order.save(update_fields=['notes'])
+                order.save(update_fields=['notes', 'descuento_aplicado'])
                 from django.db.models import F
                 from catalog.models import CodigoDescuento
                 CodigoDescuento.objects.filter(

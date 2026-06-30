@@ -56,7 +56,8 @@ class Order(models.Model):
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='pending')
     notes = models.TextField(blank=True)
 
-    deposit  = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    deposit             = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    descuento_aplicado  = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     is_paid  = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -69,7 +70,7 @@ class Order(models.Model):
 
     @property
     def total(self):
-        return sum(item.subtotal for item in self.items.all())
+        return sum(item.subtotal for item in self.items.all()) - self.descuento_aplicado
 
     @property
     def total_items(self):

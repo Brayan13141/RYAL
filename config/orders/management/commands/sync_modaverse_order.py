@@ -533,8 +533,11 @@ class Command(BaseCommand):
 
         try:
             if not self._bootstrap_to_product_page(page):
-                self.stdout.write(self.style.WARNING('  Bootstrap fallido — no se pudo llegar a /product/'))
-                return False
+                self.stdout.write(self.style.WARNING('  Bootstrap fallido — reintentando en 2s...'))
+                page.wait_for_timeout(2000)
+                if not self._bootstrap_to_product_page(page):
+                    self.stdout.write(self.style.WARNING('  Bootstrap fallido tras retry — abortando'))
+                    return False
 
             return self._navigate_via_bar_box(page, parent_cat, category)
 
@@ -551,6 +554,12 @@ class Command(BaseCommand):
         try:
             page.goto(MODAVERSE_BASE, wait_until='load', timeout=TIMEOUT)
             page.wait_for_timeout(1500)
+
+            # Esperar a que Vue renderice las tarjetas antes de comprobar visibilidad
+            try:
+                page.wait_for_selector('.product_item', timeout=5000)
+            except Exception:
+                pass
 
             first_cat = page.locator('.product_item').first
             if not first_cat.is_visible():
@@ -582,6 +591,12 @@ class Command(BaseCommand):
         Además captura los productIds del XHR que modaverse dispara al cargar la
         categoría; esto permite buscar por pid aunque el nombre haya cambiado.
         """
+        # Esperar a que cualquier overlay de carga desaparezca antes de interactuar
+        try:
+            page.wait_for_selector('.el-loading-mask', state='hidden', timeout=5000)
+        except Exception:
+            pass
+
         trigger = page.locator('.bar_box .body_box').first
         if not trigger.is_visible():
             self.stdout.write(self.style.WARNING('  bar_box trigger no visible'))
@@ -589,9 +604,21 @@ class Command(BaseCommand):
 
         # Toggle-safe: cerrar si ya está abierto antes de abrir limpio
         if page.locator('.info_box').is_visible():
-            trigger.click()
+            try:
+                trigger.click(timeout=5000)
+            except Exception:
+                pass
             page.wait_for_timeout(400)
-        trigger.click()
+
+        try:
+            trigger.click(timeout=8000)
+        except Exception:
+            page.wait_for_timeout(1500)
+            try:
+                trigger.click(timeout=8000)
+            except Exception as _click_exc:
+                self.stdout.write(self.style.WARNING(f'  bar_box click fallido: {_click_exc}'))
+                return False
         page.wait_for_timeout(800)
 
         # Diagnóstico: mostrar padres disponibles
@@ -694,8 +721,18 @@ class Command(BaseCommand):
             mu.click()
             page.wait_for_timeout(400)
 
+            cat_lower = category.lower()
+            # Palabras significativas (≥4 chars) para matching por palabras clave,
+            # permite encontrar "AA2"/"AA3" cuando la categoría en BD dice "AA02"
+            sig_words = [w for w in cat_lower.split() if len(w) >= 4]
+            def _opt_matches(opt_text):
+                t = opt_text.lower()
+                return (
+                    cat_lower in t
+                    or (len(sig_words) >= 2 and all(w in t for w in sig_words[:2]))
+                )
             opts = [o for o in page.locator('.info_box .option').all()
-                    if category.lower() in o.inner_text().strip().lower() and o.is_visible()]
+                    if o.is_visible() and _opt_matches(o.inner_text().strip())]
             if not opts:
                 continue
 
@@ -855,14 +892,18 @@ class Command(BaseCommand):
         """
         True si los nombres son suficientemente similares.
 
-        Substring match solo se acepta cuando el match termina en espacio o fin
-        de string — evita que "9026" matchee "9026白" o "白金-10" matchee "白金-109".
+        Substring match se acepta cuando el match termina en espacio, fin de string,
+        o carácter CJK — cubre "TAA0638黑金" cuando buscamos "TAA0638".
+        Evita falsos positivos como "9026" matcheando "90261" (dígito siguiente).
         """
         a = our_name.strip().lower()
         b = card_name.strip().lower()
         if not a or not b:
             return False
         if a == b:
+            return True
+        # Prefix match directo (nuestro nombre es prefijo del de la tarjeta)
+        if b.startswith(a) or a.startswith(b):
             return True
         for haystack, needle in ((b, a), (a, b)):
             idx = haystack.find(needle)

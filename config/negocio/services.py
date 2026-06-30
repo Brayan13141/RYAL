@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 from django.db import transaction
 from django.db.models import F
 
-from catalog.models import Product
+from catalog.models import Product, TipoArticulo
 from .models import Pedido, PedidoItem, Pago, Cliente
 
 
@@ -64,23 +64,36 @@ def crear_pedido_tienda_bot(*, items, envio=Decimal('0')):
         origen=Pedido.TIENDA,
     )
 
+    tipos = list(TipoArticulo.objects.all())
+    total_costo = Decimal('0')
+
     for item in items:
         nombre_snap = (str(item.get('description') or '').strip() or 'ítem tienda')[:200]
         qty = int(item['qty'])
         precio_u = Decimal(str(item['price']))
+        costo_u = next((t.costo for t in tipos if t.matches(nombre_snap)), Decimal('0'))
         PedidoItem.objects.create(
             pedido=pedido,
             product=None,
             sku_snapshot='TIENDA-BOT',
             nombre_snapshot=nombre_snap,
             cantidad=qty,
-            costo_unitario=Decimal('0'),
+            costo_unitario=costo_u,
             precio_unitario=precio_u,
         )
+        total_costo += costo_u * qty
         partes_desc.append(f'{nombre_snap[:30]} ×{qty}')
 
+    pedido.costo_producto = total_costo
     pedido.descripcion = f'{len(items)} art.: ' + ', '.join(partes_desc)
-    pedido.save(update_fields=['descripcion'])
+    pedido.save(update_fields=['costo_producto', 'descripcion'])
+
+    Pago.objects.create(
+        pedido=pedido,
+        fecha=datetime.date.today(),
+        monto=precio_total,
+        metodo_pago=Pago.EFECTIVO,
+    )
     return pedido
 
 

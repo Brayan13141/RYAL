@@ -172,7 +172,7 @@
 
           <ul class="list-unstyled mb-0">
             {% for item in cart_items %}
-            <li class="d-flex gap-3 mb-3 pb-3" style="border-bottom:1px solid var(--line);" data-product-name="{{ item.name_snapshot }}">
+            <li class="d-flex gap-3 mb-3 pb-3" style="border-bottom:1px solid var(--line);" data-product-name="{{ item.name_snapshot }}" data-category-name="{{ item.category_name }}">
               <div style="width:56px;height:56px;flex-shrink:0;background:var(--bg-3);border:1px solid var(--line);">
                 {% if item.cover_image %}
                   <img src="{{ item.cover_image.image.url }}" alt="{{ item.name_snapshot }}"
@@ -236,7 +236,8 @@
 
             <div class="d-flex justify-content-between pt-2 mt-2" style="border-top:1px solid var(--line);">
               <span class="fw-medium" style="color:var(--ink);">Total</span>
-              <span class="fw-medium" style="color:var(--gold);font-family:var(--f-mono);font-size:1.1rem;">
+              <span id="total-display" data-base="{{ total|floatformat:0 }}"
+                    class="fw-medium" style="color:var(--gold);font-family:var(--f-mono);font-size:1.1rem;">
                 ${{ total|floatformat:0 }} MXN
               </span>
             </div>
@@ -263,11 +264,22 @@
   const descuentoDisplay = document.getElementById('descuento-display')
   const codigoHidden = document.getElementById('codigo-hidden')
   const descuentoMontoHidden = document.getElementById('descuento-monto-hidden')
+  const totalDisplay = document.getElementById('total-display')
+  const baseTotal = parseFloat(totalDisplay ? totalDisplay.dataset.base : '0')
 
-  // Recolectar nombres de productos del carrito para validación por tipo
   const cartDescriptions = Array.from(
     document.querySelectorAll('[data-product-name]')
   ).map(el => el.dataset.productName)
+
+  const cartCategories = Array.from(
+    document.querySelectorAll('[data-category-name]')
+  ).map(el => el.dataset.categoryName).filter(Boolean)
+
+  function updateTotal(descuento) {
+    if (!totalDisplay) return
+    const nuevo = Math.max(0, baseTotal - descuento)
+    totalDisplay.textContent = `$${Math.round(nuevo).toLocaleString('es-MX')} MXN`
+  }
 
   btnAplicar.addEventListener('click', async () => {
     const codigo = codigoInput.value.trim().toUpperCase()
@@ -280,7 +292,7 @@
       const res = await fetch('/api/negocio/codigos/validar-publico/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ codigo, descriptions: cartDescriptions }),
+        body: JSON.stringify({ codigo, descriptions: cartDescriptions, categories: cartCategories }),
       })
       const data = await res.json()
       if (data.valido) {
@@ -290,12 +302,14 @@
         descuentoDisplay.textContent = `−$${data.descuento} MXN`
         codigoHidden.value = codigo
         descuentoMontoHidden.value = data.descuento
+        updateTotal(data.descuento)
       } else {
         codigoMsg.textContent = data.mensaje
         codigoMsg.style.color = '#dc3545'
         descuentoRow.classList.add('d-none')
         codigoHidden.value = ''
         descuentoMontoHidden.value = '0'
+        updateTotal(0)
       }
     } catch (e) {
       codigoMsg.textContent = 'Error al validar. Intenta de nuevo.'

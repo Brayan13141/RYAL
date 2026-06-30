@@ -168,7 +168,7 @@ def api_codigos_validar(request):
         return JsonResponse({'error': 'codigo requerido'}, status=400)
     descriptions = list(payload.get('descriptions', []))
     from catalog.services import validar_codigo
-    return JsonResponse(validar_codigo(codigo, descriptions))
+    return JsonResponse(validar_codigo(codigo, descriptions, canal='negocio'))
 
 
 @csrf_exempt
@@ -183,5 +183,6 @@ def api_codigos_validar_publico(request):
     if not codigo:
         return JsonResponse({'error': 'codigo requerido'}, status=400)
     descriptions = list(payload.get('descriptions', []))
+    categories = list(payload.get('categories', []))
     from catalog.services import validar_codigo
-    return JsonResponse(validar_codigo(codigo, descriptions))
+    return JsonResponse(validar_codigo(codigo, descriptions, canal='web', categories=categories))

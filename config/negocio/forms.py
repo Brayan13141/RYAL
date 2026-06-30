@@ -74,12 +74,17 @@ class TipoArticuloForm(forms.ModelForm):
 class CodigoDescuentoForm(forms.ModelForm):
     class Meta:
         model = CodigoDescuento
-        fields = ['codigo', 'descripcion', 'descuento', 'tipo_articulo',
+        fields = ['codigo', 'descripcion', 'descuento', 'canal',
+                  'tipo_articulo', 'categoria_web',
                   'is_active', 'usos_max', 'valid_hasta']
         widgets = {
             'valid_hasta': forms.DateInput(attrs={'type': 'date'}),
             'codigo': forms.TextInput(attrs={'style': 'text-transform:uppercase'}),
             'descripcion': forms.TextInput(attrs={'placeholder': 'Ej. Descuento clientes mayoreo'}),
+        }
+        help_texts = {
+            'tipo_articulo': '(Negocio) Solo aplica si el pedido contiene artículos de este tipo.',
+            'categoria_web': '(Web) Solo aplica si el carrito contiene productos de esta categoría.',
         }
 
 

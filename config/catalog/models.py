@@ -515,8 +515,8 @@ class TipoArticulo(models.Model):
 
     def matches(self, texto: str) -> bool:
         """True si alguna keyword aparece en texto (case-insensitive)."""
-        texto = texto.lower()
-        return any(kw.strip().lower() in texto for kw in self.keywords.split(',') if kw.strip())
+        texto = ' '.join(texto.lower().split())
+        return any(' '.join(kw.split()).lower() in texto for kw in self.keywords.split(',') if kw.strip())
 
     @property
     def keywords_list(self) -> list[str]:
@@ -524,15 +524,33 @@ class TipoArticulo(models.Model):
 
 
 class CodigoDescuento(models.Model):
+    NEGOCIO = 'negocio'
+    WEB     = 'web'
+    AMBOS   = 'ambos'
+    CANAL_CHOICES = [
+        (AMBOS,   'Ambos (negocio + web)'),
+        (NEGOCIO, 'Solo negocio (bot / POS)'),
+        (WEB,     'Solo web (ryalsneackers.com)'),
+    ]
+
     codigo         = models.CharField(max_length=50, unique=True)
     descripcion    = models.CharField(max_length=200, blank=True,
                                       help_text='Para qué clientes o promoción es este código.')
     descuento      = models.DecimalField(max_digits=8, decimal_places=2,
                                          help_text='Monto fijo en MXN a descontar.')
+    canal          = models.CharField(
+        max_length=10, choices=CANAL_CHOICES, default=AMBOS,
+        help_text='Dónde puede usarse este código.',
+    )
     tipo_articulo  = models.ForeignKey(
         TipoArticulo, on_delete=models.SET_NULL,
         null=True, blank=True, related_name='codigos',
-        help_text='Dejar vacío para código global (aplica a cualquier artículo).',
+        help_text='(Negocio) Dejar vacío para código global. Aplica solo a artículos del tipo seleccionado.',
+    )
+    categoria_web  = models.ForeignKey(
+        'Category', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='codigos_descuento',
+        help_text='(Web) Dejar vacío para código global. Aplica solo a productos de esta categoría.',
     )
     is_active      = models.BooleanField(default=True)
     usos_max       = models.PositiveIntegerField(
@@ -548,8 +566,10 @@ class CodigoDescuento(models.Model):
         verbose_name_plural = 'Códigos de descuento'
 
     def __str__(self):
-        tipo = f' ({self.tipo_articulo.nombre})' if self.tipo_articulo_id else ' (global)'
-        return f'{self.codigo} — ${self.descuento} MXN{tipo}'
+        scope = self.tipo_articulo.nombre if self.tipo_articulo_id else (
+            self.categoria_web.name if self.categoria_web_id else 'global'
+        )
+        return f'{self.codigo} — ${self.descuento} MXN ({self.canal} · {scope})'
 
     @property
     def is_expired(self) -> bool:

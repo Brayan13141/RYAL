@@ -55,6 +55,7 @@ PARENT_PRICING = {
     'camisetas-sudaderas-calidad-11':      {'shipping': 0,   'margin': 100, 'order': 4},
     'electronica':                         {'shipping': 0,   'margin': 100, 'order': 5},
     'calzado':                             {'shipping': 280, 'margin': 100, 'order': 6},
+    'bolsos-de-lujo-de-gama-alta':         {'shipping': 0,   'margin': 200, 'order': 7},
 }
 _DEFAULT_PRICING = {'shipping': 0, 'margin': 100, 'order': 99}
 
@@ -78,6 +79,7 @@ PARENT_PREFIX = {
     'gorra':    'CAP',
     'calzado':  'TN2',
     'electronica': 'ELC',
+    'bolsos-de-lujo-de-gama-alta': 'BOL',
 }
 _DEFAULT_PREFIX = 'GEN'
 

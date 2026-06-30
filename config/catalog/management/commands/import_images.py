@@ -43,6 +43,7 @@ _CATEGORY_SLUG_HINT = {
     'camisetas': 'camiseta',
     'sudaderas': 'sudadera',
     'airpods':   'electronica',
+    'bolsos':    'bolsos-de-lujo',
 }
 
 

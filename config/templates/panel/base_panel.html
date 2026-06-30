@@ -991,14 +991,15 @@
               <i class="bi bi-tag"></i>
               <span class="nav-label">Tipos</span>
             </a>
-            <a href="{% url 'negocio:codigos_list' %}" title="Códigos de descuento"
-              class="{% if request.resolver_match.url_name in 'codigos_list codigo_create codigo_edit codigo_delete' %}on{% endif %}">
-              <i class="bi bi-percent"></i>
-              <span class="nav-label">Descuentos</span>
-            </a>
           </div>
         </div>
         {% endwith %}
+
+        <a href="{% url 'negocio:codigos_list' %}" title="Códigos de descuento"
+          class="{% if request.resolver_match.url_name in 'codigos_list codigo_create codigo_edit codigo_delete' %}on{% endif %}">
+          <i class="bi bi-percent"></i>
+          <span class="nav-label">Descuentos</span>
+        </a>
 
         <div class="p-nav-sec">Catálogo</div>
 
