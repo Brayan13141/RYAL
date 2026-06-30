@@ -18,6 +18,7 @@ urlpatterns = [
     path('pedidos/<int:pk>/supplier/run/',    views.supplier_order_run,    name='supplier_order_run'),
     path('pedidos/<int:pk>/supplier/status/', views.supplier_order_status, name='supplier_order_status'),
     path('pedidos/<int:pk>/supplier/items/<int:item_pk>/update/', views.supplier_item_update, name='supplier_item_update'),
+    path('pedidos/<int:pk>/supplier/log/',    views.supplier_order_log,    name='supplier_order_log'),
     path('productos/',                    views.products_list,       name='products_list'),
     path('productos/acciones/',           views.product_bulk_action, name='product_bulk_action'),
     path('productos/nuevo/',              views.product_create,      name='product_create'),

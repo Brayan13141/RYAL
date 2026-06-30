@@ -131,6 +131,20 @@
   </table>
 </div>
 
+<!-- Log en tiempo real -->
+<div id="logCard" {% if supplier_order.status != 'running' %}style="display:none;"{% endif %}>
+  <div class="p-card" style="margin-bottom:18px;border-color:#1a2a1a;">
+    <div class="p-card-head" style="padding:10px 16px;">
+      <h2 style="font-size:13px;"><i class="bi bi-terminal me-1"></i>Log de ejecución</h2>
+    </div>
+    <pre id="logOutput"
+         style="background:#060606;border-radius:0 0 8px 8px;padding:10px 14px;
+                font-size:11px;color:#7ec97e;overflow-y:auto;max-height:220px;
+                margin:0;white-space:pre-wrap;word-break:break-all;font-family:monospace;"
+    ></pre>
+  </div>
+</div>
+
 <!-- Carrito para importar -->
 <div id="cartCard" {% if not supplier_order.cart_script %}style="display:none;"{% endif %}>
   <div class="p-card" style="border-color:#2a3a4a;">
@@ -163,9 +177,11 @@
 <script>
 (function () {
   var STATUS_URL = "{% url 'panel:supplier_order_status' order.pk %}";
+  var LOG_URL    = "{% url 'panel:supplier_order_log' order.pk %}";
   var RUN_URL    = "{% url 'panel:supplier_order_run' order.pk %}";
   var CSRF       = "{{ csrf_token }}";
   var pollTimer  = null;
+  var logTimer   = null;
 
   {% if supplier_order.status == 'running' %}
   startPolling();
@@ -187,8 +203,11 @@
       .then(function (data) {
         if (data.ok) {
           setStatusBadge('running', 'En progreso');
+          document.getElementById('logCard').style.display = '';
+          document.getElementById('logOutput').textContent = '';
           form.style.display = 'none';
           startPolling();
+          startLogPolling();
         } else {
           showToast(data.error || 'Error al iniciar', 'error');
           btn.disabled = false;
@@ -213,6 +232,28 @@
     pollTimer = null;
   }
 
+  function startLogPolling() {
+    if (logTimer) return;
+    logTimer = setInterval(pollLog, 4000);
+  }
+
+  function stopLogPolling() {
+    clearInterval(logTimer);
+    logTimer = null;
+  }
+
+  function pollLog() {
+    fetch(LOG_URL)
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var el = document.getElementById('logOutput');
+        if (!el || !data.lines) return;
+        el.textContent = data.lines.join('\n');
+        el.scrollTop = el.scrollHeight;
+      })
+      .catch(function () {});
+  }
+
   function poll() {
     fetch(STATUS_URL)
       .then(function (r) { return r.json(); })
@@ -227,6 +268,9 @@
 
         if (data.status !== 'running') {
           stopPolling();
+          stopLogPolling();
+          // Una última lectura del log al terminar
+          pollLog();
           var formArea = document.getElementById('runForm');
           if (!formArea) {
             var badgeEl   = document.getElementById('statusBadge');

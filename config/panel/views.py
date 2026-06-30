@@ -1531,6 +1531,18 @@ def supplier_order_status(request, pk):
     })
 
 
+@_staff
+def supplier_order_log(request, pk):
+    """Devuelve las últimas 80 líneas del log de sync_modaverse_order."""
+    log_path = Path(tempfile.gettempdir()) / f'modaverse_{pk}.log'
+    try:
+        with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+            lines = f.readlines()
+        return JsonResponse({'lines': [l.rstrip('\n') for l in lines[-80:]]})
+    except FileNotFoundError:
+        return JsonResponse({'lines': []})
+
+
 # ── Productos pendientes de aprobación ────────────────────────────────────────
 
 _PENDING_PER_PAGE = {'24': 24, '48': 48, '96': 96}

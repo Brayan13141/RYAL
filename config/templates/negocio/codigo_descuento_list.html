@@ -3,45 +3,100 @@
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-  <h4 class="mb-0" style="font-family:var(--f-display)">Códigos de descuento</h4>
-  <a href="{% url 'negocio:codigo_create' %}" class="btn btn-sm btn-gold">+ Nuevo código</a>
+  <div>
+    <h4 class="mb-0" style="font-family:var(--f-display)">Códigos de descuento</h4>
+    <p class="small mb-0 mt-1" style="color:var(--pm)">
+      <i class="bi bi-ticket-perforated me-1"></i>Usa <code>/descuento CODIGO</code> en el bot para aplicar en una sesión.
+    </p>
+  </div>
+  <a href="{% url 'negocio:codigo_create' %}" class="btn-g">
+    <i class="bi bi-plus-lg"></i> Nuevo código
+  </a>
 </div>
+
+{% if codigos %}
 <div class="table-responsive">
-  <table class="table table-dark table-hover align-middle">
+  <table class="table align-middle mb-0" style="border-collapse:separate;border-spacing:0 6px">
     <thead>
-      <tr>
-        <th>Código</th>
-        <th>Descripción</th>
-        <th>Descuento</th>
-        <th>Tipo</th>
-        <th>Usos</th>
-        <th>Válido hasta</th>
-        <th>Activo</th>
-        <th></th>
+      <tr style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--pm)">
+        <th style="padding:0 12px 8px;background:transparent;border:none">Código</th>
+        <th style="padding:0 12px 8px;background:transparent;border:none">Tipo</th>
+        <th style="padding:0 12px 8px;background:transparent;border:none">Descuento</th>
+        <th style="padding:0 12px 8px;background:transparent;border:none">Usos</th>
+        <th style="padding:0 12px 8px;background:transparent;border:none">Vence</th>
+        <th style="padding:0 12px 8px;background:transparent;border:none">Estado</th>
+        <th style="padding:0 12px 8px;background:transparent;border:none"></th>
       </tr>
     </thead>
     <tbody>
       {% for c in codigos %}
-      <tr>
-        <td><code>{{ c.codigo }}</code></td>
-        <td class="small text-muted">{{ c.descripcion|default:"—" }}</td>
-        <td>${{ c.descuento }} MXN</td>
-        <td>{{ c.tipo_articulo.nombre|default:"Global" }}</td>
-        <td>{{ c.usos_actuales }}{% if c.usos_max %}/{{ c.usos_max }}{% endif %}</td>
-        <td>{{ c.valid_hasta|default:"Sin límite" }}</td>
-        <td>
-          {% if c.is_active %}<span class="badge bg-success">Activo</span>
-          {% else %}<span class="badge bg-secondary">Inactivo</span>{% endif %}
+      <tr style="opacity:{% if c.is_expired or c.is_exhausted or not c.is_active %}0.55{% else %}1{% endif %}">
+
+        <td style="background:var(--ps);border-top:1px solid var(--pl);border-bottom:1px solid var(--pl);border-left:1px solid var(--pl);border-radius:8px 0 0 8px;padding:12px 14px">
+          <code style="font-size:14px;font-weight:700;color:var(--pg);letter-spacing:.04em">{{ c.codigo }}</code>
+          {% if c.descripcion %}<div style="font-size:11px;color:var(--pm);margin-top:2px">{{ c.descripcion }}</div>{% endif %}
         </td>
-        <td class="text-end">
-          <a href="{% url 'negocio:codigo_edit' c.pk %}" class="btn btn-sm btn-outline-secondary me-1">Editar</a>
-          <a href="{% url 'negocio:codigo_delete' c.pk %}" class="btn btn-sm btn-outline-danger">Eliminar</a>
+
+        <td style="background:var(--ps);border-top:1px solid var(--pl);border-bottom:1px solid var(--pl);padding:12px 14px">
+          {% if c.tipo_articulo %}
+          <span style="background:var(--pl);color:var(--pt);font-size:11px;padding:2px 8px;border-radius:4px"><i class="bi bi-tag me-1"></i>{{ c.tipo_articulo.nombre }}</span>
+          {% else %}
+          <span style="font-size:12px;color:var(--pm)"><i class="bi bi-globe2 me-1"></i>Global</span>
+          {% endif %}
         </td>
+
+        <td style="background:var(--ps);border-top:1px solid var(--pl);border-bottom:1px solid var(--pl);padding:12px 14px">
+          <span style="font-size:16px;font-weight:700;color:var(--pt)">${{ c.descuento }}</span>
+          <span style="font-size:11px;color:var(--pm)"> MXN</span>
+        </td>
+
+        <td style="background:var(--ps);border-top:1px solid var(--pl);border-bottom:1px solid var(--pl);padding:12px 14px;min-width:120px">
+          {% if c.usos_max %}
+          <div style="font-size:12px;color:var(--pm);margin-bottom:4px">{{ c.usos_actuales }} / {{ c.usos_max }}{% if c.is_exhausted %} <span style="color:#ff6060;font-size:10px">· agotado</span>{% endif %}</div>
+          <div style="background:var(--pl);border-radius:4px;height:5px;overflow:hidden">
+            <div style="height:100%;width:{{ c.uso_pct }}%;background:{% if c.is_exhausted %}#ff6060{% elif c.uso_pct > 75 %}#ffaa00{% else %}var(--pg){% endif %}"></div>
+          </div>
+          {% else %}
+          <span style="font-size:12px;color:var(--pm)">{{ c.usos_actuales }} <span style="opacity:.4">/ ∞</span></span>
+          {% endif %}
+        </td>
+
+        <td style="background:var(--ps);border-top:1px solid var(--pl);border-bottom:1px solid var(--pl);padding:12px 14px">
+          {% if c.valid_hasta %}
+          <span style="font-size:12px;color:{% if c.is_expired %}#ff6060{% else %}var(--pm){% endif %}">{% if c.is_expired %}<i class="bi bi-clock-history me-1"></i>{% endif %}{{ c.valid_hasta|date:"d M Y" }}</span>
+          {% else %}
+          <span style="font-size:12px;color:var(--pm);opacity:.5">Sin límite</span>
+          {% endif %}
+        </td>
+
+        <td style="background:var(--ps);border-top:1px solid var(--pl);border-bottom:1px solid var(--pl);padding:12px 14px">
+          {% if c.is_expired %}
+          <span class="bs-off" style="font-size:11px;padding:3px 9px;border-radius:20px"><i class="bi bi-clock-history me-1"></i>Expirado</span>
+          {% elif c.is_exhausted %}
+          <span class="bs-coming_soon" style="font-size:11px;padding:3px 9px;border-radius:20px"><i class="bi bi-x-circle me-1"></i>Agotado</span>
+          {% elif c.is_active %}
+          <span class="bs-on" style="font-size:11px;padding:3px 9px;border-radius:20px"><i class="bi bi-check-circle me-1"></i>Activo</span>
+          {% else %}
+          <span class="bs-off" style="font-size:11px;padding:3px 9px;border-radius:20px"><i class="bi bi-pause-circle me-1"></i>Inactivo</span>
+          {% endif %}
+        </td>
+
+        <td style="background:var(--ps);border-top:1px solid var(--pl);border-bottom:1px solid var(--pl);border-right:1px solid var(--pl);border-radius:0 8px 8px 0;padding:12px 14px;white-space:nowrap">
+          <a href="{% url 'negocio:codigo_edit' c.pk %}" class="btn-o" style="padding:5px 10px;font-size:12px;margin-right:6px"><i class="bi bi-pencil"></i></a>
+          <a href="{% url 'negocio:codigo_delete' c.pk %}" class="btn-r" style="padding:5px 10px;font-size:12px"><i class="bi bi-trash"></i></a>
+        </td>
+
       </tr>
-      {% empty %}
-      <tr><td colspan="8" class="text-center text-muted py-4">Sin códigos registrados.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
+{% else %}
+<div class="text-center py-5" style="color:var(--pm)">
+  <i class="bi bi-ticket-perforated" style="font-size:2rem;display:block;margin-bottom:12px;opacity:.4"></i>
+  <p class="mb-1">Sin códigos registrados.</p>
+  <p class="small">Crea un código para aplicar descuentos en el checkout o en el bot.</p>
+</div>
+{% endif %}
 {% endblock %}

@@ -20,15 +20,19 @@ Flujo:
 Sin login — modaverse es acceso público.
 """
 import json
+import shutil
 
 from django.core.management.base import BaseCommand, CommandError
+
+# Playwright no incluye binario para Ubuntu 26.04+; usar Chromium de sistema si está disponible
+_SYSTEM_CHROMIUM = shutil.which('chromium-browser') or shutil.which('chromium') or shutil.which('google-chrome')
 
 from orders.models import SupplierOrder, SupplierOrderItem
 
 MODAVERSE_BASE = 'https://www.modaverse.vip'
 TIMEOUT   = 30_000   # ms
 CART_WAIT = 1_500    # ms tras agregar un ítem
-MAX_PAGES = 8        # páginas máximas a buscar en un listado
+MAX_PAGES = 20       # páginas máximas a buscar en un listado
 
 
 class Command(BaseCommand):
@@ -131,10 +135,13 @@ class Command(BaseCommand):
 
             # ── PLAYWRIGHT (sin ORM) ──────────────────────────────────────────
             with sync_playwright() as p:
-                browser = p.chromium.launch(
+                launch_kwargs = dict(
                     headless=headless,
                     args=['--no-sandbox', '--disable-blink-features=AutomationControlled'],
                 )
+                if _SYSTEM_CHROMIUM:
+                    launch_kwargs['executable_path'] = _SYSTEM_CHROMIUM
+                browser = p.chromium.launch(**launch_kwargs)
                 ctx = browser.new_context(
                     viewport={'width': 1280, 'height': 900},
                     user_agent=(
@@ -181,13 +188,41 @@ class Command(BaseCommand):
 
                 browser.close()
 
-            # ── GUARDAR RESULTADOS (Django ORM — fuera de Playwright) ────────
+            # Playwright deja un event loop registrado aunque ya no esté corriendo.
+            # Django ≥4.1 lanza SynchronousOnlyOperation si detecta cualquier loop.
+            # Destruirlo explícitamente antes de usar el ORM.
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if not loop.is_running():
+                    loop.close()
+            except Exception:
+                pass
+            try:
+                asyncio.set_event_loop(None)
+            except Exception:
+                pass
+
+            # Cerrar la conexión DB heredada del contexto async y abrir una limpia.
+            from django.db import connection as _conn
+            _conn.close()
+
+            # ── GUARDAR RESULTADOS ────────────────────────────────────────────
+            self.stdout.write(f'\n[save] {len(results)} resultados para guardar')
+            saved = 0
             for item in pending_items:
                 r = results.get(item.id)
                 if r:
-                    item.status = r['status']
-                    item.notes  = r['notes']
-                    item.save(update_fields=['status', 'notes'])
+                    try:
+                        item.status = r['status']
+                        item.notes  = r['notes']
+                        item.save(update_fields=['status', 'notes'])
+                        saved += 1
+                    except Exception as save_exc:
+                        self.stdout.write(self.style.ERROR(
+                            f'  [save-error] item {item.id}: {save_exc}'
+                        ))
+            self.stdout.write(f'[save] {saved} items actualizados en BD')
 
             statuses = {results[i.id]['status'] for i in pending_items if i.id in results}
             if statuses <= {'added', 'no_url'}:
@@ -204,6 +239,11 @@ class Command(BaseCommand):
             _final_status = 'failed'
 
         finally:
+            from django.db import connection as _conn2
+            try:
+                _conn2.ensure_connection()
+            except Exception:
+                pass
             supplier_order.status     = _final_status
             supplier_order.cart_script = cart_script
             supplier_order.save(update_fields=['status', 'cart_script', 'updated_at'])
@@ -237,24 +277,42 @@ class Command(BaseCommand):
             if pid and self._try_other_category_options(page, first['category'], pid):
                 card = self._find_product_with_pagination(page, first)
         if card is None:
-            note = f'Producto no encontrado (hasta {MAX_PAGES} páginas)'
+            # Último recurso: buscar por nombre en la categoría original sin PID
+            card = self._search_by_name_only(page, first)
+        if card is None:
+            note = f'Producto no encontrado (hasta {MAX_PAGES} páginas + búsqueda por nombre)'
             return {d['id']: {'status': 'variant_not_found', 'notes': note} for d in group}
         root = card
         try:
             root.scroll_into_view_if_needed()
-            page.wait_for_timeout(300)
+            page.wait_for_timeout(500)
         except Exception:
             pass
 
-        btn_simple = root.locator('button.btn_1').first
-        btn_specs  = root.locator('button.btn_2').first
+        # Re-localizar la tarjeta por su índice DOM para evitar stale locator.
+        # Después del scroll el SPA puede re-renderizar la lista y el locator
+        # original pierde la referencia al elemento real.
+        try:
+            card_idx = page.evaluate("""
+                (mvName) => {
+                    const cards = Array.from(document.querySelectorAll('.product_item'));
+                    const idx = cards.findIndex(c => c.innerText.includes(mvName));
+                    return idx >= 0 ? idx : cards.length - 1;
+                }
+            """, first.get('mv_name') or first.get('name') or '')
+            fresh_card = page.locator('.product_item').nth(card_idx)
+            fresh_card.scroll_into_view_if_needed()
+            page.wait_for_timeout(300)
+            root = fresh_card
+        except Exception:
+            pass
 
         # Usar count() en lugar de is_visible(): la tarjeta puede estar fuera
         # del viewport inicialmente y Playwright's click() ya hace scroll automático.
         if root.locator('button.btn_1').count() > 0:
             try:
                 before = self._cart_len(page)
-                btn_simple.click()
+                root.locator('button.btn_1').first.click()
                 page.wait_for_timeout(CART_WAIT)
                 after = self._cart_len(page)
                 grew = '' if after > before else '  <-- NO CRECIO'
@@ -463,7 +521,9 @@ class Command(BaseCommand):
     def _navigate_to_category(self, page, data: dict) -> bool:
         """
         Navega al listado de subcategoría usando el bar_box (click, no hover).
-        Si no estamos en una página /product/, hace bootstrap primero.
+        Siempre hace bootstrap desde homepage para garantizar estado Vue limpio:
+        el SPA de modaverse no re-dispara XHR cuando navega al mismo route
+        (usa caché en memoria), lo que produce 0 pids y páginas incompletas.
         """
         parent_cat = data.get('parent_cat', '')
         category   = data.get('category', '')
@@ -472,10 +532,9 @@ class Command(BaseCommand):
             return False
 
         try:
-            if '/product/' not in page.url:
-                if not self._bootstrap_to_product_page(page):
-                    self.stdout.write(self.style.WARNING('  Bootstrap fallido — no se pudo llegar a /product/'))
-                    return False
+            if not self._bootstrap_to_product_page(page):
+                self.stdout.write(self.style.WARNING('  Bootstrap fallido — no se pudo llegar a /product/'))
+                return False
 
             return self._navigate_via_bar_box(page, parent_cat, category)
 
@@ -575,6 +634,7 @@ class Command(BaseCommand):
         # Activar captura XHR antes del click de navegación
         self._page_product_pids = []
         self._page_pid_names    = {}
+        self._page_pr_to_num    = {}
         pids_buf = []
 
         def _on_response(resp):
@@ -648,6 +708,11 @@ class Command(BaseCommand):
 
                 page.on('response', _on_resp)
                 try:
+                    # Esperar a que el loading overlay desaparezca antes de click
+                    try:
+                        page.wait_for_selector('.el-loading-mask', state='hidden', timeout=5000)
+                    except Exception:
+                        pass
                     opt.click()
                     page.wait_for_load_state('load', timeout=TIMEOUT)
                     try:
@@ -666,8 +731,42 @@ class Command(BaseCommand):
                     return True
 
                 self.stdout.write(
-                    f'  [fallback] padre="{mu_text}" opt="{opt_text}" — {len(pids_buf)} pids, no encontrado'
+                    f'  [fallback] padre="{mu_text}" opt="{opt_text}" — {len(pids_buf)} pids pg1, no encontrado'
                 )
+
+                # Paginar dentro de esta opción antes de descartarla
+                found_in_extra = False
+                for extra_pg in range(2, 6):
+                    extra_next = page.locator('.el-pagination .btn-next').first
+                    if not extra_next.is_visible() or extra_next.get_attribute('disabled') is not None:
+                        break
+                    extra_buf = []
+
+                    def _on_extra(resp, buf=extra_buf):
+                        self._try_capture_pids(resp, buf)
+
+                    page.on('response', _on_extra)
+                    extra_next.click()
+                    try:
+                        page.wait_for_selector('.product_item', state='attached', timeout=8000)
+                    except Exception:
+                        pass
+                    page.wait_for_timeout(1200)
+                    page.remove_listener('response', _on_extra)
+                    if not extra_buf:
+                        break
+                    self.stdout.write(
+                        f'  [fallback] padre="{mu_text}" opt="{opt_text}" pg{extra_pg} — {len(extra_buf)} pids'
+                    )
+                    if target_pid in extra_buf:
+                        self._page_product_pids = list(extra_buf)
+                        self.stdout.write(
+                            f'  [fallback] ✓ pid en pg{extra_pg} padre="{mu_text}" opción="{opt_text}"'
+                        )
+                        return True
+
+                if found_in_extra:
+                    return True
 
                 # Re-abrir y volver al mismo padre para la siguiente opción
                 _open_fresh()
@@ -716,6 +815,12 @@ class Command(BaseCommand):
                 self._page_product_pids = list(pids_buf)
 
             self.stdout.write(f'  Pagina {page_num + 1} — {len(self._page_product_pids)} pids')
+
+        # El loop clickea 'next' al final de cada iteración pero no llama
+        # _find_product_card en la página recién cargada. Verificar aquí.
+        card = self._find_product_card(page, data)
+        if card is not None:
+            return card
 
         # No encontrado — diagnóstico
         try:
@@ -803,6 +908,14 @@ class Command(BaseCommand):
         name    = (data.get('name') or '').strip()
         db_mv   = (data.get('mv_name') or '').strip()   # Product.modaverse_name
 
+        # Resolver PID formato PR... → numeric (el XHR devuelve IDs numéricos,
+        # pero supplier_url guarda formato PR20260517...; resolver el mapeo aquí)
+        pr_map = getattr(self, '_page_pr_to_num', {})
+        if pid and pid in pr_map:
+            numeric_pid = pr_map[pid]
+            self.stdout.write(f'  [card] PR→num: {pid[:30]} → {numeric_pid}')
+            pid = numeric_pid
+
         # 1. Pid en XHR → nombre exacto de modaverse → búsqueda en DOM
         if pid and getattr(self, '_page_product_pids', []):
             try:
@@ -876,6 +989,73 @@ class Command(BaseCommand):
 
         return None
 
+    def _search_by_name_only(self, page, data: dict):
+        """
+        Fallback final: navega a la categoría del producto y busca solo por nombre,
+        paginando hasta MAX_PAGES páginas. No requiere que el pid esté en el XHR.
+        Usado cuando la búsqueda por pid falló en todas las opciones del bar_box.
+        """
+        name   = (data.get('name') or '').strip()
+        mv_name = (data.get('mv_name') or '').strip()
+        if not name and not mv_name:
+            return None
+
+        search_name = mv_name or name
+        self.stdout.write(f'  [name-search] Buscando por nombre "{search_name}"...')
+
+        # Regresar a la categoría original (sin depender del pid)
+        navigated = self._navigate_to_category(page, data)
+        if not navigated:
+            return None
+
+        for page_num in range(1, MAX_PAGES + 1):
+            # Buscar en DOM directamente por texto
+            for candidate in page.locator(f'.product_item:has(.pro_name:has-text("{search_name}"))').all():
+                cn = self._card_name(candidate)
+                if self._card_name_ok(name, mv_name, cn):
+                    self.stdout.write(f'  [name-search] ✓ "{cn}" en pg{page_num}')
+                    return candidate
+
+            # Palabras significativas (≥4 chars) como alternativa
+            words = [w for w in search_name.split() if len(w) >= 4]
+            if words:
+                for w in words:
+                    for candidate in page.locator(f'.product_item:has(.pro_name:has-text("{w}"))').all():
+                        cn = self._card_name(candidate)
+                        if self._card_name_ok(name, mv_name, cn):
+                            self.stdout.write(f'  [name-search] ✓ palabra "{w}" → "{cn}" en pg{page_num}')
+                            return candidate
+
+            next_btn = page.locator('.el-pagination .btn-next').first
+            if not next_btn.is_visible() or next_btn.get_attribute('disabled') is not None:
+                break
+
+            pids_buf = []
+
+            def _on_response(resp):
+                self._try_capture_pids(resp, pids_buf)
+
+            page.on('response', _on_response)
+            next_btn.click()
+            try:
+                page.wait_for_selector('.product_item', state='attached', timeout=8000)
+            except Exception:
+                pass
+            page.wait_for_timeout(1200)
+            page.remove_listener('response', _on_response)
+            if pids_buf:
+                self._page_product_pids = list(pids_buf)
+
+        # Verificar última página navegada
+        for candidate in page.locator(f'.product_item:has(.pro_name:has-text("{search_name}"))').all():
+            cn = self._card_name(candidate)
+            if self._card_name_ok(name, mv_name, cn):
+                self.stdout.write(f'  [name-search] ✓ "{cn}" en última página')
+                return candidate
+
+        self.stdout.write(f'  [name-search] No encontrado por nombre "{search_name}"')
+        return None
+
     def _try_capture_pids(self, response, buf: list) -> None:
         """
         Extrae la lista de productIds de respuestas XHR de modaverse.
@@ -903,6 +1083,16 @@ class Command(BaseCommand):
             if lst and isinstance(lst, list) and lst:
                 first = lst[0]
                 if isinstance(first, dict) and ('productId' in first or 'id' in first):
+                    # Log de campos del primer ítem para detectar el campo con formato PR...
+                    if not getattr(self, '_xhr_fields_logged', False):
+                        self._xhr_fields_logged = True
+                        self.stdout.write(f'  [xhr-fields] keys={list(first.keys())[:15]}')
+                        # Buscar campo con formato PR (productCode, productNo, proCode, etc.)
+                        pr_candidates = {k: v for k, v in first.items()
+                                         if isinstance(v, str) and str(v).startswith('PR')}
+                        if pr_candidates:
+                            self.stdout.write(f'  [xhr-fields] PR-format fields: {pr_candidates}')
+
                     pids = [str(p.get('productId') or p.get('id', '')) for p in lst]
                     pids = [p for p in pids if p]
                     if pids:
@@ -912,6 +1102,9 @@ class Command(BaseCommand):
                         # Capturar pid → nombre exacto de modaverse (misma respuesta XHR)
                         if not hasattr(self, '_page_pid_names'):
                             self._page_pid_names = {}
+                        # También indexar por campo PR si existe (ej. productCode → PR...)
+                        if not hasattr(self, '_page_pr_to_num'):
+                            self._page_pr_to_num = {}
                         for item in lst:
                             p_id = str(item.get('productId') or item.get('id', ''))
                             if not p_id:
@@ -922,6 +1115,10 @@ class Command(BaseCommand):
                             )
                             if mv_name:
                                 self._page_pid_names[p_id] = str(mv_name).strip()
+                            # Mapear campo PR → numeric id para búsqueda cruzada
+                            for k, v in item.items():
+                                if isinstance(v, str) and v.startswith('PR'):
+                                    self._page_pr_to_num[v] = p_id
                         return
             # Sin lista útil — loguear URL y estructura para diagnóstico
             keys = list(body.keys())[:6] if isinstance(body, dict) else type(body).__name__

@@ -262,6 +262,18 @@ class PendingProduct(models.Model):
             product.base_price     = self.base_price
             product.save(update_fields=['name', 'modaverse_name', 'base_price'])
 
+        if self.cover_image and not product.images.filter(is_cover=True).exists():
+            import shutil, os
+            from django.conf import settings
+            src = self.cover_image.path
+            if os.path.exists(src):
+                ext = os.path.splitext(src)[1]
+                dst_rel = f'products/{product.sku}{ext}'
+                dst_abs = os.path.join(settings.MEDIA_ROOT, dst_rel)
+                os.makedirs(os.path.dirname(dst_abs), exist_ok=True)
+                shutil.copy2(src, dst_abs)
+                ProductImage.objects.create(product=product, image=dst_rel, is_cover=True)
+
         self.status      = 'approved'
         self.reviewed_at = timezone.now()
         self.save(update_fields=['status', 'reviewed_at'])
@@ -506,6 +518,10 @@ class TipoArticulo(models.Model):
         texto = texto.lower()
         return any(kw.strip().lower() in texto for kw in self.keywords.split(',') if kw.strip())
 
+    @property
+    def keywords_list(self) -> list[str]:
+        return [kw.strip() for kw in self.keywords.split(',') if kw.strip()]
+
 
 class CodigoDescuento(models.Model):
     codigo         = models.CharField(max_length=50, unique=True)
@@ -534,3 +550,18 @@ class CodigoDescuento(models.Model):
     def __str__(self):
         tipo = f' ({self.tipo_articulo.nombre})' if self.tipo_articulo_id else ' (global)'
         return f'{self.codigo} — ${self.descuento} MXN{tipo}'
+
+    @property
+    def is_expired(self) -> bool:
+        from django.utils import timezone
+        return self.valid_hasta is not None and self.valid_hasta < timezone.localdate()
+
+    @property
+    def is_exhausted(self) -> bool:
+        return self.usos_max is not None and self.usos_actuales >= self.usos_max
+
+    @property
+    def uso_pct(self) -> int:
+        if not self.usos_max:
+            return 0
+        return min(100, round(self.usos_actuales * 100 / self.usos_max))
