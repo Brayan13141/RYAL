@@ -330,7 +330,34 @@ async function handleOrdersMessage(sock, msg) {
     const cmd = parts[0].toLowerCase()
     const args = parts.slice(1)
 
-    if (cmd === '/tienda') {
+    if (cmd === '/ayuda') {
+        const sess = orders.getSession(ORDERS_GID)
+        const sesionInfo = sess
+            ? `📌 Sesión activa: *${sess.cliente.nombre}* (${sess.items.length} ítem(s))\n\n`
+            : ''
+        await sock.sendMessage(ORDERS_GID, {
+            text:
+                `${sesionInfo}` +
+                `*🤖 Comandos disponibles*\n\n` +
+                `*Iniciar sesión:*\n` +
+                `/venta — venta en tienda (Mostrador)\n` +
+                `/pedido <tel o nombre> — pedido para cliente\n\n` +
+                `*Durante la sesión:*\n` +
+                `/items — ver ítems agregados\n` +
+                `/quitar <N> — quitar ítem número N\n` +
+                `/cant <N> <cantidad> — cambiar cantidad del ítem N\n` +
+                `/descuento <CÓDIGO> — aplicar código de descuento\n` +
+                `/cerrar — guardar pedido\n` +
+                `/cerrar envio=X — guardar con costo de envío\n` +
+                `/cancelar — cancelar sin guardar\n\n` +
+                `*Consultas:*\n` +
+                `/precios — ver tipos de artículo y costos\n` +
+                `/ayuda — este menú`,
+        })
+        return
+    }
+
+    if (cmd === '/venta' && !args.length) {
         const sesionActiva = orders.getSession(ORDERS_GID)
         if (sesionActiva) {
             const total = sesionActiva.items.reduce((s, i) => s + i.price * i.qty, 0)
@@ -342,7 +369,7 @@ async function handleOrdersMessage(sock, msg) {
         }
         orders.startSession(ORDERS_GID, MOSTRADOR_NOMBRE, MOSTRADOR_TEL, 'tienda')
         await sock.sendMessage(ORDERS_GID, {
-            text: `🏪 Venta tienda iniciada — Mostrador\nIngresa ítems: <cantidad> <precio>  o  <descripción> <precio>  o  <cantidad> <descripción> <precio>`,
+            text: `🏪 *Venta tienda iniciada — Mostrador*\nIngresa ítems: <cantidad> <precio>  o  <descripción> <precio>  o  <cantidad> <descripción> <precio>\n\n📌 _Comandos:_ /items · /quitar <N> · /descuento <CÓDIGO> · /cerrar · /cancelar · /ayuda`,
         })
         return
     }
@@ -478,59 +505,6 @@ async function handleOrdersMessage(sock, msg) {
             logger.error({ err: err.message }, '/precios falló')
             await sock.sendMessage(ORDERS_GID, { text: '❌ Error al obtener tipos.' })
         }
-        return
-    }
-
-    if (cmd === '/venta') {
-        const sess = orders.getSession(ORDERS_GID)
-        if (!sess) {
-            await sock.sendMessage(ORDERS_GID, {
-                text: '⚠️ Sin sesión activa. Usa /pedido Nombre Teléfono para iniciar.',
-            })
-            return
-        }
-        // Formato: /venta Descripcion precio
-        // Ej: /venta Gorra NY negra 500
-        const partes = text.trim().split(/\s+/)
-        if (partes.length < 3) {
-            await sock.sendMessage(ORDERS_GID, {
-                text: 'Uso: /venta <descripcion> <precio>\nEj: /venta Gorra NY 500',
-            })
-            return
-        }
-        const precio = parseFloat(partes[partes.length - 1])
-        if (isNaN(precio) || precio <= 0) {
-            await sock.sendMessage(ORDERS_GID, {
-                text: '❌ Precio inválido. Ej: /venta Gorra NY 500',
-            })
-            return
-        }
-        const descripcion = partes.slice(1, -1).join(' ')
-
-        let costo = 0
-        let tipoNombre = null
-        try {
-            const { data } = await axios.post(
-                `${DJANGO_URL}/api/negocio/articulo/buscar/`,
-                { descripcion },
-                { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 5000 },
-            )
-            if (data.match) {
-                costo = data.costo
-                tipoNombre = data.nombre
-            }
-        } catch (err) {
-            logger.warn({ err: err.message }, '/venta articulo/buscar falló')
-        }
-
-        const result = orders.addItem(ORDERS_GID, descripcion, precio, costo)
-        const ganancia = precio - costo
-        const matchMsg = tipoNombre
-            ? `Tipo: ${tipoNombre} — costo $${costo} — ganancia $${ganancia}`
-            : '⚠️ Sin tipo registrado. Costo $0. Agrega el tipo en el panel o usa /precios.'
-        await sock.sendMessage(ORDERS_GID, {
-            text: `✅ Ítem ${result.index}: ${descripcion} $${precio}\n${matchMsg}\nTotal acumulado: $${result.total} MXN`,
-        })
         return
     }
 
