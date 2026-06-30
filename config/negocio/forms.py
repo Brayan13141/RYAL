@@ -55,6 +55,7 @@ class GastoForm(forms.ModelForm):
 
 
 from catalog.models import TipoArticulo, CodigoDescuento
+from .models import PedidoItem
 
 
 class TipoArticuloForm(forms.ModelForm):
@@ -62,7 +63,7 @@ class TipoArticuloForm(forms.ModelForm):
         model = TipoArticulo
         fields = ['nombre', 'keywords', 'costo']
         widgets = {
-            'keywords': forms.Textarea(attrs={'rows': 2, 'class': 'form-control font-monospace'}),
+            'keywords': forms.Textarea(attrs={'rows': 3, 'style': 'font-family:monospace'}),
         }
         help_texts = {
             'keywords': 'Palabras clave separadas por coma. Ej: gorra,cap,ny,la,za',
@@ -76,6 +77,23 @@ class CodigoDescuentoForm(forms.ModelForm):
         fields = ['codigo', 'descripcion', 'descuento', 'tipo_articulo',
                   'is_active', 'usos_max', 'valid_hasta']
         widgets = {
-            'valid_hasta': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
-            'codigo': forms.TextInput(attrs={'class': 'form-control text-uppercase'}),
+            'valid_hasta': forms.DateInput(attrs={'type': 'date'}),
+            'codigo': forms.TextInput(attrs={'style': 'text-transform:uppercase'}),
+            'descripcion': forms.TextInput(attrs={'placeholder': 'Ej. Descuento clientes mayoreo'}),
+        }
+
+
+class PedidoItemForm(forms.ModelForm):
+    class Meta:
+        model = PedidoItem
+        fields = ['nombre_snapshot', 'cantidad', 'costo_unitario', 'precio_unitario']
+        labels = {
+            'nombre_snapshot': 'Descripción',
+            'costo_unitario':  'Costo unitario (MXN)',
+            'precio_unitario': 'Precio unitario (MXN)',
+        }
+        widgets = {
+            'nombre_snapshot': forms.TextInput(attrs={'placeholder': 'Ej. Gorra NY talla única'}),
+            'costo_unitario':  forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
+            'precio_unitario': forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
         }

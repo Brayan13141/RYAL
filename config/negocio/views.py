@@ -12,8 +12,8 @@ from django.views.decorators.http import require_POST
 from django_ratelimit.decorators import ratelimit
 
 from catalog.models import Category, Product
-from .forms import ClienteForm, PedidoForm, PagoForm, GastoForm
-from .models import Cliente, Pedido, Pago, Gasto
+from .forms import ClienteForm, PedidoForm, PagoForm, GastoForm, PedidoItemForm
+from .models import Cliente, Pedido, Pago, Gasto, PedidoItem
 from .print_utils import _build_label_json, _build_receipt_json
 from .services import crear_venta_tienda, VentaInvalida
 
@@ -111,6 +111,20 @@ def pedido_pago_add(request, pk):
             'estado_display': pedido.get_estado_display(),
         })
     return JsonResponse({'ok': False, 'errors': form.errors}, status=400)
+
+
+@staff_member_required
+def pedido_item_edit(request, pk):
+    item = get_object_or_404(PedidoItem.objects.select_related('pedido'), pk=pk)
+    form = PedidoItemForm(request.POST or None, instance=item)
+    if form.is_valid():
+        form.save()
+        return redirect('negocio:pedido_detail', pk=item.pedido_id)
+    return render(request, 'negocio/pedido_item_form.html', {
+        'form': form,
+        'item': item,
+        'pedido': item.pedido,
+    })
 
 
 # ── Gastos ────────────────────────────────────────────────

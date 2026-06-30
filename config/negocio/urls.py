@@ -13,6 +13,7 @@ urlpatterns = [
     path('pedidos/nuevo/',                     views.pedido_create,       name='pedido_create'),
     path('pedidos/<int:pk>/',                  views.pedido_detail,       name='pedido_detail'),
     path('pedidos/<int:pk>/pago/',             views.pedido_pago_add,     name='pedido_pago_add'),
+    path('items/<int:pk>/editar/',             views.pedido_item_edit,    name='pedido_item_edit'),
     path('gastos/',                            views.gastos_list,         name='gastos_list'),
     path('pos/',                               views.pos,                 name='pos'),
     path('pos/productos/',                     views.pos_productos,       name='pos_productos'),

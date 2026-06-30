@@ -38,15 +38,24 @@
             <th style="text-align:right;">Precio unit.</th>
             <th style="text-align:center;">Cant.</th>
             <th style="text-align:right;">Subtotal</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
           {% for item in pedido.items.all %}
           <tr>
-            <td style="color:#ddd;max-width:220px;word-break:break-word;">{{ item.nombre_snapshot }}</td>
+            <td style="color:#ddd;max-width:200px;word-break:break-word;">
+              {{ item.nombre_snapshot }}
+              {% if item.sku_snapshot %}<div style="font-size:10px;color:#555;margin-top:2px;">{{ item.sku_snapshot }}</div>{% endif %}
+            </td>
             <td style="text-align:right;">${{ item.precio_unitario }}</td>
             <td style="text-align:center;">{{ item.cantidad }}</td>
             <td style="text-align:right;color:#D4AF37;">${{ item.subtotal }}</td>
+            <td style="text-align:right;white-space:nowrap;">
+              <a href="{% url 'negocio:pedido_item_edit' item.pk %}" class="btn-o" style="padding:4px 9px;font-size:11px;" title="Editar ítem">
+                <i class="bi bi-pencil"></i>
+              </a>
+            </td>
           </tr>
           {% endfor %}
         </tbody>

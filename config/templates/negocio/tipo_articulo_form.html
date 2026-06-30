@@ -2,37 +2,56 @@
 {% block title %}{{ titulo }}{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center">
-  <div class="col-lg-6">
-    <h4 class="mb-4" style="font-family:var(--f-display)">{{ titulo }}</h4>
+<div style="max-width:520px;">
 
-    {% if confirm_delete %}
-    <div class="alert alert-danger">
-      ¿Eliminar <strong>{{ objeto }}</strong>? Esta acción no se puede deshacer.
-      Los códigos asociados quedarán sin tipo (globales).
+  <a href="{% url 'negocio:tipos_list' %}" class="btn-o btn-sm" style="display:inline-flex;margin-bottom:20px;">
+    <i class="bi bi-arrow-left me-1"></i> Volver
+  </a>
+
+  {% if confirm_delete %}
+  <div class="p-card" style="border-color:rgba(255,80,80,.2);">
+    <div class="p-card-head" style="border-bottom-color:rgba(255,80,80,.15);">
+      <h2 style="color:#ef4444;">Eliminar tipo</h2>
     </div>
-    <form method="post">
-      {% csrf_token %}
-      <a href="{% url 'negocio:tipos_list' %}" class="btn btn-secondary me-2">Cancelar</a>
-      <button type="submit" class="btn btn-danger">Eliminar</button>
-    </form>
-    {% else %}
-    <form method="post">
-      {% csrf_token %}
-      {% for field in form %}
-      <div class="mb-3">
-        <label class="form-label small text-muted" style="font-family:var(--f-mono)">{{ field.label }}</label>
-        {{ field }}
-        {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
-        {% if field.errors %}<div class="text-danger small">{{ field.errors }}</div>{% endif %}
-      </div>
-      {% endfor %}
-      <div class="d-flex gap-2 mt-4">
-        <a href="{% url 'negocio:tipos_list' %}" class="btn btn-secondary">Cancelar</a>
-        <button type="submit" class="btn btn-gold">Guardar</button>
-      </div>
-    </form>
-    {% endif %}
+    <div class="p-card-body">
+      <p style="color:#ccc;margin-bottom:20px;">
+        ¿Eliminar <strong style="color:#e0e0e0;">{{ objeto }}</strong>?
+        Los códigos asociados quedarán sin tipo (globales).
+      </p>
+      <form method="post">
+        {% csrf_token %}
+        <div style="display:flex;gap:10px;">
+          <a href="{% url 'negocio:tipos_list' %}" class="btn-o">Cancelar</a>
+          <button type="submit" class="btn-r"><i class="bi bi-trash me-1"></i>Eliminar</button>
+        </div>
+      </form>
+    </div>
   </div>
+
+  {% else %}
+  <div class="p-card">
+    <div class="p-card-head"><h2>{{ titulo }}</h2></div>
+    <div class="p-card-body">
+      <form method="post">
+        {% csrf_token %}
+        <div class="fp" style="display:flex;flex-direction:column;gap:16px;">
+          {% for field in form %}
+          <div>
+            <label style="display:block;font-size:12px;color:#e0e0e0;margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em;">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}<div style="font-size:11px;color:#555;margin-top:5px;">{{ field.help_text }}</div>{% endif %}
+            {% if field.errors %}<div style="color:#f87171;font-size:12px;margin-top:4px;">{{ field.errors.0 }}</div>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        <div style="display:flex;gap:10px;margin-top:20px;">
+          <a href="{% url 'negocio:tipos_list' %}" class="btn-o">Cancelar</a>
+          <button type="submit" class="btn-g"><i class="bi bi-check-circle me-1"></i>Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
 </div>
 {% endblock %}
