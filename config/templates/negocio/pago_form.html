@@ -1,0 +1,43 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Editar pago — Pedido #{{ pedido.pk }}{% endblock %}
+
+{% block content %}
+<div style="max-width:480px;">
+
+  <a href="{% url 'negocio:pedido_detail' pedido.pk %}" class="btn-o btn-sm" style="display:inline-flex;margin-bottom:20px;">
+    <i class="bi bi-arrow-left me-1"></i> Volver al pedido #{{ pedido.pk }}
+  </a>
+
+  <div class="p-card">
+    <div class="p-card-head">
+      <h2>Editar pago</h2>
+      <span style="font-size:11px;color:#555;">Pedido: {{ pedido }}</span>
+    </div>
+    <div class="p-card-body">
+      <form method="post">
+        {% csrf_token %}
+        <div class="fp" style="display:flex;flex-direction:column;gap:16px;">
+          {% for field in form %}
+          <div>
+            <label style="display:block;font-size:12px;color:#e0e0e0;margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em;">{{ field.label }}</label>
+            {{ field }}
+            {% if field.errors %}<div style="color:#f87171;font-size:12px;margin-top:4px;">{{ field.errors.0 }}</div>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+
+        <div style="margin-top:20px;padding:12px 14px;background:#0d1a0d;border:1px solid #1a3a1a;border-radius:8px;font-size:13px;color:#888;">
+          Balance del pedido tras guardar:
+          <span style="color:#e0e0e0;font-size:11px;margin-left:4px;">(se recalcula automáticamente)</span>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-top:16px;">
+          <a href="{% url 'negocio:pedido_detail' pedido.pk %}" class="btn-o">Cancelar</a>
+          <button type="submit" class="btn-g"><i class="bi bi-check-circle me-1"></i>Guardar cambios</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

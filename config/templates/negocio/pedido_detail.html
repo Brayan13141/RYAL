@@ -70,16 +70,22 @@
       <div class="p-card-head"><h2>Pagos recibidos</h2></div>
       <div style="overflow-x:auto;">
         <table class="p-table">
-          <thead><tr><th>Fecha</th><th>Monto</th><th>Notas</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Monto</th><th>Método</th><th>Notas</th><th></th></tr></thead>
           <tbody>
             {% for pago in pedido.pagos.all %}
             <tr>
               <td>{{ pago.fecha }}</td>
               <td style="color:#4ade80;">${{ pago.monto }}</td>
+              <td style="color:#888;font-size:12px;">{{ pago.get_metodo_pago_display }}</td>
               <td style="color:#888;">{{ pago.notas|default:"—" }}</td>
+              <td style="white-space:nowrap;">
+                <a href="{% url 'negocio:pago_edit' pago.pk %}" class="btn-o" style="padding:4px 9px;font-size:11px;" title="Editar pago">
+                  <i class="bi bi-pencil"></i>
+                </a>
+              </td>
             </tr>
             {% empty %}
-            <tr><td colspan="3" style="text-align:center;color:#555;padding:16px;">Sin pagos</td></tr>
+            <tr><td colspan="5" style="text-align:center;color:#555;padding:16px;">Sin pagos</td></tr>
             {% endfor %}
           </tbody>
         </table>

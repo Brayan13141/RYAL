@@ -14,6 +14,17 @@ from django_ratelimit.decorators import ratelimit
 from catalog.models import Category, Product
 from .forms import ClienteForm, PedidoForm, PagoForm, GastoForm, PedidoItemForm
 from .models import Cliente, Pedido, Pago, Gasto, PedidoItem
+
+
+def _sync_estado_pedido(pedido):
+    """Marca el pedido como pagado o pendiente según balance real."""
+    pedido.refresh_from_db()
+    if pedido.balance_pendiente <= 0 and pedido.estado == Pedido.PENDIENTE:
+        pedido.estado = Pedido.PAGADO
+        pedido.save(update_fields=['estado'])
+    elif pedido.balance_pendiente > 0 and pedido.estado == Pedido.PAGADO:
+        pedido.estado = Pedido.PENDIENTE
+        pedido.save(update_fields=['estado'])
 from .print_utils import _build_label_json, _build_receipt_json
 from .services import crear_venta_tienda, VentaInvalida
 
@@ -101,9 +112,8 @@ def pedido_pago_add(request, pk):
         pago.pedido = pedido
         pago.save()
         pedido.refresh_from_db()
-        if pedido.balance_pendiente <= 0:
-            pedido.estado = Pedido.PAGADO
-            pedido.save()
+        _sync_estado_pedido(pedido)
+        pedido.refresh_from_db()
         return JsonResponse({
             'ok': True,
             'balance_pendiente': str(pedido.balance_pendiente),
@@ -111,6 +121,21 @@ def pedido_pago_add(request, pk):
             'estado_display': pedido.get_estado_display(),
         })
     return JsonResponse({'ok': False, 'errors': form.errors}, status=400)
+
+
+@staff_member_required
+def pago_edit(request, pk):
+    pago = get_object_or_404(Pago.objects.select_related('pedido'), pk=pk)
+    form = PagoForm(request.POST or None, instance=pago)
+    if form.is_valid():
+        form.save()
+        _sync_estado_pedido(pago.pedido)
+        return redirect('negocio:pedido_detail', pk=pago.pedido_id)
+    return render(request, 'negocio/pago_form.html', {
+        'form': form,
+        'pago': pago,
+        'pedido': pago.pedido,
+    })
 
 
 @staff_member_required
