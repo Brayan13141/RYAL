@@ -94,4 +94,35 @@ function buildImageCaption(finalPrice) {
     return `$${finalPrice} MXN`
 }
 
-module.exports = { extractPrice, markupCaption, cleanCaption, buildRyalForward, buildImageCaption, computeTotal }
+/**
+ * Parsea "/pedido <cliente...> moda <cantidad> <ganancia> [envio=X]".
+ * `args` son los tokens después de "/pedido". Devuelve null si el formato
+ * no matchea (incluye: token "moda" ausente, sin cliente antes, cantidad/
+ * ganancia faltante o inválida, envío mal formado, o tokens de sobra).
+ */
+function parseModaArgs(args) {
+    const idx = args.findIndex((a) => a.toLowerCase() === 'moda')
+    if (idx === -1) return null
+
+    const queryTokens = args.slice(0, idx)
+    const rest = args.slice(idx + 1)
+    if (queryTokens.length === 0 || rest.length < 2 || rest.length > 3) return null
+
+    if (!/^\d+$/.test(rest[0])) return null
+    const cantidad = parseInt(rest[0], 10)
+    if (cantidad <= 0) return null
+
+    if (!/^\d+(\.\d{1,2})?$/.test(rest[1])) return null
+    const ganancia = parseFloat(rest[1])
+
+    let envio = 0
+    if (rest.length === 3) {
+        const m = rest[2].match(/^envio=(\d+(?:\.\d{1,2})?)$/)
+        if (!m) return null
+        envio = parseFloat(m[1])
+    }
+
+    return { query: queryTokens.join(' '), cantidad, ganancia, envio }
+}
+
+module.exports = { extractPrice, markupCaption, cleanCaption, buildRyalForward, buildImageCaption, computeTotal, parseModaArgs }

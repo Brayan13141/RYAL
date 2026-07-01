@@ -1,4 +1,4 @@
-const { extractPrice, computeTotal, markupCaption, cleanCaption, buildRyalForward, buildImageCaption } = require('./utils')
+const { extractPrice, computeTotal, markupCaption, cleanCaption, buildRyalForward, buildImageCaption, parseModaArgs } = require('./utils')
 
 // Mensajes reales del proveedor (capturados 2026-06-01)
 const MSG_PUMA = `⚜️ *PUMA SUEDE XL*⚜️
@@ -161,5 +161,73 @@ describe('buildImageCaption', () => {
 
     test('round-trip: extractPrice lee el precio del caption generado', () => {
         expect(extractPrice(buildImageCaption(450))).toBe(450)
+    })
+})
+
+describe('parseModaArgs', () => {
+    test('parsea cliente + cantidad + ganancia sin envío', () => {
+        expect(parseModaArgs(['Victor', 'moda', '12', '100'])).toEqual({
+            query: 'Victor', cantidad: 12, ganancia: 100, envio: 0,
+        })
+    })
+
+    test('parsea nombre de cliente con varias palabras', () => {
+        expect(parseModaArgs(['Juan', 'García', 'moda', '3', '50'])).toEqual({
+            query: 'Juan García', cantidad: 3, ganancia: 50, envio: 0,
+        })
+    })
+
+    test('parsea ganancia decimal', () => {
+        expect(parseModaArgs(['Victor', 'moda', '2', '100.50'])).toEqual({
+            query: 'Victor', cantidad: 2, ganancia: 100.5, envio: 0,
+        })
+    })
+
+    test('parsea envío opcional', () => {
+        expect(parseModaArgs(['Victor', 'moda', '12', '100', 'envio=50'])).toEqual({
+            query: 'Victor', cantidad: 12, ganancia: 100, envio: 50,
+        })
+    })
+
+    test('reconoce MODA en mayúsculas', () => {
+        expect(parseModaArgs(['Victor', 'MODA', '12', '100'])).toEqual({
+            query: 'Victor', cantidad: 12, ganancia: 100, envio: 0,
+        })
+    })
+
+    test('sin token moda devuelve null', () => {
+        expect(parseModaArgs(['Victor', 'García'])).toBeNull()
+    })
+
+    test('sin cliente antes de moda devuelve null', () => {
+        expect(parseModaArgs(['moda', '12', '100'])).toBeNull()
+    })
+
+    test('falta ganancia devuelve null', () => {
+        expect(parseModaArgs(['Victor', 'moda', '12'])).toBeNull()
+    })
+
+    test('cantidad no entera devuelve null', () => {
+        expect(parseModaArgs(['Victor', 'moda', '12.5', '100'])).toBeNull()
+    })
+
+    test('cantidad cero o negativa devuelve null', () => {
+        expect(parseModaArgs(['Victor', 'moda', '0', '100'])).toBeNull()
+    })
+
+    test('ganancia negativa devuelve null', () => {
+        expect(parseModaArgs(['Victor', 'moda', '12', '-5'])).toBeNull()
+    })
+
+    test('ganancia no numérica devuelve null', () => {
+        expect(parseModaArgs(['Victor', 'moda', '12', 'abc'])).toBeNull()
+    })
+
+    test('formato de envío inválido devuelve null', () => {
+        expect(parseModaArgs(['Victor', 'moda', '12', '100', 'envio=abc'])).toBeNull()
+    })
+
+    test('argumentos extra después de envío devuelve null', () => {
+        expect(parseModaArgs(['Victor', 'moda', '12', '100', 'envio=50', 'extra'])).toBeNull()
     })
 })
