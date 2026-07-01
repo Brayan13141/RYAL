@@ -202,7 +202,7 @@ async function crearPedidoModa(sock, { nombre, telefono, cantidad, ganancia, env
             { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 10000 },
         )
         await sock.sendMessage(ORDERS_GID, {
-            text: `✅ Pedido #${data.pedido_id} creado — Ganancia: $${cantidad * ganancia} MXN`,
+            text: `✅ Pedido #${data.pedido_id} creado — Ganancia: $${Number((cantidad * ganancia).toFixed(2))} MXN`,
         })
     } catch (err) {
         logger.error({ err: err.message }, 'Error al crear pedido moda en Django')
