@@ -3,7 +3,7 @@ const pino = require('pino')
 const qrcode = require('qrcode-terminal')
 require('dotenv').config()
 
-const { extractPrice, buildRyalForward, buildImageCaption, markupCaption, cleanCaption, computeTotal } = require('./utils')
+const { extractPrice, buildRyalForward, buildImageCaption, markupCaption, cleanCaption, computeTotal, parseModaArgs } = require('./utils')
 const { createBatchBuffer, MAX_PER_GROUP } = require('./batchBuffer')
 const { acquireAuthLock } = require('./lock')
 const { createOrderSessionStore } = require('./orderSession')
@@ -189,6 +189,61 @@ async function buscarCliente(q) {
     }
 }
 
+async function crearPedidoModa(sock, { nombre, telefono, cantidad, ganancia, envio }) {
+    const payload = {
+        nombre,
+        telefono,
+        items: [{ description: 'Moda', qty: cantidad, price: ganancia, costo: 0 }],
+        envio,
+    }
+    try {
+        const { data } = await axios.post(
+            `${DJANGO_URL}/api/negocio/pedido/`, payload,
+            { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 10000 },
+        )
+        await sock.sendMessage(ORDERS_GID, {
+            text: `✅ Pedido #${data.pedido_id} creado — Ganancia: $${cantidad * ganancia} MXN`,
+        })
+    } catch (err) {
+        logger.error({ err: err.message }, 'Error al crear pedido moda en Django')
+        await sock.sendMessage(ORDERS_GID, { text: '❌ Error al crear el pedido. Intenta de nuevo.' })
+    }
+}
+
+async function resolveClienteYCrearModa(sock, moda) {
+    const { query, cantidad, ganancia, envio } = moda
+    const isPhone = /^\d{10,13}$/.test(query.replace(/\s/g, ''))
+    const clientes = await buscarCliente(query)
+
+    if (isPhone) {
+        const digits = query.replace(/\s/g, '')
+        const nombre = clientes.length > 0 ? clientes[0].nombre : `Tel. ${digits}`
+        const telefono = clientes.length > 0 ? clientes[0].telefono : digits
+        await crearPedidoModa(sock, { nombre, telefono, cantidad, ganancia, envio })
+        return
+    }
+
+    if (clientes.length === 0) {
+        await sock.sendMessage(ORDERS_GID, {
+            text: '⚠️ No encontré ningún cliente con ese nombre.\nBusca por teléfono (/pedido <número> moda ...) o regístralo en el panel.',
+        })
+        return
+    }
+
+    if (clientes.length > 1) {
+        const lines = clientes.map((c, i) => `${i + 1}. ${c.nombre} — ${c.telefono}`)
+        orders.setPending(ORDERS_GID, 'disambig_moda', { clientes, cantidad, ganancia, envio })
+        await sock.sendMessage(ORDERS_GID, {
+            text: `🔍 Varios resultados:\n${lines.join('\n')}\nResponde con el número de la opción.`,
+        })
+        return
+    }
+
+    await crearPedidoModa(sock, {
+        nombre: clientes[0].nombre, telefono: clientes[0].telefono, cantidad, ganancia, envio,
+    })
+}
+
 async function handleOrdersMessage(sock, msg) {
     const image = msg.message?.imageMessage
     const text = getText(msg)
@@ -322,6 +377,19 @@ async function handleOrdersMessage(sock, msg) {
             })
             return
         }
+
+        if (pending.type === 'disambig_moda') {
+            const { clientes, cantidad, ganancia, envio } = pending.payload
+            if (bareNum < 1 || bareNum > clientes.length) {
+                orders.setPending(ORDERS_GID, 'disambig_moda', pending.payload)
+                await sock.sendMessage(ORDERS_GID, { text: `⚠️ Responde un número del 1 al ${clientes.length}.` })
+                return
+            }
+            const elegido = clientes[bareNum - 1]
+            orders.clearPending(ORDERS_GID)
+            await crearPedidoModa(sock, { nombre: elegido.nombre, telefono: elegido.telefono, cantidad, ganancia, envio })
+            return
+        }
     }
 
     if (!text || !text.startsWith('/')) return
@@ -341,7 +409,8 @@ async function handleOrdersMessage(sock, msg) {
                 `*🤖 Comandos disponibles*\n\n` +
                 `*Iniciar sesión:*\n` +
                 `/venta — venta en tienda (Mostrador)\n` +
-                `/pedido <tel o nombre> — pedido para cliente\n\n` +
+                `/pedido <tel o nombre> — pedido para cliente\n` +
+                `/pedido <cliente> moda <cantidad> <ganancia> — venta rápida sin producto (ej. /pedido Victor moda 12 100)\n\n` +
                 `*Durante la sesión:*\n` +
                 `/items — ver ítems agregados\n` +
                 `/quitar <N> — quitar ítem número N\n` +
@@ -375,6 +444,18 @@ async function handleOrdersMessage(sock, msg) {
     }
 
     if (cmd === '/pedido') {
+        if (args.some((a) => a.toLowerCase() === 'moda')) {
+            const moda = parseModaArgs(args)
+            if (!moda) {
+                await sock.sendMessage(ORDERS_GID, {
+                    text: 'Uso: /pedido <cliente> moda <cantidad> <ganancia> [envio=X]\nEjemplo: /pedido Victor moda 12 100',
+                })
+                return
+            }
+            await resolveClienteYCrearModa(sock, moda)
+            return
+        }
+
         const query = args.join(' ').trim()
         if (!query) {
             await sock.sendMessage(ORDERS_GID, {
