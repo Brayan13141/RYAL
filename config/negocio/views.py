@@ -5,7 +5,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.core.paginator import Paginator
 from django.core.signing import Signer, BadSignature
 import datetime
-from django.db.models import Q, Count, Sum, F, ExpressionWrapper, DecimalField as DjDecimalField
+from django.db.models import Q, Count, Sum
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404, redirect
 from django.views.decorators.http import require_POST
@@ -15,6 +15,7 @@ from django_ratelimit.decorators import ratelimit
 from catalog.models import Category, Product
 from .forms import ClienteForm, PedidoForm, PagoForm, GastoForm, PedidoItemForm
 from .models import Cliente, Pedido, Pago, Gasto, PedidoItem
+from .utils import _mes_range, _MESES_ES, _GANANCIA_EXPR
 
 
 def _sync_estado_pedido(pedido):
@@ -197,19 +198,6 @@ def gastos_list(request):
 
 
 # ── Resumen ───────────────────────────────────────────────
-
-_MESES_ES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
-_GANANCIA_EXPR = ExpressionWrapper(
-    F('precio_venta') - F('costo_producto') - F('descuento_aplicado'),
-    output_field=DjDecimalField(max_digits=12, decimal_places=2),
-)
-
-
-def _mes_range(year, month):
-    """Devuelve (fecha_ini, fecha_fin) para el mes dado."""
-    ini = datetime.date(year, month, 1)
-    fin = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
-    return ini, fin
 
 
 @staff_member_required
