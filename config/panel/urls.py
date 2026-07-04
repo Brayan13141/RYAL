@@ -12,6 +12,7 @@ urlpatterns = [
     path('pedidos/<int:pk>/',             views.order_detail,        name='order_detail'),
     path('pedidos/<int:pk>/estado/',      views.order_status_update, name='order_status_update'),
     path('pedidos/<int:pk>/pago/',        views.order_payment_update, name='order_payment_update'),
+    path('pedidos/<int:pk>/descuento/',   views.order_descuento_apply, name='order_descuento_apply'),
     path('pedidos/<int:pk>/ticket/',         views.order_ticket,            name='order_ticket'),
     path('pedidos/<int:pk>/ticket/pdf/',    views.order_ticket_pdf,        name='order_ticket_pdf'),
     path('pedidos/<int:pk>/supplier/init/',   views.supplier_order_init,   name='supplier_order_init'),

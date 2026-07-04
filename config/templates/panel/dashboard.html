@@ -2,8 +2,30 @@
 {% block title %}Dashboard — Panel RYAL{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
 
+{% block extra_css %}
+<style>
+.dash-grid-4 { display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px; }
+.dash-grid-3 { display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px; }
+.dash-grid-2 { display:grid;grid-template-columns:1fr 320px;gap:14px;margin-bottom:20px;align-items:start; }
+@media(max-width:1024px){.dash-grid-4{grid-template-columns:repeat(2,1fr);}.dash-grid-2{grid-template-columns:1fr;}}
+@media(max-width:600px){.dash-grid-4{grid-template-columns:1fr;}.dash-grid-3{grid-template-columns:1fr;}}
+
+.kpi { background:var(--ps);border:1px solid var(--pl);border-radius:8px;padding:16px 18px;position:relative;overflow:hidden; }
+.kpi-lbl { font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:#555;font-weight:600;margin-bottom:6px; }
+.kpi-val { font-size:26px;font-weight:700;line-height:1;font-family:var(--f-mono);margin-bottom:4px; }
+.kpi-sub { font-size:11px;color:#555;font-family:var(--f-mono); }
+
+.kpi-sm { background:var(--ps);border:1px solid var(--pl);border-radius:8px;padding:12px 16px; }
+.kpi-sm .kpi-lbl { font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:4px; }
+.kpi-sm .kpi-val { font-size:18px;font-weight:700;font-family:var(--f-mono); }
+.kpi-sm .kpi-sub { font-size:10px;color:#555;font-family:var(--f-mono);margin-top:2px; }
+
+.section-lbl { font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:#444;font-weight:600;margin-bottom:10px;margin-top:4px; }
+</style>
+{% endblock %}
+
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   new Chart(document.getElementById('chartVentas'), {
@@ -12,30 +34,43 @@ document.addEventListener('DOMContentLoaded', function () {
       labels: {{ chart_labels|safe }},
       datasets: [
         {
-          label: 'Ingresos MXN',
+          label: 'Ingresos',
           data: {{ chart_revenue|safe }},
-          backgroundColor: 'rgba(201,168,76,0.7)',
+          backgroundColor: 'rgba(201,168,76,0.55)',
           borderColor: '#c9a84c',
           borderWidth: 1,
-          borderRadius: 4,
+          borderRadius: 3,
+          order: 3,
         },
         {
-          label: 'Ganancia MXN',
+          label: 'Ganancia',
           data: {{ chart_profit|safe }},
-          backgroundColor: 'rgba(80,200,120,0.5)',
+          backgroundColor: 'rgba(80,200,120,0.6)',
           borderColor: '#50c878',
           borderWidth: 1,
-          borderRadius: 4,
+          borderRadius: 3,
+          order: 2,
+        },
+        {
+          label: 'Gastos',
+          data: {{ chart_gastos|safe }},
+          type: 'line',
+          borderColor: '#e05560',
+          backgroundColor: 'rgba(224,85,96,0.1)',
+          borderWidth: 2,
+          pointRadius: 3,
+          fill: false,
+          order: 1,
         },
       ],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: '#aaa', boxWidth: 12 } } },
+      plugins: { legend: { labels: { color: '#888', boxWidth: 10, font:{size:11} } } },
       scales: {
-        x: { ticks: { color: '#666' }, grid: { color: '#1a1a1a' } },
-        y: { ticks: { color: '#666' }, grid: { color: '#1a1a1a' }, beginAtZero: true },
+        x: { ticks: { color:'#555',font:{size:11} }, grid: { color:'#1a1a1a' } },
+        y: { ticks: { color:'#555',font:{size:11} }, grid: { color:'#1a1a1a' }, beginAtZero:true },
       },
     },
   });
@@ -45,112 +80,190 @@ document.addEventListener('DOMContentLoaded', function () {
 
 {% block content %}
 
-<!-- Métricas de ventas -->
-<h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:#555;font-weight:600;margin-bottom:12px;">Ventas (excluye cancelados)</h3>
-<div class="stat-grid" style="margin-bottom:28px;">
-  <div class="stat">
-    <div class="stat-lbl">Ingresos hoy</div>
-    <div class="stat-val" style="color:var(--pg);">${{ rev_hoy|floatformat:0 }}</div>
-    <div class="stat-sub">Ganancia: ${{ ganancia_hoy }}</div>
-  </div>
-  <div class="stat">
-    <div class="stat-lbl">Ingresos 7 días</div>
-    <div class="stat-val" style="color:var(--pg);">${{ rev_semana|floatformat:0 }}</div>
-    <div class="stat-sub">Ganancia: ${{ ganancia_semana }}</div>
-  </div>
-  <div class="stat">
-    <div class="stat-lbl">Ingresos este mes</div>
-    <div class="stat-val" style="color:var(--pg);">${{ rev_mes|floatformat:0 }}</div>
-    <div class="stat-sub">Ganancia: ${{ ganancia_mes }}</div>
-  </div>
-</div>
+<!-- ── Sección: KPIs del mes ──────────────────────────────────────────── -->
+<div class="section-lbl">Este mes</div>
+<div class="dash-grid-4">
 
-<!-- Gráfica últimos 7 días -->
-<div class="p-card" style="margin-bottom:28px;">
-  <div class="p-card-head"><h2>Últimos 7 días</h2></div>
-  <div style="padding:16px;height:200px;">
-    <canvas id="chartVentas"></canvas>
+  <div class="kpi" style="border-color:rgba(80,200,120,.25);">
+    <div class="kpi-lbl">Ganancia</div>
+    <div class="kpi-val" style="color:#50c878;">${{ gan_mes|floatformat:0 }}</div>
+    <div class="kpi-sub">MXN neta de costos y descuentos</div>
   </div>
-</div>
 
-<!-- Stats de pedidos -->
-<h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:#555;font-weight:600;margin-bottom:12px;">Estado de pedidos</h3>
-<div class="stat-grid" style="margin-bottom:28px;">
-  {% for key, info in counts.items %}
-  <a href="{% url 'panel:orders_list' %}?status={{ key }}" style="text-decoration:none;">
-    <div class="stat {% if info.n > 0 and key == 'pending' %}stat-gold{% endif %}">
-      <div class="stat-lbl">{{ info.label }}</div>
-      <div class="stat-val">{{ info.n }}</div>
+  <div class="kpi" style="border-color:{% if balance_mes >= 0 %}rgba(80,200,120,.2){% else %}rgba(224,85,96,.2){% endif %};">
+    <div class="kpi-lbl">Balance (gan − gastos)</div>
+    <div class="kpi-val" style="color:{% if balance_mes >= 0 %}#50c878{% else %}#e05560{% endif %};">
+      {% if balance_mes >= 0 %}+{% endif %}${{ balance_mes|floatformat:0 }}
     </div>
-  </a>
-  {% endfor %}
+    <div class="kpi-sub">Gastos: ${{ gastos_mes|floatformat:0 }} MXN</div>
+  </div>
+
+  <div class="kpi">
+    <div class="kpi-lbl">Ingresos</div>
+    <div class="kpi-val" style="color:var(--pg);">${{ rev_mes|floatformat:0 }}</div>
+    <div class="kpi-sub">MXN facturados (neto descuentos)</div>
+  </div>
+
+  <div class="kpi" style="border-color:rgba(224,85,96,.2);">
+    <div class="kpi-lbl">Gastos</div>
+    <div class="kpi-val" style="color:#e05560;">${{ gastos_mes|floatformat:0 }}</div>
+    <div class="kpi-sub">
+      Descuentos aplicados: ${{ descuentos_mes|floatformat:0 }}
+    </div>
+  </div>
+
 </div>
 
-<!-- Stats de inventario -->
-<h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:#555;font-weight:600;margin-bottom:12px;">Inventario</h3>
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:28px;">
+<!-- ── Sección: Sub-KPIs hoy / semana / operativos ────────────────────── -->
+<div class="dash-grid-4" style="margin-bottom:24px;">
+
+  <div class="kpi-sm">
+    <div class="kpi-lbl">Ingresos hoy</div>
+    <div class="kpi-val" style="color:var(--pg);">${{ rev_hoy|floatformat:0 }}</div>
+    <div class="kpi-sub">Ganancia: ${{ gan_hoy|floatformat:0 }}</div>
+  </div>
+
+  <div class="kpi-sm">
+    <div class="kpi-lbl">Ingresos 7 días</div>
+    <div class="kpi-val" style="color:var(--pg);">${{ rev_semana|floatformat:0 }}</div>
+    <div class="kpi-sub">Ganancia: ${{ gan_semana|floatformat:0 }}</div>
+  </div>
+
+  <div class="kpi-sm" style="border-color:{% if pedidos_sin_pagar > 0 %}rgba(232,160,32,.3){% else %}var(--pl){% endif %};">
+    <div class="kpi-lbl">Sin liquidar</div>
+    <div class="kpi-val" style="color:{% if pedidos_sin_pagar > 0 %}#e8a020{% else %}#50c878{% endif %};">{{ pedidos_sin_pagar }}</div>
+    <div class="kpi-sub">pedidos no marcados como pagados</div>
+  </div>
+
+  <div class="kpi-sm">
+    <div class="kpi-lbl">Total pedidos</div>
+    <div class="kpi-val">{{ total_orders }}</div>
+    <div class="kpi-sub">histórico</div>
+  </div>
+
+  <div class="kpi-sm" style="border-color:{% if pedidos_negocio_pendientes > 0 %}rgba(232,160,32,.3){% else %}var(--pl){% endif %};">
+    <div class="kpi-lbl">Adelantos / saldo pendiente</div>
+    <div class="kpi-val" style="color:{% if pedidos_negocio_pendientes > 0 %}#e8a020{% else %}#50c878{% endif %};">{{ pedidos_negocio_pendientes }}</div>
+    <div class="kpi-sub">${{ saldo_negocio_pendiente|floatformat:0 }} MXN por cobrar (WhatsApp/tienda)</div>
+  </div>
+
+</div>
+
+<!-- ── Sección: Chart + Estado de pedidos ─────────────────────────────── -->
+<div class="dash-grid-2" style="margin-bottom:24px;">
+
+  <div class="p-card">
+    <div class="p-card-head"><h2>Últimos 7 días</h2></div>
+    <div style="padding:16px;height:210px;">
+      <canvas id="chartVentas"></canvas>
+    </div>
+  </div>
+
+  <div class="p-card">
+    <div class="p-card-head"><h2>Estado de pedidos</h2></div>
+    <div class="p-card-body" style="display:flex;flex-direction:column;gap:8px;">
+      {% for key, info in counts.items %}
+      <a href="{% url 'panel:orders_list' %}?status={{ key }}" style="text-decoration:none;display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border-radius:6px;background:var(--pb);border:1px solid var(--pl);transition:border-color .15s;" onmouseover="this.style.borderColor='#333'" onmouseout="this.style.borderColor='var(--pl)'">
+        <span style="font-size:12px;color:#aaa;">{{ info.label }}</span>
+        <span class="bs bs-{{ key }}" style="font-size:11px;padding:2px 10px;">{{ info.n }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Sección: Productos más vendidos ────────────────────────────────── -->
+{% if top_productos %}
+<div class="section-lbl" style="margin-top:4px;">Top productos — este mes</div>
+<div class="p-card" style="margin-bottom:24px;">
+  <div style="overflow-x:auto;">
+    <table class="p-table">
+      <thead>
+        <tr>
+          <th style="width:32px;text-align:center;">#</th>
+          <th>Producto</th>
+          <th style="text-align:center;">Unidades</th>
+          <th style="text-align:right;">Ingresos</th>
+          <th style="text-align:right;">Ganancia est.</th>
+          <th style="text-align:right;">Margen</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in top_productos %}
+        <tr>
+          <td style="text-align:center;color:#444;font-size:12px;font-weight:600;">{{ forloop.counter }}</td>
+          <td>
+            <div style="color:#ddd;font-size:13px;font-weight:500;max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ p.name_snapshot }}</div>
+          </td>
+          <td style="text-align:center;">
+            <span style="font-size:15px;font-weight:700;color:var(--pg);">{{ p.units }}</span>
+            <span style="font-size:10px;color:#555;"> pzs</span>
+          </td>
+          <td style="text-align:right;font-family:var(--f-mono);color:#bbb;">${{ p.revenue|floatformat:0 }}</td>
+          <td style="text-align:right;font-family:var(--f-mono);color:#50c878;">${{ p.profit|floatformat:0 }}</td>
+          <td style="text-align:right;">
+            {% if p.revenue %}
+            <span style="font-size:11px;color:#666;font-family:var(--f-mono);">
+              {{ p.profit|floatformat:0 }}
+              /
+              {{ p.revenue|floatformat:0 }}
+              →
+              {% widthratio p.profit p.revenue 100 %}%
+            </span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Sección: Catálogo ───────────────────────────────────────────────── -->
+<div class="section-lbl">Catálogo</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:24px;">
   <a href="{% url 'panel:products_list' %}?active=1" style="text-decoration:none;">
-    <div class="stat">
-      <div class="stat-lbl">Activos</div>
-      <div class="stat-val" style="color:#50c878;">{{ p_active }}</div>
-    </div>
+    <div class="kpi-sm"><div class="kpi-lbl">Activos</div><div class="kpi-val" style="color:#50c878;">{{ p_active }}</div></div>
   </a>
   <a href="{% url 'panel:products_list' %}?active=0" style="text-decoration:none;">
-    <div class="stat">
-      <div class="stat-lbl">Inactivos</div>
-      <div class="stat-val" style="color:#ff6060;">{{ p_inactive }}</div>
-    </div>
+    <div class="kpi-sm"><div class="kpi-lbl">Inactivos</div><div class="kpi-val" style="color:#666;">{{ p_inactive }}</div></div>
   </a>
-  <div class="stat">
-    <div class="stat-lbl">Total</div>
-    <div class="stat-val">{{ p_active|add:p_inactive }}</div>
-  </div>
-</div>
-
-<!-- Salud del catálogo -->
-<h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:#555;font-weight:600;margin-bottom:12px;">Salud del catálogo</h3>
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:28px;">
-
   <a href="{% url 'panel:products_list' %}?no_image=1" style="text-decoration:none;">
-    <div class="stat" style="border-left:3px solid {% if p_no_image > 0 %}#e05560{% else %}#2a2a2a{% endif %};">
-      <div class="stat-lbl">Sin imagen</div>
-      <div class="stat-val" style="color:{% if p_no_image > 0 %}#e05560{% else %}#50c878{% endif %};">{{ p_no_image }}</div>
-      <div class="stat-sub">Ver y gestionar →</div>
+    <div class="kpi-sm" style="border-color:{% if p_no_image > 0 %}rgba(224,85,96,.3){% else %}var(--pl){% endif %};">
+      <div class="kpi-lbl">Sin imagen</div>
+      <div class="kpi-val" style="color:{% if p_no_image > 0 %}#e05560{% else %}#50c878{% endif %};">{{ p_no_image }}</div>
     </div>
   </a>
-
   <a href="{% url 'panel:products_list' %}?active=1&no_image=1" style="text-decoration:none;">
-    <div class="stat" style="border-left:3px solid {% if p_active_no_image > 0 %}#e8a020{% else %}#2a2a2a{% endif %};">
-      <div class="stat-lbl">Activos sin imagen</div>
-      <div class="stat-val" style="color:{% if p_active_no_image > 0 %}#e8a020{% else %}#50c878{% endif %};">{{ p_active_no_image }}</div>
-      <div class="stat-sub">Visibles en catálogo sin foto</div>
+    <div class="kpi-sm" style="border-color:{% if p_active_no_image > 0 %}rgba(232,160,32,.3){% else %}var(--pl){% endif %};">
+      <div class="kpi-lbl">Activos sin imagen</div>
+      <div class="kpi-val" style="color:{% if p_active_no_image > 0 %}#e8a020{% else %}#50c878{% endif %};">{{ p_active_no_image }}</div>
+      <div class="kpi-sub">visibles sin foto</div>
     </div>
   </a>
-
   {% if p_active_no_image > 0 %}
-  <div class="stat" style="border-left:3px solid #e8a020;display:flex;flex-direction:column;justify-content:space-between;">
-    <div>
-      <div class="stat-lbl">Acción rápida</div>
-      <div class="stat-sub" style="margin-top:6px;color:#888;">Desactivar los {{ p_active_no_image }} activos sin foto</div>
-    </div>
-    <form method="post" action="{% url 'panel:product_bulk_action' %}" style="margin-top:10px;">
+  <div class="kpi-sm" style="display:flex;flex-direction:column;justify-content:space-between;border-color:rgba(232,160,32,.2);">
+    <div class="kpi-lbl">Acción rápida</div>
+    <form method="post" action="{% url 'panel:product_bulk_action' %}" style="margin-top:8px;">
       {% csrf_token %}
       <input type="hidden" name="action" value="deactivate">
       <input type="hidden" name="scope"  value="no_image">
-      <button type="button" class="btn-o btn-sm" style="width:100%;"
-              onclick="ryalConfirm({title:'Desactivar sin foto',msg:'¿Desactivar todos los productos que no tienen imagen?',okLabel:'Desactivar',danger:false}).then(function(ok){if(ok)this.closest('form').submit();}.bind(this))">
+      <button type="button" class="btn-o btn-sm" style="width:100%;font-size:11px;"
+              onclick="ryalConfirm({title:'Desactivar sin foto',msg:'¿Desactivar los {{ p_active_no_image }} activos sin imagen?',okLabel:'Desactivar',danger:false}).then(function(ok){if(ok)this.closest('form').submit();}.bind(this))">
         <i class="bi bi-slash-circle"></i> Desactivar sin foto
       </button>
     </form>
   </div>
   {% endif %}
-
 </div>
 
-<!-- Pedidos recientes -->
+<!-- ── Sección: Pedidos recientes ─────────────────────────────────────── -->
+<div class="section-lbl">Pedidos recientes</div>
 <div class="p-card">
   <div class="p-card-head">
-    <h2>Pedidos recientes</h2>
+    <h2>Últimos pedidos</h2>
     <a href="{% url 'panel:orders_list' %}" class="btn-o btn-sm">Ver todos</a>
   </div>
   <div style="overflow-x:auto;">
@@ -160,29 +273,27 @@ document.addEventListener('DOMContentLoaded', function () {
           <th>Código</th>
           <th>Cliente</th>
           <th>Teléfono</th>
-          <th>Items</th>
+          <th style="text-align:center;">Items</th>
+          <th style="text-align:right;">Total</th>
           <th>Estado</th>
-          <th>Fecha</th>
+          <th style="color:#555;">Fecha</th>
           <th></th>
         </tr>
       </thead>
       <tbody>
         {% for o in recent %}
         <tr>
-          <td><a href="{% url 'panel:order_detail' o.pk %}">{{ o.order_code }}</a></td>
-          <td>{{ o.customer_name }}</td>
-          <td style="color:#666;">{{ o.customer_phone }}</td>
-          <td>{{ o.total_items }}</td>
+          <td><a href="{% url 'panel:order_detail' o.pk %}" style="font-family:monospace;font-weight:600;color:var(--pg);">{{ o.order_code }}</a></td>
+          <td style="color:#ddd;">{{ o.customer_name }}</td>
+          <td style="color:#666;font-size:12px;">{{ o.customer_phone }}</td>
+          <td style="text-align:center;color:#888;">{{ o.total_items }}</td>
+          <td style="text-align:right;font-family:monospace;color:#bbb;">${{ o.total|floatformat:0 }}</td>
           <td><span class="bs bs-{{ o.status }}">{{ o.get_status_display }}</span></td>
-          <td style="color:#555;">{{ o.created_at|date:"d/m/y H:i" }}</td>
-          <td>
-            <a href="{% url 'panel:order_detail' o.pk %}" class="btn-o btn-sm">
-              <i class="bi bi-eye"></i>
-            </a>
-          </td>
+          <td style="color:#555;font-size:12px;white-space:nowrap;">{{ o.created_at|date:"d/m/y H:i" }}</td>
+          <td><a href="{% url 'panel:order_detail' o.pk %}" class="btn-o btn-sm"><i class="bi bi-eye"></i></a></td>
         </tr>
         {% empty %}
-        <tr><td colspan="7" style="text-align:center;color:#444;padding:24px;">Sin pedidos aún</td></tr>
+        <tr><td colspan="8" style="text-align:center;color:#444;padding:24px;">Sin pedidos aún</td></tr>
         {% endfor %}
       </tbody>
     </table>

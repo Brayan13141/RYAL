@@ -132,6 +132,20 @@
           {% endfor %}
         </tbody>
         <tfoot>
+          {% if order.descuento_aplicado %}
+          <tr>
+            <td colspan="5" style="text-align:right;padding:8px 12px;color:#666;font-size:12px;font-weight:600;border-top:1px solid #222;">SUBTOTAL</td>
+            <td style="text-align:right;padding:8px 12px;font-size:14px;font-weight:600;color:#888;border-top:1px solid #222;">
+              ${{ items_subtotal|floatformat:0 }} MXN
+            </td>
+          </tr>
+          <tr>
+            <td colspan="5" style="text-align:right;padding:4px 12px;color:#e8a020;font-size:12px;font-weight:600;">DESCUENTO</td>
+            <td style="text-align:right;padding:4px 12px;font-size:14px;font-weight:600;color:#e8a020;">
+              -${{ order.descuento_aplicado|floatformat:0 }} MXN
+            </td>
+          </tr>
+          {% endif %}
           <tr>
             <td colspan="5" style="text-align:right;padding:12px;color:#888;font-size:13px;font-weight:600;border-top:1px solid #222;">TOTAL</td>
             <td style="text-align:right;padding:12px;font-size:16px;font-weight:700;color:var(--pg);border-top:1px solid #222;">
@@ -172,6 +186,33 @@
       </div>
     </div>
 
+    <!-- Descuento -->
+    <div class="p-card" style="margin-bottom:16px;">
+      <div class="p-card-head"><h2>Descuento</h2></div>
+      <div class="p-card-body" style="display:flex;flex-direction:column;gap:11px;">
+
+        <div id="descuentoRow" style="display:{% if order.descuento_aplicado %}flex{% else %}none{% endif %};justify-content:space-between;align-items:center;">
+          <span style="font-size:12px;color:#888;">Descuento aplicado</span>
+          <span id="descuentoDisplay" style="font-weight:600;color:#e8a020;">-${{ order.descuento_aplicado|floatformat:0 }} MXN</span>
+        </div>
+
+        <div>
+          <label style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:5px;">Código</label>
+          <input type="text" id="codigoInput" placeholder="Ej. RYAB12CD34"
+                 style="width:100%;background:#0d0d0d;border:1px solid #1a1a1a;color:#ddd;padding:7px 10px;border-radius:4px;font-size:14px;font-family:monospace;outline:none;text-transform:uppercase;box-sizing:border-box;">
+        </div>
+
+        <button type="button" id="btnAplicarCodigo" class="btn-g" style="width:100%;">
+          <i class="bi bi-tag"></i> Aplicar código
+        </button>
+        <button type="button" id="btnQuitarCodigo" class="btn-r" style="width:100%;display:{% if order.descuento_aplicado %}block{% else %}none{% endif %};">
+          <i class="bi bi-x-circle"></i> Quitar descuento
+        </button>
+        <div id="codigoMsg" style="display:none;font-size:12px;text-align:center;"></div>
+
+      </div>
+    </div>
+
     <!-- Pago -->
     <div class="p-card" style="margin-bottom:16px;">
       <div class="p-card-head"><h2>Pago</h2></div>
@@ -179,7 +220,7 @@
 
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <span style="font-size:12px;color:#666;">Total del pedido</span>
-          <span style="font-weight:700;color:#ddd;">${{ order.total|floatformat:0 }} MXN</span>
+          <span id="orderTotalDisplay" style="font-weight:700;color:#ddd;">${{ order.total|floatformat:0 }} MXN</span>
         </div>
 
         <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -299,9 +340,69 @@ document.getElementById('btnWA').addEventListener('click', () => {
   window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
 });
 
+// ── Descuento ─────────────────────────────────────────────────────────────────
+const URL_DESCUENTO = '{% url "panel:order_descuento_apply" order.pk %}';
+
+async function applyCodigoDescuento(codigo) {
+  const msg = document.getElementById('codigoMsg');
+  msg.style.display = 'none';
+  const fd = new FormData();
+  fd.append('csrfmiddlewaretoken', CSRF);
+  if (codigo) fd.append('codigo', codigo);
+
+  const res  = await fetch(URL_DESCUENTO, { method: 'POST', body: fd });
+  const data = await res.json();
+
+  if (data.ok) {
+    ORDER_TOTAL = data.total;
+    updateBalance();
+    document.getElementById('orderTotalDisplay').textContent = `$${Math.round(data.total)} MXN`;
+
+    const descRow     = document.getElementById('descuentoRow');
+    const descDisplay = document.getElementById('descuentoDisplay');
+    const btnQuitar   = document.getElementById('btnQuitarCodigo');
+
+    if (data.descuento > 0) {
+      descDisplay.textContent  = `-$${Math.round(data.descuento)} MXN`;
+      descRow.style.display    = 'flex';
+      btnQuitar.style.display  = 'block';
+      msg.style.color          = '#50c878';
+      msg.textContent          = `Descuento de $${Math.round(data.descuento)} MXN aplicado.`;
+    } else {
+      descRow.style.display    = 'none';
+      btnQuitar.style.display  = 'none';
+      document.getElementById('codigoInput').value = '';
+      msg.style.color          = '#50c878';
+      msg.textContent          = 'Descuento removido.';
+    }
+  } else {
+    msg.style.color = '#e05560';
+    msg.textContent = data.error || 'Código inválido.';
+  }
+  msg.style.display = 'block';
+  setTimeout(() => { msg.style.display = 'none'; }, 3000);
+}
+
+document.getElementById('btnAplicarCodigo').addEventListener('click', () => {
+  const codigo = document.getElementById('codigoInput').value.trim().toUpperCase();
+  if (!codigo) {
+    const msg = document.getElementById('codigoMsg');
+    msg.style.color = '#e05560';
+    msg.textContent = 'Ingresa un código.';
+    msg.style.display = 'block';
+    setTimeout(() => { msg.style.display = 'none'; }, 2500);
+    return;
+  }
+  applyCodigoDescuento(codigo);
+});
+
+document.getElementById('btnQuitarCodigo').addEventListener('click', () => {
+  applyCodigoDescuento('');
+});
+
 // ── Pago ─────────────────────────────────────────────────────────────────────
-const URL_PAGO   = '{% url "panel:order_payment_update" order.pk %}';
-const ORDER_TOTAL = {{ order.total }};
+const URL_PAGO = '{% url "panel:order_payment_update" order.pk %}';
+let ORDER_TOTAL = {{ order.total }};
 const depositInput = document.getElementById('depositInput');
 
 function updateBalance() {
