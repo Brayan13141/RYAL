@@ -533,11 +533,22 @@ class CodigoDescuento(models.Model):
         (WEB,     'Solo web (ryalsneackers.com)'),
     ]
 
-    codigo         = models.CharField(max_length=50, unique=True)
+    FIJO     = 'fijo'
+    POR_ITEM = 'por_item'
+    TIPO_DESCUENTO_CHOICES = [
+        ('fijo',     'Fijo — descuenta un monto fijo del total'),
+        ('por_item', 'Por ítem — se multiplica por cada ítem del alcance'),
+    ]
+
+    codigo         = models.CharField(max_length=50, unique=True, blank=True)
     descripcion    = models.CharField(max_length=200, blank=True,
                                       help_text='Para qué clientes o promoción es este código.')
     descuento      = models.DecimalField(max_digits=8, decimal_places=2,
-                                         help_text='Monto fijo en MXN a descontar.')
+                                         help_text='Monto en MXN. Fijo: se aplica al total. Por ítem: se multiplica por cada ítem del alcance.')
+    tipo_descuento = models.CharField(
+        max_length=10, choices=TIPO_DESCUENTO_CHOICES, default='fijo',
+        help_text='Fijo: descuenta el monto sin importar cuántos ítems. Por ítem: multiplica el monto × cantidad de ítems del alcance.',
+    )
     canal          = models.CharField(
         max_length=10, choices=CANAL_CHOICES, default=AMBOS,
         help_text='Dónde puede usarse este código.',
@@ -564,6 +575,34 @@ class CodigoDescuento(models.Model):
         ordering = ['codigo']
         verbose_name = 'Código de descuento'
         verbose_name_plural = 'Códigos de descuento'
+
+    @staticmethod
+    def _generar_codigo():
+        import secrets, string
+        chars = string.ascii_uppercase + string.digits
+        for _ in range(20):
+            candidate = 'RY' + ''.join(secrets.choice(chars) for _ in range(8))
+            if not CodigoDescuento.objects.filter(codigo=candidate).exists():
+                return candidate
+        raise ValueError('No se pudo generar un código único.')
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        errors = {}
+        if self.canal == self.WEB and self.tipo_articulo_id:
+            errors['tipo_articulo'] = 'Los códigos de canal Web no pueden usar tipo de artículo (es exclusivo del negocio).'
+        if self.canal == self.NEGOCIO and self.categoria_web_id:
+            errors['categoria_web'] = 'Los códigos de canal Negocio no pueden tener categoría web.'
+        if self.tipo_articulo_id and self.categoria_web_id:
+            errors['categoria_web'] = 'No puedes combinar tipo de artículo y categoría web en el mismo código. Elige uno.'
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if not self.codigo:
+            self.codigo = self._generar_codigo()
+        self.codigo = self.codigo.strip().upper()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         scope = self.tipo_articulo.nombre if self.tipo_articulo_id else (

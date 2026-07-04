@@ -64,6 +64,11 @@
         <td style="background:var(--ps);border-top:1px solid var(--pl);border-bottom:1px solid var(--pl);padding:12px 14px">
           <span style="font-size:16px;font-weight:700;color:var(--pt)">${{ c.descuento }}</span>
           <span style="font-size:11px;color:var(--pm)"> MXN</span>
+          {% if c.tipo_descuento == 'por_item' %}
+          <div style="font-size:10px;color:#e8a020;margin-top:3px;font-family:monospace;letter-spacing:.03em;"><i class="bi bi-collection me-1"></i>× ítem</div>
+          {% else %}
+          <div style="font-size:10px;color:var(--pm);margin-top:3px;font-family:monospace;letter-spacing:.03em;opacity:.6"><i class="bi bi-tag me-1"></i>fijo</div>
+          {% endif %}
         </td>
 
         <td style="background:var(--ps);border-top:1px solid var(--pl);border-bottom:1px solid var(--pl);padding:12px 14px;min-width:120px">

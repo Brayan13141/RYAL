@@ -182,7 +182,24 @@ def api_codigos_validar_publico(request):
     codigo = str(payload.get('codigo', '')).strip()
     if not codigo:
         return JsonResponse({'error': 'codigo requerido'}, status=400)
-    descriptions = list(payload.get('descriptions', []))
-    categories = list(payload.get('categories', []))
     from catalog.services import validar_codigo
+    # items: modo preferido — [{qty, description, root_category_id}]
+    raw_items = payload.get('items')
+    if raw_items:
+        items = []
+        for it in raw_items:
+            try:
+                root_id = int(it['root_category_id']) if it.get('root_category_id') else None
+            except (ValueError, TypeError):
+                root_id = None
+            items.append({
+                'qty': int(it.get('qty', 1)),
+                'description': str(it.get('description', '')),
+                'root_category_id': root_id,
+            })
+        return JsonResponse(validar_codigo(codigo, canal='web', items=items))
+    # legacy: descriptions + category_ids
+    descriptions = list(payload.get('descriptions', []))
+    raw_ids = payload.get('category_ids', [])
+    categories = [(None, int(i)) for i in raw_ids if str(i).isdigit()]
     return JsonResponse(validar_codigo(codigo, descriptions, canal='web', categories=categories))

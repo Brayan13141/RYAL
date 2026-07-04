@@ -11,12 +11,21 @@ def buscar_tipo_articulo(texto: str):
     return None
 
 
-def validar_codigo(codigo: str, descriptions: list, canal: str = None, categories: list = None) -> dict:
+def validar_codigo(
+    codigo: str,
+    descriptions: list = None,
+    canal: str = None,
+    categories: list = None,
+    items: list = None,
+) -> dict:
     """
-    Valida un código de descuento.
-    descriptions: nombres de ítems (para matching por tipo_articulo en negocio).
-    canal: 'negocio' | 'web' | None (sin filtro).
-    categories: nombres de categorías de los ítems (para matching por categoria_web en web).
+    Valida y calcula el descuento de un código.
+
+    items: lista preferida — [{'qty': int, 'description': str, 'root_category_id': int|None}]
+           Habilita cálculo por ítem (tipo_descuento='por_item') y scope matching preciso.
+    descriptions + categories: modo legacy (qty=1 por entrada), usado cuando items=None.
+    canal: 'negocio' | 'web' | None (sin filtro de canal).
+
     Retorna dict: {valido, descuento, mensaje, codigo_id, tipo_nombre}
     """
     from .models import CodigoDescuento
@@ -35,29 +44,51 @@ def validar_codigo(codigo: str, descriptions: list, canal: str = None, categorie
     if code.usos_max is not None and code.usos_actuales >= code.usos_max:
         return {**_invalid, 'mensaje': 'Código agotado.'}
 
-    # Validar canal si se especifica
     if canal and code.canal != 'ambos' and code.canal != canal:
         canal_labels = {'negocio': 'el panel/bot', 'web': 'la tienda web'}
         return {**_invalid, 'mensaje': f'Código solo disponible en {canal_labels.get(code.canal, code.canal)}.'}
 
-    # Validar scope por tipo de artículo (negocio)
+    # Normalizar a lista uniforme para scope matching y cálculo
+    if items is not None:
+        items_norm = items
+    else:
+        descs = list(descriptions or [])
+        cats  = list(categories or [])
+        items_norm = [
+            {
+                'qty': 1,
+                'description': desc,
+                'root_category_id': cats[i][1] if i < len(cats) else None,
+            }
+            for i, desc in enumerate(descs)
+        ]
+
+    # Scope matching → qualifying items
     if code.tipo_articulo:
         tipo = code.tipo_articulo
-        matched = any(tipo.matches(desc) for desc in descriptions)
-        if not matched:
+        qualifying = [it for it in items_norm if tipo.matches(it.get('description', ''))]
+        if not qualifying:
             return {**_invalid, 'mensaje': f'Código solo aplica a {tipo.nombre}.'}
-
-    # Validar scope por categoría web
-    if code.categoria_web:
-        cat_name = code.categoria_web.name.lower()
-        cats = [c.lower() for c in (categories or [])]
-        if not any(cat_name in c or c in cat_name for c in cats):
+    elif code.categoria_web:
+        target_id = code.categoria_web_id
+        qualifying = [it for it in items_norm if it.get('root_category_id') == target_id]
+        if not qualifying:
             return {**_invalid, 'mensaje': f'Código solo aplica a {code.categoria_web.name}.'}
+    else:
+        qualifying = list(items_norm)
+
+    # Calcular monto del descuento
+    unit_amount = float(code.descuento)
+    if code.tipo_descuento == 'por_item':
+        total_qty = sum(it.get('qty', 1) for it in qualifying)
+        descuento_final = unit_amount * total_qty
+    else:
+        descuento_final = unit_amount
 
     return {
         'valido': True,
-        'descuento': float(code.descuento),
-        'mensaje': f'Descuento de ${code.descuento} MXN aplicado.',
+        'descuento': descuento_final,
+        'mensaje': f'Descuento de ${descuento_final:.0f} MXN aplicado.',
         'codigo_id': code.pk,
         'tipo_nombre': code.tipo_articulo.nombre if code.tipo_articulo_id else None,
     }

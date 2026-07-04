@@ -54,7 +54,7 @@ class GastoForm(forms.ModelForm):
         self.fields['fecha'].initial = datetime.date.today
 
 
-from catalog.models import TipoArticulo, CodigoDescuento
+from catalog.models import TipoArticulo, CodigoDescuento, Category
 from .models import PedidoItem
 
 
@@ -72,20 +72,46 @@ class TipoArticuloForm(forms.ModelForm):
 
 
 class CodigoDescuentoForm(forms.ModelForm):
+    categoria_web = forms.ModelChoiceField(
+        queryset=Category.objects.filter(parent__isnull=True).order_by('name'),
+        required=False,
+        empty_label='— Global (todas las categorías) —',
+        help_text='(Web) Solo aplica a productos de esta categoría raíz.',
+    )
+
     class Meta:
         model = CodigoDescuento
-        fields = ['codigo', 'descripcion', 'descuento', 'canal',
+        fields = ['codigo', 'descripcion', 'descuento', 'tipo_descuento', 'canal',
                   'tipo_articulo', 'categoria_web',
                   'is_active', 'usos_max', 'valid_hasta']
         widgets = {
             'valid_hasta': forms.DateInput(attrs={'type': 'date'}),
-            'codigo': forms.TextInput(attrs={'style': 'text-transform:uppercase'}),
+            'codigo': forms.TextInput(attrs={
+                'style': 'text-transform:uppercase',
+                'placeholder': 'Dejar vacío para generar automáticamente',
+            }),
             'descripcion': forms.TextInput(attrs={'placeholder': 'Ej. Descuento clientes mayoreo'}),
         }
         help_texts = {
-            'tipo_articulo': '(Negocio) Solo aplica si el pedido contiene artículos de este tipo.',
-            'categoria_web': '(Web) Solo aplica si el carrito contiene productos de esta categoría.',
+            'codigo': 'Opcional — si se deja vacío se genera automáticamente (ej. RYAB12CD).',
+            'tipo_articulo': '(Negocio) Solo aplica si el pedido contiene artículos de este tipo. No permitido en canal Web.',
+            'categoria_web': '(Web) Solo aplica a productos de esta categoría raíz. No permitido en canal Negocio.',
         }
+
+    def clean(self):
+        cleaned = super().clean()
+        canal         = cleaned.get('canal')
+        tipo_articulo = cleaned.get('tipo_articulo')
+        categoria_web = cleaned.get('categoria_web')
+
+        if canal == 'web' and tipo_articulo:
+            self.add_error('tipo_articulo', 'Canal Web no puede combinar con tipo de artículo (es exclusivo del negocio).')
+        if canal == 'negocio' and categoria_web:
+            self.add_error('categoria_web', 'Canal Negocio no puede combinar con categoría web.')
+        if tipo_articulo and categoria_web:
+            self.add_error('categoria_web', 'No puedes combinar tipo de artículo y categoría web en el mismo código.')
+
+        return cleaned
 
 
 class PedidoItemForm(forms.ModelForm):

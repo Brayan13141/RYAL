@@ -172,7 +172,7 @@
 
           <ul class="list-unstyled mb-0">
             {% for item in cart_items %}
-            <li class="d-flex gap-3 mb-3 pb-3" style="border-bottom:1px solid var(--line);" data-product-name="{{ item.name_snapshot }}" data-category-name="{{ item.category_name }}">
+            <li class="d-flex gap-3 mb-3 pb-3" style="border-bottom:1px solid var(--line);" data-product-name="{{ item.name_snapshot }}" data-root-category-id="{{ item.root_category_id|default:'' }}" data-quantity="{{ item.quantity }}">
               <div style="width:56px;height:56px;flex-shrink:0;background:var(--bg-3);border:1px solid var(--line);">
                 {% if item.cover_image %}
                   <img src="{{ item.cover_image.image.url }}" alt="{{ item.name_snapshot }}"
@@ -267,13 +267,13 @@
   const totalDisplay = document.getElementById('total-display')
   const baseTotal = parseFloat(totalDisplay ? totalDisplay.dataset.base : '0')
 
-  const cartDescriptions = Array.from(
+  const cartItems = Array.from(
     document.querySelectorAll('[data-product-name]')
-  ).map(el => el.dataset.productName)
-
-  const cartCategories = Array.from(
-    document.querySelectorAll('[data-category-name]')
-  ).map(el => el.dataset.categoryName).filter(Boolean)
+  ).map(el => ({
+    qty:              parseInt(el.dataset.quantity || '1'),
+    description:      el.dataset.productName,
+    root_category_id: el.dataset.rootCategoryId ? parseInt(el.dataset.rootCategoryId) : null,
+  }))
 
   function updateTotal(descuento) {
     if (!totalDisplay) return
@@ -292,14 +292,14 @@
       const res = await fetch('/api/negocio/codigos/validar-publico/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ codigo, descriptions: cartDescriptions, categories: cartCategories }),
+        body: JSON.stringify({ codigo, items: cartItems }),
       })
       const data = await res.json()
       if (data.valido) {
         codigoMsg.textContent = data.mensaje
         codigoMsg.style.color = '#28a745'
         descuentoRow.classList.remove('d-none')
-        descuentoDisplay.textContent = `−$${data.descuento} MXN`
+        descuentoDisplay.textContent = `−$${Math.round(data.descuento)} MXN`
         codigoHidden.value = codigo
         descuentoMontoHidden.value = data.descuento
         updateTotal(data.descuento)
