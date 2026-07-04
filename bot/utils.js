@@ -6,6 +6,12 @@
 const PRICE_TOKEN = /precio[:\s]+\$?\s*\d{2,5}(?:\.\d{1,2})?|\$\s*\d{2,5}(?:\.\d{1,2})?|\d{2,5}(?:\.\d{1,2})?\s*(?:c\/p|pesos?|mayoreo)/gi
 const NUM_IN_TOKEN = /\d{2,5}(?:\.\d{1,2})?/
 
+// Línea de "paquete" (venta por mayoreo de N piezas): el total del paquete
+// usa separador de miles ($4,750), que PRICE_TOKEN no reconoce, y su markup
+// no puede ser el mismo monto plano que un precio individual — debe ser
+// proporcional a la cantidad de piezas: cantidad x (precio c/u ya marcado).
+const PACKAGE_TOKEN = /(\d{1,3})\*?\s*pz\D{0,10}?\$\s*([\d,]+(?:\.\d{1,2})?)\s*\$\s*(\d{2,5})(?:\.\d{1,2})?\s*c\/u/gi
+
 const MIN_PRICE = 50
 const MAX_PRICE = 99999
 
@@ -42,11 +48,17 @@ function extractPrice(text) {
  */
 function markupCaption(text, markup) {
     if (!text) return text
-    return text.replace(PRICE_TOKEN, (token) => {
+    const marked = text.replace(PRICE_TOKEN, (token) => {
         const v = _tokenValue(token)
         if (!_inRange(v)) return token
         const m = token.match(NUM_IN_TOKEN)
         return token.replace(m[0], String(v + markup))
+    })
+    // El c/u de arriba ya quedó marcado; el total del paquete se recalcula
+    // desde ese c/u marcado x cantidad, en vez de sumarle el markup plano.
+    return marked.replace(PACKAGE_TOKEN, (full, qty, total, perUnitMarked) => {
+        const newTotal = parseInt(qty, 10) * parseFloat(perUnitMarked)
+        return full.replace(total, newTotal.toLocaleString('en-US'))
     })
 }
 

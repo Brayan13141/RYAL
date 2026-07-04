@@ -32,6 +32,25 @@ const MSG_HUGO = `💎BOTAS HUGO💎
 ▪️ $550 Mayoreo
 👁️ Ojo: A partir de una media corrida el precio es de $500c/p`
 
+// Mensaje real del proveedor con precios de paquete (capturado 2026-07-04)
+const MSG_PAQUETE = `*Pantalon de mezclilla*
+*AMERICAN EAGLE*
+!! *_UNICAS PIEZAS_*!!
+*Calidad G5 exportación*
+▪️Todo grabado
+▪️Botones  grabados
+▪️Etiqueta de la marca por dentro
+▪️Etiqueta igualita a la original
+*Tallas disponibles en cada foto*
+normal a la talla
+
+!! *SÚPER PAQUETE EMPRENDEDOR*!!
+_Paquete 1: *10* pz  por $4,750  $575c/u_
+_Paquete 2: *20* pz $9,200 $560 c/u_
+_Paquete 3: *50* pz $22,500 $550 c/u_
+*$600  Mayoreo*
+*$700 menudeo*`
+
 describe('extractPrice', () => {
     test('extrae precio con símbolo $', () => {
         expect(extractPrice('Nike Air Max 🔥 $350 disponible talla 42')).toBe(350)
@@ -114,6 +133,26 @@ describe('markupCaption', () => {
     })
     test('aplica markup a precio de 5 dígitos', () => {
         expect(markupCaption('$12000 mayoreo', 100)).toContain('$12100')
+    })
+    test('precio de paquete: total se recalcula proporcional a la cantidad (cantidad x (c/u + markup)), no +markup plano', () => {
+        const out = markupCaption(MSG_PAQUETE, 100)
+        // c/u ya se marca igual que un precio individual
+        expect(out).toContain('$675c/u')   // 575 -> 675
+        expect(out).toContain('$660 c/u')  // 560 -> 660
+        expect(out).toContain('$650 c/u')  // 550 -> 650
+        // total del paquete = cantidad x c/u marcado, no el original +100 plano
+        expect(out).toContain('$6,750')    // 10 x 675
+        expect(out).toContain('$13,200')   // 20 x 660
+        expect(out).toContain('$32,500')   // 50 x 650
+        expect(out).not.toContain('$4,750')  // total original sin marcar (bug)
+        expect(out).not.toContain('$9,200')
+        expect(out).not.toContain('$22,500')
+        expect(out).not.toContain('$4,850')  // +100 plano (fórmula incorrecta)
+        expect(out).not.toContain('$9,300')
+        expect(out).not.toContain('$22,600')
+        // precios individuales sin relación a paquete siguen igual
+        expect(out).toContain('$700  Mayoreo')
+        expect(out).toContain('$800 menudeo')
     })
 })
 
