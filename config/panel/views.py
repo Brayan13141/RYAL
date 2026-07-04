@@ -175,6 +175,15 @@ _ITEM_PROFIT = ExpressionWrapper(
     output_field=_DECIMAL,
 )
 
+_PEDIDO_ITEM_REVENUE = ExpressionWrapper(
+    F('precio_unitario') * F('cantidad'),
+    output_field=_DECIMAL,
+)
+_PEDIDO_ITEM_PROFIT = ExpressionWrapper(
+    (F('precio_unitario') - F('costo_unitario')) * F('cantidad'),
+    output_field=_DECIMAL,
+)
+
 
 def _stats(order_qs):
     """Net revenue + net profit for a queryset of orders (2 aggregate queries)."""
@@ -190,47 +199,97 @@ def _stats(order_qs):
     return revenue - total_discount, profit
 
 
+def _stats_pedido(pedido_qs):
+    """Net revenue + net profit for a queryset of Pedido (negocio: WhatsApp/tienda).
+
+    precio_venta/costo_producto/descuento_aplicado viven denormalizados en el propio
+    Pedido (negocio/services.py los mantiene sincronizados con sus PedidoItem), así
+    que un solo aggregate basta — a diferencia de Order, que exige sumar OrderItem.
+    """
+    agg = pedido_qs.aggregate(
+        precio=Sum('precio_venta'), costo=Sum('costo_producto'), descuento=Sum('descuento_aplicado'),
+    )
+    precio    = float(agg['precio'] or 0)
+    costo     = float(agg['costo'] or 0)
+    descuento = float(agg['descuento'] or 0)
+    return precio - descuento, precio - costo - descuento
+
+
 @_staff
 def dashboard(request):
-    from negocio.models import Gasto, Pedido
+    from negocio.models import Gasto, Pedido, PedidoItem
     now    = timezone.now()
     hoy    = now.replace(hour=0, minute=0, second=0, microsecond=0)
     semana = hoy - timedelta(days=6)
     mes    = hoy.replace(day=1)
     mes_date = hoy.date().replace(day=1)
 
-    base = Order.objects.exclude(status='cancelled')
+    base        = Order.objects.exclude(status='cancelled')
+    base_pedido = Pedido.objects.exclude(estado=Pedido.CANCELADO)
 
-    rev_hoy,    gan_hoy    = _stats(base.filter(created_at__gte=hoy))
-    rev_semana, gan_semana = _stats(base.filter(created_at__gte=semana))
-    rev_mes,    gan_mes    = _stats(base.filter(created_at__gte=mes))
+    # Cifras combinadas: checkout web (Order) + ventas WhatsApp/tienda (negocio.Pedido).
+    # Antes el dashboard solo veía Order y era ciego al canal principal del negocio.
+    rev_hoy_o,    gan_hoy_o    = _stats(base.filter(created_at__gte=hoy))
+    rev_semana_o, gan_semana_o = _stats(base.filter(created_at__gte=semana))
+    rev_mes_o,    gan_mes_o    = _stats(base.filter(created_at__gte=mes))
+
+    rev_hoy_p,    gan_hoy_p    = _stats_pedido(base_pedido.filter(created_at__gte=hoy))
+    rev_semana_p, gan_semana_p = _stats_pedido(base_pedido.filter(created_at__gte=semana))
+    rev_mes_p,    gan_mes_p    = _stats_pedido(base_pedido.filter(created_at__gte=mes))
+
+    rev_hoy,    gan_hoy    = rev_hoy_o + rev_hoy_p,       gan_hoy_o + gan_hoy_p
+    rev_semana, gan_semana = rev_semana_o + rev_semana_p, gan_semana_o + gan_semana_p
+    rev_mes,    gan_mes    = rev_mes_o + rev_mes_p,       gan_mes_o + gan_mes_p
 
     # Gastos (negocio)
     gastos_mes = float(Gasto.objects.filter(fecha__gte=mes_date).aggregate(t=Sum('monto'))['t'] or 0)
     balance_mes = gan_mes - gastos_mes
 
-    # Descuentos del mes
-    descuentos_mes = float(
+    # Descuentos del mes (Order + Pedido)
+    descuentos_mes_o = float(
         base.filter(created_at__gte=mes).aggregate(d=Sum('descuento_aplicado'))['d'] or 0
     )
+    descuentos_mes_p = float(
+        base_pedido.filter(created_at__gte=mes).aggregate(d=Sum('descuento_aplicado'))['d'] or 0
+    )
+    descuentos_mes = descuentos_mes_o + descuentos_mes_p
 
-    # Pedidos sin liquidar
+    # Pedidos sin liquidar (checkout web) — el saldo pendiente de negocio.Pedido
+    # ya se cubre aparte con pedidos_negocio_pendientes / saldo_negocio_pendiente.
     pedidos_sin_pagar = Order.objects.exclude(status='cancelled').filter(is_paid=False).count()
 
-    # Top productos del mes
-    top_productos = list(
+    # Top productos del mes — combinado Order (checkout web) + Pedido con product FK
+    # (ventas de tienda física por SKU; las ventas de bot sin SKU no tienen product y quedan fuera).
+    top_acc = {}
+    for row in (
         OrderItem.objects
         .filter(order__in=base.filter(created_at__gte=mes), product__isnull=False)
         .values('product_id', 'name_snapshot')
-        .annotate(
-            units=Sum('quantity'),
-            revenue=Sum(_ITEM_REVENUE),
-            profit=Sum(_ITEM_PROFIT),
-        )
-        .order_by('-units')[:8]
-    )
+        .annotate(units=Sum('quantity'), revenue=Sum(_ITEM_REVENUE), profit=Sum(_ITEM_PROFIT))
+    ):
+        top_acc[row['product_id']] = {
+            'product_id':     row['product_id'],
+            'name_snapshot':  row['name_snapshot'],
+            'units':          row['units'] or 0,
+            'revenue':        float(row['revenue'] or 0),
+            'profit':         float(row['profit'] or 0),
+        }
+    for row in (
+        PedidoItem.objects
+        .filter(pedido__in=base_pedido.filter(created_at__gte=mes), product__isnull=False)
+        .values('product_id', 'nombre_snapshot')
+        .annotate(units=Sum('cantidad'), revenue=Sum(_PEDIDO_ITEM_REVENUE), profit=Sum(_PEDIDO_ITEM_PROFIT))
+    ):
+        acc = top_acc.setdefault(row['product_id'], {
+            'product_id': row['product_id'], 'name_snapshot': row['nombre_snapshot'],
+            'units': 0, 'revenue': 0.0, 'profit': 0.0,
+        })
+        acc['units']   += row['units'] or 0
+        acc['revenue'] += float(row['revenue'] or 0)
+        acc['profit']  += float(row['profit'] or 0)
+    top_productos = sorted(top_acc.values(), key=lambda r: r['units'], reverse=True)[:8]
 
-    # Gráfica 7 días — revenue, ganancia, gastos por día
+    # Gráfica 7 días — revenue, ganancia, gastos por día (Order + Pedido)
     chart_raw = (
         OrderItem.objects
         .filter(order__in=base.filter(created_at__gte=semana))
@@ -251,15 +310,26 @@ def dashboard(request):
         .values('fecha').annotate(g=Sum('monto'))
         .values_list('fecha', 'g')
     )
+    pedido_chart_raw = (
+        base_pedido.filter(created_at__gte=semana)
+        .annotate(day=TruncDate('created_at'))
+        .values('day')
+        .annotate(precio=Sum('precio_venta'), costo=Sum('costo_producto'), descuento=Sum('descuento_aplicado'))
+    )
+    pedido_chart_by_day = {row['day']: row for row in pedido_chart_raw}
 
     chart_labels, chart_revenue, chart_profit, chart_gastos = [], [], [], []
     for i in range(6, -1, -1):
         day  = (hoy - timedelta(days=i)).date()
         data = chart_by_day.get(day, {})
         disc = float(day_discounts.get(day) or 0)
+        pdat = pedido_chart_by_day.get(day, {})
+        p_precio    = float(pdat.get('precio') or 0)
+        p_costo     = float(pdat.get('costo') or 0)
+        p_descuento = float(pdat.get('descuento') or 0)
         chart_labels.append(day.strftime('%d/%m'))
-        chart_revenue.append(round(float(data.get('revenue') or 0) - disc))
-        chart_profit.append(round(float(data.get('gross_profit') or 0) - disc))
+        chart_revenue.append(round(float(data.get('revenue') or 0) - disc + p_precio - p_descuento))
+        chart_profit.append(round(float(data.get('gross_profit') or 0) - disc + p_precio - p_costo - p_descuento))
         chart_gastos.append(round(float(day_gastos.get(day) or 0)))
 
     _status_counts = dict(
