@@ -5,6 +5,7 @@ app_name = 'panel'
 
 urlpatterns = [
     path('',                              views.dashboard,           name='dashboard'),
+    path('resumen-global/',               views.resumen_global,      name='resumen_global'),
     path('inicio/',                       views.home_config,         name='home_config'),
     path('pedidos/',                      views.orders_list,         name='orders_list'),
     path('pedidos/exportar/',             views.orders_export,       name='orders_export'),

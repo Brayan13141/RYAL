@@ -16,6 +16,7 @@ from django.db.models.functions import TruncDate
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
@@ -1679,3 +1680,41 @@ def pendientes_approve_all(request):
         except Exception as e:
             errors.append(f'{pending.display_name}: {e}')
     return JsonResponse({'approved': count, 'errors': errors})
+
+
+@_staff
+def resumen_global(request):
+    from negocio.utils import _mes_range, _MESES_ES
+
+    hoy = timezone.now().date()
+    mes = request.GET.get('mes', f"{hoy.year}-{hoy.month:02d}")
+    todo = (mes == 'todo')
+
+    if not todo:
+        try:
+            y, m = map(int, mes.split('-'))
+            fecha_ini, fecha_fin = _mes_range(y, m)
+            periodo_label = f"{_MESES_ES[m - 1]} {y}"
+        except (ValueError, AttributeError, IndexError):
+            hoy_y, hoy_m = hoy.year, hoy.month
+            mes = f"{hoy_y}-{hoy_m:02d}"
+            fecha_ini, fecha_fin = _mes_range(hoy_y, hoy_m)
+            periodo_label = f"{_MESES_ES[hoy_m - 1]} {hoy_y}"
+    else:
+        periodo_label = 'Todo el tiempo'
+        fecha_ini = fecha_fin = None
+
+    meses_disponibles = []
+    for i in range(11, -1, -1):
+        tm = hoy.month - i
+        ty = hoy.year
+        while tm <= 0:
+            tm += 12
+            ty -= 1
+        meses_disponibles.append({'valor': f"{ty}-{tm:02d}", 'label': f"{_MESES_ES[tm - 1]} {ty}"})
+
+    return render(request, 'panel/resumen_global.html', {
+        'mes':               mes,
+        'periodo_label':     periodo_label,
+        'meses_disponibles': meses_disponibles,
+    })

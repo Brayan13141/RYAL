@@ -1,0 +1,20 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Resumen Global — Panel RYAL{% endblock %}
+{% block page_title %}Resumen Global{% endblock %}
+{% block content %}
+
+<!-- Selector de período -->
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
+  <form method="get" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+    <select name="mes" onchange="this.form.submit()"
+      style="background:#111;border:1px solid #2a2a2a;color:#ddd;padding:6px 14px;border-radius:6px;font-size:13px;cursor:pointer;outline:none;">
+      <option value="todo" {% if mes == 'todo' %}selected{% endif %}>Todo el tiempo</option>
+      {% for op in meses_disponibles %}
+      <option value="{{ op.valor }}" {% if mes == op.valor %}selected{% endif %}>{{ op.label }}</option>
+      {% endfor %}
+    </select>
+    <span style="font-size:13px;color:#555;">{{ periodo_label }}</span>
+  </form>
+</div>
+
+{% endblock %}
