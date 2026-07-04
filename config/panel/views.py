@@ -11,7 +11,8 @@ from urllib.parse import urlencode as _urlencode
 
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.paginator import Paginator
-from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum
+from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum, Value
+from django.db.models.functions import Coalesce
 from django.db.models.functions import TruncDate
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -162,55 +163,105 @@ def home_config(request):
 
 # ─── Dashboard ───────────────────────────────────────────────────────────────
 
+_DECIMAL = DecimalField(max_digits=12, decimal_places=2)
+_COST_FALLBACK = Value(100, output_field=_DECIMAL)
+
 _ITEM_REVENUE = ExpressionWrapper(
     F('price_snapshot') * F('quantity'),
-    output_field=DecimalField(max_digits=12, decimal_places=2),
+    output_field=_DECIMAL,
+)
+_ITEM_PROFIT = ExpressionWrapper(
+    (F('price_snapshot') - Coalesce(F('cost_snapshot'), _COST_FALLBACK)) * F('quantity'),
+    output_field=_DECIMAL,
 )
 
 
 def _stats(order_qs):
-    """Revenue + units for a queryset of orders — 1 aggregate query."""
-    result = (
+    """Net revenue + net profit for a queryset of orders (2 aggregate queries)."""
+    item_agg = (
         OrderItem.objects
         .filter(order__in=order_qs)
-        .aggregate(revenue=Sum(_ITEM_REVENUE), units=Sum('quantity'))
+        .aggregate(revenue=Sum(_ITEM_REVENUE), gross_profit=Sum(_ITEM_PROFIT))
     )
-    return float(result['revenue'] or 0), int(result['units'] or 0)
+    discount_agg = order_qs.aggregate(d=Sum('descuento_aplicado'))
+    total_discount = float(discount_agg['d'] or 0)
+    revenue = float(item_agg['revenue'] or 0)
+    profit  = float(item_agg['gross_profit'] or 0) - total_discount
+    return revenue - total_discount, profit
 
 
 @_staff
 def dashboard(request):
+    from negocio.models import Gasto, Pedido
     now    = timezone.now()
     hoy    = now.replace(hour=0, minute=0, second=0, microsecond=0)
     semana = hoy - timedelta(days=6)
     mes    = hoy.replace(day=1)
+    mes_date = hoy.date().replace(day=1)
 
     base = Order.objects.exclude(status='cancelled')
-    rev_hoy,    u_hoy    = _stats(base.filter(created_at__gte=hoy))
-    rev_semana, u_semana = _stats(base.filter(created_at__gte=semana))
-    rev_mes,    u_mes    = _stats(base.filter(created_at__gte=mes))
 
-    # Gráfica últimos 7 días — 1 query agrupada por día en lugar de 7 queries
+    rev_hoy,    gan_hoy    = _stats(base.filter(created_at__gte=hoy))
+    rev_semana, gan_semana = _stats(base.filter(created_at__gte=semana))
+    rev_mes,    gan_mes    = _stats(base.filter(created_at__gte=mes))
+
+    # Gastos (negocio)
+    gastos_mes = float(Gasto.objects.filter(fecha__gte=mes_date).aggregate(t=Sum('monto'))['t'] or 0)
+    balance_mes = gan_mes - gastos_mes
+
+    # Descuentos del mes
+    descuentos_mes = float(
+        base.filter(created_at__gte=mes).aggregate(d=Sum('descuento_aplicado'))['d'] or 0
+    )
+
+    # Pedidos sin liquidar
+    pedidos_sin_pagar = Order.objects.exclude(status='cancelled').filter(is_paid=False).count()
+
+    # Top productos del mes
+    top_productos = list(
+        OrderItem.objects
+        .filter(order__in=base.filter(created_at__gte=mes), product__isnull=False)
+        .values('product_id', 'name_snapshot')
+        .annotate(
+            units=Sum('quantity'),
+            revenue=Sum(_ITEM_REVENUE),
+            profit=Sum(_ITEM_PROFIT),
+        )
+        .order_by('-units')[:8]
+    )
+
+    # Gráfica 7 días — revenue, ganancia, gastos por día
     chart_raw = (
         OrderItem.objects
         .filter(order__in=base.filter(created_at__gte=semana))
         .annotate(day=TruncDate('order__created_at'))
         .values('day')
-        .annotate(revenue=Sum(_ITEM_REVENUE), units=Sum('quantity'))
+        .annotate(revenue=Sum(_ITEM_REVENUE), gross_profit=Sum(_ITEM_PROFIT))
     )
     chart_by_day = {row['day']: row for row in chart_raw}
 
-    chart_labels = []
-    chart_revenue = []
-    chart_profit = []
+    day_discounts = dict(
+        base.filter(created_at__gte=semana)
+        .annotate(day=TruncDate('created_at'))
+        .values('day').annotate(d=Sum('descuento_aplicado'))
+        .values_list('day', 'd')
+    )
+    day_gastos = dict(
+        Gasto.objects.filter(fecha__gte=semana.date())
+        .values('fecha').annotate(g=Sum('monto'))
+        .values_list('fecha', 'g')
+    )
+
+    chart_labels, chart_revenue, chart_profit, chart_gastos = [], [], [], []
     for i in range(6, -1, -1):
         day  = (hoy - timedelta(days=i)).date()
         data = chart_by_day.get(day, {})
+        disc = float(day_discounts.get(day) or 0)
         chart_labels.append(day.strftime('%d/%m'))
-        chart_revenue.append(round(float(data.get('revenue') or 0)))
-        chart_profit.append(int(data.get('units') or 0) * 100)
+        chart_revenue.append(round(float(data.get('revenue') or 0) - disc))
+        chart_profit.append(round(float(data.get('gross_profit') or 0) - disc))
+        chart_gastos.append(round(float(day_gastos.get(day) or 0)))
 
-    # 1 query instead of N queries (one per status)
     _status_counts = dict(
         Order.objects.values('status').annotate(n=Count('pk')).values_list('status', 'n')
     )
@@ -224,23 +275,39 @@ def dashboard(request):
     p_no_image        = Product.objects.filter(images__isnull=True).count()
     p_active_no_image = Product.objects.filter(is_active=True, images__isnull=True).count()
 
+    # Pedidos de negocio (WhatsApp/tienda) con saldo pendiente — incluye adelantos parciales
+    pedidos_negocio_pendientes = list(
+        Pedido.objects.filter(estado=Pedido.PENDIENTE).prefetch_related('pagos')
+    )
+    saldo_negocio_pendiente = sum(
+        (p.balance_pendiente for p in pedidos_negocio_pendientes), Decimal('0')
+    )
+
     return render(request, 'panel/dashboard.html', {
         'counts':             counts,
         'recent':             recent,
+        'top_productos':      top_productos,
         'p_active':           p_active,
         'p_inactive':         p_inactive,
         'p_no_image':         p_no_image,
         'p_active_no_image':  p_active_no_image,
         'total_orders':       Order.objects.count(),
         'rev_hoy':            round(rev_hoy),
-        'ganancia_hoy':       u_hoy * 100,
+        'gan_hoy':            round(gan_hoy),
         'rev_semana':         round(rev_semana),
-        'ganancia_semana':    u_semana * 100,
+        'gan_semana':         round(gan_semana),
         'rev_mes':            round(rev_mes),
-        'ganancia_mes':       u_mes * 100,
+        'gan_mes':            round(gan_mes),
+        'gastos_mes':         round(gastos_mes),
+        'balance_mes':        round(balance_mes),
+        'descuentos_mes':     round(descuentos_mes),
+        'pedidos_sin_pagar':  pedidos_sin_pagar,
+        'pedidos_negocio_pendientes': len(pedidos_negocio_pendientes),
+        'saldo_negocio_pendiente':    round(float(saldo_negocio_pendiente)),
         'chart_labels':       json.dumps(chart_labels),
         'chart_revenue':      json.dumps(chart_revenue),
         'chart_profit':       json.dumps(chart_profit),
+        'chart_gastos':       json.dumps(chart_gastos),
     })
 
 
@@ -321,8 +388,9 @@ def order_detail(request, pk):
         pk=pk,
     )
     return render(request, 'panel/order_detail.html', {
-        'order':          order,
-        'status_choices': Order.STATUS_CHOICES,
+        'order':           order,
+        'status_choices':  Order.STATUS_CHOICES,
+        'items_subtotal':  order.total + order.descuento_aplicado,
     })
 
 
@@ -358,6 +426,42 @@ def order_payment_update(request, pk):
     order.is_paid = request.POST.get('is_paid') == '1'
     order.save(update_fields=['deposit', 'is_paid', 'updated_at'])
     return JsonResponse({'ok': True})
+
+
+@_staff
+@require_POST
+def order_descuento_apply(request, pk):
+    from catalog.services import validar_codigo
+    order = get_object_or_404(Order, pk=pk)
+    codigo = (request.POST.get('codigo') or '').strip().upper()
+
+    if not codigo:
+        order.descuento_aplicado = Decimal('0')
+        order.save(update_fields=['descuento_aplicado', 'updated_at'])
+        return JsonResponse({'ok': True, 'descuento': 0, 'total': float(order.total), 'balance_due': float(order.balance_due)})
+
+    cart_items = []
+    for item in order.items.select_related('product__category__parent').all():
+        root_category_id = None
+        if item.product_id and item.product.category_id:
+            cat = item.product.category
+            root = cat.parent if cat.parent_id else cat
+            root_category_id = root.pk
+        cart_items.append({
+            'qty': item.quantity,
+            'description': item.name_snapshot,
+            'root_category_id': root_category_id,
+        })
+
+    resultado = validar_codigo(codigo, items=cart_items)
+    if not resultado['valido']:
+        return JsonResponse({'ok': False, 'error': resultado['mensaje']})
+
+    order.descuento_aplicado = Decimal(str(resultado['descuento']))
+    order.save(update_fields=['descuento_aplicado', 'updated_at'])
+    from catalog.models import CodigoDescuento
+    CodigoDescuento.objects.filter(codigo__iexact=codigo).update(usos_actuales=F('usos_actuales') + 1)
+    return JsonResponse({'ok': True, 'descuento': float(order.descuento_aplicado), 'total': float(order.total), 'balance_due': float(order.balance_due)})
 
 
 @_staff
@@ -1684,7 +1788,8 @@ def pendientes_approve_all(request):
 
 @_staff
 def resumen_global(request):
-    from negocio.utils import _mes_range, _MESES_ES
+    from negocio.models import Pedido
+    from negocio.utils import _mes_range, _MESES_ES, _GANANCIA_EXPR
 
     hoy = timezone.now().date()
     mes = request.GET.get('mes', f"{hoy.year}-{hoy.month:02d}")
@@ -1700,9 +1805,16 @@ def resumen_global(request):
             mes = f"{hoy_y}-{hoy_m:02d}"
             fecha_ini, fecha_fin = _mes_range(hoy_y, hoy_m)
             periodo_label = f"{_MESES_ES[hoy_m - 1]} {hoy_y}"
+        orders_qs = Order.objects.exclude(status='cancelled').filter(
+            created_at__date__gte=fecha_ini, created_at__date__lt=fecha_fin
+        )
+        pedidos_qs = Pedido.objects.filter(
+            estado=Pedido.PAGADO, fecha__gte=fecha_ini, fecha__lt=fecha_fin
+        )
     else:
         periodo_label = 'Todo el tiempo'
-        fecha_ini = fecha_fin = None
+        orders_qs = Order.objects.exclude(status='cancelled')
+        pedidos_qs = Pedido.objects.filter(estado=Pedido.PAGADO)
 
     meses_disponibles = []
     for i in range(11, -1, -1):
@@ -1713,8 +1825,26 @@ def resumen_global(request):
             ty -= 1
         meses_disponibles.append({'valor': f"{ty}-{tm:02d}", 'label': f"{_MESES_ES[tm - 1]} {ty}"})
 
+    rev_tienda, gan_tienda = _stats(orders_qs)
+
+    agg_negocio = pedidos_qs.aggregate(
+        vendido=Sum('precio_venta'),
+        ganancia=Sum(_GANANCIA_EXPR),
+    )
+    vendido_negocio = float(agg_negocio['vendido'] or 0)
+    ganancia_negocio = float(agg_negocio['ganancia'] or 0)
+
+    ingresos_total = rev_tienda + vendido_negocio
+    ganancia_total = gan_tienda + ganancia_negocio
+
     return render(request, 'panel/resumen_global.html', {
         'mes':               mes,
         'periodo_label':     periodo_label,
         'meses_disponibles': meses_disponibles,
+        'rev_tienda':        round(rev_tienda),
+        'gan_tienda':        round(gan_tienda),
+        'vendido_negocio':   round(vendido_negocio),
+        'ganancia_negocio':  round(ganancia_negocio),
+        'ingresos_total':    round(ingresos_total),
+        'ganancia_total':    round(ganancia_total),
     })
