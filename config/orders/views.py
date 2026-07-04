@@ -452,7 +452,14 @@ def _build_cart_items(cart):
             i.cover_image      = cover
             i.name_snapshot    = product.name
             i.variant_snapshot = item.get('variant_name', '')
-            i.category_name    = product.category.name if product.category_id else ''
+            if product.category_id:
+                cat = product.category
+                root = cat.parent if cat.parent_id else cat
+                i.category_name    = root.name
+                i.root_category_id = root.pk
+            else:
+                i.category_name    = ''
+                i.root_category_id = None
             i.quantity         = item['quantity']
             i.price_snapshot   = price_snapshot
             i.original_price   = original_price
@@ -542,10 +549,14 @@ def checkout_confirm(request):
 
     for key, item in cart.items():
         try:
-            product = Product.objects.get(pk=item['product_id'])
+            product = Product.objects.select_related('category__parent').get(pk=item['product_id'])
             variant = None
             if item.get('variant_id'):
                 variant = ProductVariant.objects.filter(pk=item['variant_id']).first()
+            try:
+                cost_snapshot = product.base_price + product.effective_shipping
+            except Exception:
+                cost_snapshot = None
 
             OrderItem.objects.create(
                 order            = order,
@@ -553,6 +564,7 @@ def checkout_confirm(request):
                 variant          = variant,
                 quantity         = item['quantity'],
                 price_snapshot   = item['price'],
+                cost_snapshot    = cost_snapshot,
                 sku_snapshot     = product.sku,
                 name_snapshot    = product.name,
                 variant_snapshot = item.get('variant_name', ''),
@@ -561,30 +573,32 @@ def checkout_confirm(request):
             continue
 
     if codigo_descuento_str:
-        from decimal import Decimal, InvalidOperation
+        from decimal import Decimal
         from catalog.services import validar_codigo
-        try:
-            monto = Decimal(descuento_monto_str)
-        except InvalidOperation:
-            monto = Decimal('0')
-        if monto > 0:
-            order_items_qs = order.items.select_related('product__category').all()
-            cart_names = [i.name_snapshot for i in order_items_qs]
-            cart_categories = [
-                i.product.category.name for i in order_items_qs
-                if i.product_id and i.product.category_id
-            ]
-            resultado = validar_codigo(codigo_descuento_str, cart_names, canal='web', categories=cart_categories)
-            if resultado['valido']:
-                descuento_decimal = Decimal(str(resultado['descuento']))
-                order.descuento_aplicado = descuento_decimal
-                order.notes = f'Código de descuento: {codigo_descuento_str} (−${resultado["descuento"]:.0f} MXN)'
-                order.save(update_fields=['notes', 'descuento_aplicado'])
-                from django.db.models import F
-                from catalog.models import CodigoDescuento
-                CodigoDescuento.objects.filter(
-                    codigo__iexact=codigo_descuento_str
-                ).update(usos_actuales=F('usos_actuales') + 1)
+        order_items_qs = order.items.select_related('product__category__parent').all()
+        cart_items_for_validation = []
+        for i in order_items_qs:
+            root_category_id = None
+            if i.product_id and i.product.category_id:
+                cat = i.product.category
+                root = cat.parent if cat.parent_id else cat
+                root_category_id = root.pk
+            cart_items_for_validation.append({
+                'qty': i.quantity,
+                'description': i.name_snapshot,
+                'root_category_id': root_category_id,
+            })
+        resultado = validar_codigo(codigo_descuento_str, canal='web', items=cart_items_for_validation)
+        if resultado['valido']:
+            descuento_decimal = Decimal(str(resultado['descuento']))
+            order.descuento_aplicado = descuento_decimal
+            order.notes = f'Código de descuento: {codigo_descuento_str} (−${resultado["descuento"]:.0f} MXN)'
+            order.save(update_fields=['notes', 'descuento_aplicado'])
+            from django.db.models import F
+            from catalog.models import CodigoDescuento
+            CodigoDescuento.objects.filter(
+                codigo__iexact=codigo_descuento_str
+            ).update(usos_actuales=F('usos_actuales') + 1)
 
     _save_cart(request, {})
     if request.user.is_authenticated:

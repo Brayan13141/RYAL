@@ -78,7 +78,20 @@ class Order(models.Model):
 
     @property
     def ganancia(self):
-        return self.total_items * 100
+        from decimal import Decimal
+        total = Decimal('0')
+        for item in self.items.all():
+            if item.cost_snapshot is not None:
+                total += (item.price_snapshot - item.cost_snapshot) * item.quantity
+            elif item.product_id:
+                try:
+                    cost = item.product.base_price + item.product.effective_shipping
+                    total += (item.price_snapshot - cost) * item.quantity
+                except Exception:
+                    total += Decimal('100') * item.quantity
+            else:
+                total += Decimal('100') * item.quantity
+        return total - self.descuento_aplicado
 
     @property
     def balance_due(self):
@@ -100,6 +113,8 @@ class OrderItem(models.Model):
 
     # Snapshots — prices/names may change; order history stays accurate
     price_snapshot = models.DecimalField(max_digits=8, decimal_places=2)
+    cost_snapshot  = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True,
+                                         help_text='Costo (base + envío) al momento del pedido.')
     sku_snapshot = models.CharField(max_length=100)
     name_snapshot = models.CharField(max_length=200)
     variant_snapshot = models.CharField(max_length=100, blank=True)
