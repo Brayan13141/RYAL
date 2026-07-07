@@ -923,7 +923,7 @@
     <!-- ── Sidebar ── -->
     <aside class="p-sidebar" id="pSidebar">
       <div class="p-brand">
-        <i class="bi bi-gem p-brand-icon"></i>
+        <img src="{% static 'img/logo-ryal-white.png' %}" alt="RYAL" class="p-brand-icon" style="height: 28px; width: auto;">
         <div class="p-brand-text">
           <div class="p-brand-name">RYAL</div>
           <div class="p-brand-sub">Panel de control</div>
@@ -1072,6 +1072,12 @@
         </div>
 
         {% endwith %}
+
+        <div class="p-nav-sec">Sistema</div>
+        <a href="/admin/" title="Django Admin" target="_blank">
+          <i class="bi bi-gear"></i>
+          <span class="nav-label">Django Admin</span>
+        </a>
       </nav>
 
       <div class="p-sidebar-foot">
