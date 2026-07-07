@@ -51,6 +51,23 @@ _Paquete 3: *50* pz $22,500 $550 c/u_
 *$600  Mayoreo*
 *$700 menudeo*`
 
+// Mensaje real del proveedor con "$" pegado DESPUÉS del número, antes del
+// sufijo (capturado 2026-07-06). PRICE_TOKEN exigía "$" antes del número o
+// espacio antes del sufijo — "300$ Mayoreo" no matcheaba ninguna alternativa
+// y quedaba sin markup mientras "$350 c/p" sí lo recibía.
+const MSG_DOLAR_DESPUES = `*PUMA*
+Mod- 255
+▪️#_5 al 8_
+▪️ *300$ Mayoreo*
+▪️Caja de su marca
+▪️Caballero & juvenil
+Ojo: *A partir de una media corrida el precio es de $350 c/p*
+Ejemplo como viene la media corrida
+1pz del 5
+2pz del 6
+2pz del 7
+1pz del 8`
+
 describe('extractPrice', () => {
     test('extrae precio con símbolo $', () => {
         expect(extractPrice('Nike Air Max 🔥 $350 disponible talla 42')).toBe(350)
@@ -69,6 +86,9 @@ describe('extractPrice', () => {
     })
     test('en multi-precio devuelve el primero (mayoreo)', () => {
         expect(extractPrice(MSG_PUMA)).toBe(320)
+    })
+    test('reconoce precio con "$" pegado después del número ("300$ Mayoreo")', () => {
+        expect(extractPrice(MSG_DOLAR_DESPUES)).toBe(300)
     })
     test('retorna null si no hay número de precio válido', () => {
         expect(extractPrice('Hola cómo estás, me confirmás?')).toBeNull()
@@ -121,6 +141,13 @@ describe('markupCaption', () => {
         const out = markupCaption(MSG_HUGO, 100)
         expect(out).toContain('$650')     // 550 -> 650
         expect(out).toContain('$600c/p')  // 500 -> 600
+    })
+    test('marca "300$ Mayoreo" ($ pegado después del número, antes del sufijo)', () => {
+        const out = markupCaption(MSG_DOLAR_DESPUES, 100)
+        expect(out).toContain('400$ Mayoreo')   // 300 -> 400
+        expect(out).toContain('$450 c/p')       // 350 -> 450
+        expect(out).not.toContain('300$ Mayoreo')
+        expect(out).not.toContain('$350 c/p')
     })
     test('NO toca tallas ni números de modelo', () => {
         const out = markupCaption(MSG_PUMA, 100)
@@ -192,10 +219,10 @@ describe('buildRyalForward', () => {
 })
 
 describe('buildImageCaption', () => {
-    test('incluye el precio con $ y el pie de Ryal', () => {
+    test('incluye el precio con $ y "MXN"', () => {
         const cap = buildImageCaption(400)
         expect(cap).toContain('$400')
-        expect(cap).toContain('ryalsneackers.com')
+        expect(cap).toContain('MXN')
     })
 
     test('round-trip: extractPrice lee el precio del caption generado', () => {

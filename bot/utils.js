@@ -3,7 +3,7 @@
 //   "$" antes ($300, $ 300, $500c/p) | "precio" antes | "Mayoreo"/"c/p"/"pesos" después.
 // Un número desnudo NO es precio: así no se confunden tallas/modelos con precios
 // (#3 al 6, 1pz del 3, Modelo-013, Mod-01, New Balance 550, Air Max 270...).
-const PRICE_TOKEN = /precio[:\s]+\$?\s*\d{2,5}(?:\.\d{1,2})?|\$\s*\d{2,5}(?:\.\d{1,2})?|\d{2,5}(?:\.\d{1,2})?\s*(?:c\/p|pesos?|mayoreo)/gi
+const PRICE_TOKEN = /precio[:\s]+\$?\s*\d{2,5}(?:\.\d{1,2})?|\$\s*\d{2,5}(?:\.\d{1,2})?|\d{2,5}(?:\.\d{1,2})?\$\s*(?:c\/p|pesos?|mayoreo)|\d{2,5}(?:\.\d{1,2})?\s*(?:c\/p|pesos?|mayoreo)/gi
 const NUM_IN_TOKEN = /\d{2,5}(?:\.\d{1,2})?/
 
 // Línea de "paquete" (venta por mayoreo de N piezas): el total del paquete
