@@ -5,6 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from catalog.models import Category, Product, ProductImage, SizeGroup
+from orders.models import Order
 from orders.views import _cart_key
 from orders.management.commands.sync_modaverse_order import Command as SyncCmd
 
@@ -34,6 +35,10 @@ class NamesMatchTests(TestCase):
 
     def test_model_code_exact(self):
         self.assertTrue(self._m("RJ-003", "RJ-003"))
+
+    def test_match_cjk_suffix_codigo_alfanumerico(self):
+        # "TAA0638" SÍ debe matchear "TAA0638黑金" (código con letras + color CJK)
+        self.assertTrue(self._m("TAA0638", "TAA0638黑金"))
 
     # Casos que NO deben matchear (root cause de item 1)
     def test_no_match_cjk_color_suffix(self):
@@ -234,3 +239,52 @@ class CartAddFootwearColorwayTests(TestCase):
             cart[expected_key]["variant_name"],
             "Blanco · Talla 26",
         )
+
+
+class CheckoutConfirmValidacionesTests(TestCase):
+    """checkout_confirm: rechaza teléfono inválido y viola mínimos de categoría."""
+
+    def setUp(self):
+        self.cat = Category.objects.create(
+            name="Gorras Mayoreo", slug="gorras-mayoreo", min_order_qty=5,
+        )
+        self.product = Product.objects.create(
+            sku="RYL-VAL-1", name="Gorra Mayoreo", category=self.cat,
+            base_price=Decimal("100"),
+        )
+        self.url = reverse("orders:checkout_confirm")
+
+    def _set_cart(self, cart_dict):
+        session = self.client.session
+        session["cart"] = cart_dict
+        session.save()
+
+    def _cart_2_unidades(self):
+        return {
+            f"{self.product.pk}_none": {
+                "product_id": self.product.pk, "variant_id": None, "image_pk": None,
+                "variant_name": "", "quantity": 2, "price": 100.0,
+            }
+        }
+
+    def test_telefono_invalido_no_crea_order(self):
+        self._set_cart(self._cart_2_unidades())
+        res = self.client.post(self.url, {"nombre": "Ana", "telefono": "123"})
+        self.assertRedirects(res, reverse("orders:checkout"))
+        self.assertEqual(Order.objects.count(), 0)
+
+    def test_nombre_vacio_no_crea_order(self):
+        self._set_cart(self._cart_2_unidades())
+        res = self.client.post(self.url, {"nombre": "", "telefono": "5512345678"})
+        self.assertRedirects(res, reverse("orders:checkout"))
+        self.assertEqual(Order.objects.count(), 0)
+
+    def test_violacion_categoria_no_crea_order(self):
+        # category.min_order_qty=5, carrito trae 2 → viola el mínimo total
+        self._set_cart(self._cart_2_unidades())
+        res = self.client.post(self.url, {"nombre": "Ana", "telefono": "5512345678"})
+        # Verificar la sesión ANTES de assertRedirects: su GET interno a
+        # /checkout hace session.pop('checkout_warnings') y consume la clave.
+        self.assertIn("checkout_warnings", self.client.session)
+        self.assertRedirects(res, reverse("orders:checkout"))
+        self.assertEqual(Order.objects.count(), 0)

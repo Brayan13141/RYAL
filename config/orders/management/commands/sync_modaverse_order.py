@@ -892,18 +892,18 @@ class Command(BaseCommand):
         """
         True si los nombres son suficientemente similares.
 
-        Substring match se acepta cuando el match termina en espacio, fin de string,
-        o carácter CJK — cubre "TAA0638黑金" cuando buscamos "TAA0638".
-        Evita falsos positivos como "9026" matcheando "90261" (dígito siguiente).
+        Substring match se acepta cuando el match termina en espacio o fin de
+        string. Un sufijo CJK solo se acepta si el nombre buscado tiene letras
+        (código alfanumérico): cubre "TAA0638黑金" cuando buscamos "TAA0638",
+        pero un código numérico puro exige corte limpio — "9026" no matchea
+        "9026白" (colorway distinto) ni "90261", y "白金-10" no matchea
+        "白金-109" (dígito siguiente).
         """
         a = our_name.strip().lower()
         b = card_name.strip().lower()
         if not a or not b:
             return False
         if a == b:
-            return True
-        # Prefix match directo (nuestro nombre es prefijo del de la tarjeta)
-        if b.startswith(a) or a.startswith(b):
             return True
         for haystack, needle in ((b, a), (a, b)):
             idx = haystack.find(needle)
@@ -912,6 +912,8 @@ class Command(BaseCommand):
             end = idx + len(needle)
             after = haystack[end] if end < len(haystack) else ''
             if not after or after == ' ':
+                return True
+            if '一' <= after <= '鿿' and not needle.isdigit():
                 return True
         return False
 
