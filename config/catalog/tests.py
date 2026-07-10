@@ -14,7 +14,10 @@ from catalog.management.commands.load_productos import (
     _category_filter_ids,
     _build_existing_pids,
 )
-from catalog.models import Category, Product, Tag, TipoArticulo, CodigoDescuento
+from catalog.models import (
+    Category, Product, Tag, TipoArticulo, CodigoDescuento,
+    PendingProduct, ProductImage,
+)
 from catalog.services import buscar_tipo_articulo, validar_codigo
 from catalog.views import _annotate_final
 
@@ -1199,3 +1202,98 @@ class ValidarCodigoTest(TestCase):
     def test_retorna_tipo_nombre_cuando_aplica(self):
         result = validar_codigo('GORRA50', ['Gorra NY'])
         self.assertEqual(result['tipo_nombre'], 'Gorras')
+
+
+# ── cleanup_media: limpieza semanal de imágenes ──────────────────────────────
+
+class CleanupMediaTests(TestCase):
+    def setUp(self):
+        import tempfile
+        self._media = tempfile.mkdtemp(prefix='cleanup-media-test-')
+        self._override = override_settings(MEDIA_ROOT=self._media)
+        self._override.enable()
+        self.cat = Category.objects.create(name='Gorras CM', slug='gorras-cm')
+
+    def tearDown(self):
+        import shutil
+        self._override.disable()
+        shutil.rmtree(self._media, ignore_errors=True)
+
+    def _touch(self, relpath, age_days=30):
+        import os, time
+        path = os.path.join(self._media, relpath)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'wb') as f:
+            f.write(b'x' * 100)
+        old = time.time() - age_days * 86400
+        os.utime(path, (old, old))
+        return path
+
+    def _run(self, *args):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command('cleanup_media', *args, stdout=out, stderr=out)
+        return out.getvalue()
+
+    def _pending(self, status='rejected', cover='pending/cm-rechazado.jpg', url_suffix='CM1'):
+        return PendingProduct.objects.create(
+            supplier_url=f'https://modaverse.vip/#/proinfo/{url_suffix}',
+            display_name='Gorra CM',
+            category=self.cat,
+            base_price=100,
+            raw_data={},
+            status=status,
+            cover_image=cover,
+        )
+
+    def test_apply_borra_cover_de_rechazado_y_limpia_campo(self):
+        import os
+        pp = self._pending()
+        path = self._touch('pending/cm-rechazado.jpg')
+        self._run('--apply')
+        pp.refresh_from_db()
+        self.assertFalse(os.path.exists(path))
+        self.assertEqual(pp.cover_image, '')
+
+    def test_dry_run_no_borra_nada(self):
+        import os
+        pp = self._pending()
+        path = self._touch('pending/cm-rechazado.jpg')
+        orphan = self._touch('pending/cm-huerfano.jpg')
+        self._run()
+        pp.refresh_from_db()
+        self.assertTrue(os.path.exists(path))
+        self.assertTrue(os.path.exists(orphan))
+        self.assertNotEqual(pp.cover_image, '')
+
+    def test_apply_borra_huerfano_viejo_y_respeta_referenciado(self):
+        import os
+        product = Product.objects.create(
+            sku='RYL-CM-1', name='Gorra CM', category=self.cat, base_price=100,
+        )
+        ProductImage.objects.create(product=product, image='products/cm-ref.jpg')
+        ref = self._touch('products/cm-ref.jpg')
+        orphan = self._touch('products/cm-orphan.jpg')
+        self._run('--apply')
+        self.assertTrue(os.path.exists(ref))
+        self.assertFalse(os.path.exists(orphan))
+
+    def test_huerfano_reciente_se_respeta(self):
+        import os
+        product = Product.objects.create(
+            sku='RYL-CM-2', name='Gorra CM2', category=self.cat, base_price=100,
+        )
+        ProductImage.objects.create(product=product, image='products/cm-ref2.jpg')
+        self._touch('products/cm-ref2.jpg')
+        recent = self._touch('products/cm-recien.jpg', age_days=0)
+        self._run('--apply')
+        self.assertTrue(os.path.exists(recent))
+
+    def test_sin_referencias_en_bd_salta_directorio(self):
+        import os
+        # No hay ProductImage en BD → el paso products/ se salta por seguridad
+        orphan = self._touch('products/cm-solo.jpg')
+        out = self._run('--apply')
+        self.assertTrue(os.path.exists(orphan))
+        self.assertIn('saltado por seguridad', out)
