@@ -27,6 +27,22 @@ const logger = pino({ level: 'info' })
 const batch = createBatchBuffer()
 const orders = createOrderSessionStore()
 
+// Pausa entre imágenes al reenviar un lote: sin ella, hasta 50 descargas+resubidas
+// en ráfaga saturan el socket (keepalive perdido → 408 / stream errored → reconexión,
+// que dispara "Sincronizando..." en el teléfono vinculado).
+const PACE_BETWEEN_IMAGES_MS = 400
+
+// Cache de mensajes enviados para getMessage (retry receipts): cuando un
+// destinatario no puede descifrar, WA pide reenviar el mensaje; sin cache
+// Baileys responde undefined y esa entrega se pierde ("Falló la sincronización").
+const MSG_CACHE_MAX = 500
+const sentMsgCache = new Map()
+function cacheSentMessage(key, message) {
+    if (!key?.id || !message) return
+    if (sentMsgCache.size >= MSG_CACHE_MAX) sentMsgCache.delete(sentMsgCache.keys().next().value)
+    sentMsgCache.set(key.id, message)
+}
+
 
 async function getDescuento(telefono) {
     try {
@@ -66,6 +82,7 @@ async function flushBatch(sock, text, price) {
                 mimetype: img?.mimetype || 'image/jpeg',
             })
             sentCount++
+            await new Promise(r => setTimeout(r, PACE_BETWEEN_IMAGES_MS))
         } catch (err) {
             logger.error({ err: err.message }, 'No se pudo reenviar una imagen del lote — se omite')
         }
@@ -678,6 +695,10 @@ async function connect() {
         auth:    state,
         version: waVersion,
         logger:  pino({ level: 'warn' }),
+        // Ping más frecuente que el default (30s): detecta antes la conexión
+        // muerta y mantiene vivo el NAT durante los reenvíos de lotes pesados.
+        keepAliveIntervalMs: 20000,
+        getMessage: async (key) => sentMsgCache.get(key?.id),
     })
 
     sock.ev.on('creds.update', saveCreds)
@@ -706,6 +727,11 @@ async function connect() {
     })
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
+        // Cachear TODO mensaje propio (llega como 'append') para servir retry receipts
+        for (const m of messages) {
+            if (m.key?.fromMe && m.message) cacheSentMessage(m.key, m.message)
+        }
+
         if (type !== 'notify') return
 
         for (const msg of messages) {
