@@ -170,18 +170,30 @@ if not categories_raw:
 
 
 # ─── PASO 2: Parsear árbol ────────────────────────────────────────────────────
+# El proveedor a veces mete el precio de referencia dentro del nombre traducido
+# de la categoría/subcategoría (ej. "réplica top 380MXN"). El precio real de
+# Ryal lo define Category.profit_margin en Django, nunca debe venir del nombre.
+_PRICE_IN_NAME = re.compile(r'\s*\$?\s*\d+(?:\.\d+)?\s*(?:MXN|mxn|pesos?)\.?\s*$', re.IGNORECASE)
+
+
+def _clean_category_name(name):
+    if not name:
+        return name
+    return _PRICE_IN_NAME.sub('', name).strip()
+
+
 cat_id_to_name   = {}
 cat_id_to_parent = {}
 
 for cat in categories_raw:
     cid   = cat.get('categoryId', '')
-    name  = cat.get('foreignLanguageName') or cat.get('categoryName') or ''
+    name  = _clean_category_name(cat.get('foreignLanguageName') or cat.get('categoryName') or '')
     cat_id_to_name[cid] = name
 
     subcats = []
     for sub in (cat.get('categoryList') or []):
         sid   = sub.get('categoryId', '')
-        sname = sub.get('foreignLanguageName') or sub.get('categoryName') or ''
+        sname = _clean_category_name(sub.get('foreignLanguageName') or sub.get('categoryName') or '')
         cat_id_to_name[sid]    = sname
         cat_id_to_parent[sid]  = cid
         subcats.append({'id': sid, 'name_zh': sub.get('categoryName', ''), 'name_es': sname})
