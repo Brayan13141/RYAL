@@ -16,7 +16,10 @@ const WELCOME_MESSAGE =
     '3️⃣ Hablar con un asesor'
 
 const MENU_RESPONSES = {
-    1: '🛒 Explora el catálogo completo aquí:\n' +
+    1: '🛒 Tenemos dos catálogos:\n' +
+       '\n' +
+       '🏬 *Tienda física* — entrega más rápida. Pregúntanos qué hay disponible y te mandamos fotos.\n' +
+       '📱 *Catálogo web* — fabricación desde 0, mejor precio:\n' +
        '🌐 https://ryalsneackers.com\n' +
        '\n' +
        'Cuando veas algo que te guste, reenvíanos la imagen por este chat y te cotizamos 😉',
@@ -25,6 +28,11 @@ const MENU_RESPONSES = {
        '2. Reenvía por este chat la imagen del modelo que quieres y las tallas.\n' +
        '3. Te confirmamos el total y la forma de pago.\n' +
        '\n' +
+       '🎥 Mira el video de cómo pedir en nuestro Instagram:\n' +
+       'https://instagram.com/ryalsneackers\n' +
+       '\n' +
+       '👟 ¿Buscas *tenis calidad nacional*? Tenemos un grupo especial — pídenos el link.\n' +
+       '🚀 *Paquetes emprendedores:* todo lo de la tienda física para arrancar tu negocio — pregunta por ellos.\n' +
        '🚚 Hacemos envíos a todo México.',
     3: '👤 ¡Listo! En breve te atiende una persona del equipo Ryal.\n' +
        'Mientras tanto puedes mandarnos la foto del modelo que te interesa.',
