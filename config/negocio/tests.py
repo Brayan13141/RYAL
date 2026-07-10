@@ -235,7 +235,7 @@ class PedidosViewTest(TestCase):
         from urllib.parse import urlencode
         res = self.client.post(
             f'/panel/negocio/pedidos/{self.pedido.pk}/pago/',
-            urlencode({'fecha': datetime.date.today().isoformat(), 'monto': '200', 'notas': 'abono 1'}),
+            urlencode({'fecha': datetime.date.today().isoformat(), 'monto': '200', 'metodo_pago': 'efectivo', 'notas': 'abono 1'}),
             content_type='application/x-www-form-urlencoded',
         )
         self.assertEqual(res.status_code, 200)
@@ -248,7 +248,7 @@ class PedidosViewTest(TestCase):
         from urllib.parse import urlencode
         self.client.post(
             f'/panel/negocio/pedidos/{self.pedido.pk}/pago/',
-            urlencode({'fecha': datetime.date.today().isoformat(), 'monto': '350', 'notas': ''}),
+            urlencode({'fecha': datetime.date.today().isoformat(), 'monto': '350', 'metodo_pago': 'efectivo', 'notas': ''}),
             content_type='application/x-www-form-urlencoded',
         )
         self.pedido.refresh_from_db()
@@ -997,7 +997,8 @@ class PosProductosLabelUrlTest(TestCase):
 
 
 class CrearPedidoBotTest(TestCase):
-    def test_crea_pedido_pendiente_origen_bot(self):
+    def test_crea_pedido_pagado_origen_bot(self):
+        # Los pedidos creados por el bot se registran directamente como Pagado
         from negocio.services import crear_pedido_bot
         pedido = crear_pedido_bot(
             nombre='Bryan', telefono='5512345678',
@@ -1005,7 +1006,7 @@ class CrearPedidoBotTest(TestCase):
             envio=Decimal('0'),
         )
         self.assertEqual(pedido.origen, 'bot')
-        self.assertEqual(pedido.estado, Pedido.PENDIENTE)
+        self.assertEqual(pedido.estado, Pedido.PAGADO)
         self.assertEqual(pedido.precio_venta, Decimal('500'))
         self.assertEqual(pedido.costo_producto, Decimal('0'))
 
@@ -1245,7 +1246,8 @@ class CrearPedidoTiendaBotTest(TestCase):
         items = [{'description': 'tenis rojo', 'price': 450, 'qty': 2}]
         pedido = crear_pedido_tienda_bot(items=items)
         self.assertEqual(pedido.origen, Pedido.TIENDA)
-        self.assertEqual(pedido.estado, Pedido.PENDIENTE)
+        # Las ventas de tienda se registran directamente como Pagado
+        self.assertEqual(pedido.estado, Pedido.PAGADO)
         self.assertEqual(pedido.precio_venta, Decimal('900'))
         self.assertEqual(pedido.costo_producto, Decimal('0'))
 
