@@ -24,16 +24,17 @@ const MENU_RESPONSES = {
        '\n' +
        'Cuando veas algo que te guste, reenvíanos la imagen por este chat y te cotizamos 😉',
     2: '📦 *Cómo hacer un pedido:*\n' +
-       '1. Busca el modelo en el Grupo Ryal o en https://ryalsneackers.com\n' +
-       '2. Reenvía por este chat la imagen del modelo que quieres y las tallas.\n' +
-       '3. Te confirmamos el total y la forma de pago.\n' +
        '\n' +
-       '🎥 Mira el video de cómo pedir en nuestro Instagram:\n' +
-       'https://instagram.com/ryalsneackers\n' +
+       '🌐 *Por la página* — el pedido se hace directo en https://ryalsneackers.com\n' +
+       '🚚 Envío GRATIS y 🎁 *$200 MXN de descuento* en tu primer pedido.\n' +
+       '🎥 Video de cómo pedir:\n' +
+       'https://instagram.com/p/DajNuW1pQsS/\n' +
        '\n' +
-       '👟 ¿Buscas *tenis calidad nacional*? Tenemos un grupo especial — pídenos el link.\n' +
-       '🚀 *Paquetes emprendedores:* todo lo de la tienda física para arrancar tu negocio — pregunta por ellos.\n' +
-       '🚚 Hacemos envíos a todo México.',
+       '📲 *Por WhatsApp* — reenvía por este chat la imagen del modelo que quieres (del Grupo Ryal) con tus tallas y te confirmamos total y forma de pago.\n' +
+       '\n' +
+       '👟 *Tenis calidad nacional* — únete al grupo:\n' +
+       'https://chat.whatsapp.com/DtVZ8aANnFg8qacSGp9E5s\n' +
+       '🚀 *Paquetes emprendedores:* todo lo de la tienda física para arrancar tu negocio — pregunta por ellos.',
     3: '👤 ¡Listo! En breve te atiende una persona del equipo Ryal.\n' +
        'Mientras tanto puedes mandarnos la foto del modelo que te interesa.',
 }
