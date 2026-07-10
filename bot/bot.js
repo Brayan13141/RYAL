@@ -7,6 +7,7 @@ const { extractPrice, buildRyalForward, buildImageCaption, markupCaption, cleanC
 const { createBatchBuffer, MAX_PER_GROUP } = require('./batchBuffer')
 const { acquireAuthLock } = require('./lock')
 const { createOrderSessionStore } = require('./orderSession')
+const { WELCOME_MESSAGE, menuReply, isGreetableJid, createWelcomeStore } = require('./welcome')
 
 const AUTH_DIR = '.baileys_auth'
 
@@ -26,6 +27,8 @@ const ORDERS_GID = process.env.ORDERS_GROUP_ID  // undefined → feature deshabi
 const logger = pino({ level: 'info' })
 const batch = createBatchBuffer()
 const orders = createOrderSessionStore()
+// JIDs privados ya saludados — persiste junto a la sesión de esta instancia
+const welcome = createWelcomeStore({ filePath: '.welcome_seen.json' })
 
 // Pausa entre imágenes al reenviar un lote: sin ella, hasta 50 descargas+resubidas
 // en ráfaga saturan el socket (keepalive perdido → 408 / stream errored → reconexión,
@@ -145,6 +148,28 @@ async function handleSupplierMessage(sock, msg) {
 
 
 async function handleClientMessage(sock, msg) {
+    const jid = msg.key.remoteJid
+
+    // Bienvenida + menú para clientes nuevos (primer chat privado con este número)
+    if (isGreetableJid(jid) && !welcome.hasSeen(jid)) {
+        welcome.markSeen(jid)
+        try {
+            await sock.sendMessage(jid, { text: WELCOME_MESSAGE })
+            logger.info({ jid }, 'Bienvenida enviada a cliente nuevo')
+        } catch (err) {
+            logger.error({ err: err.message, jid }, 'No se pudo enviar la bienvenida')
+        }
+        // sin return: si su primer mensaje ya es una imagen cotizable, también se cotiza
+    }
+
+    // Respuestas del menú (1/2/3 o "menu") — solo texto exacto, no interfiere
+    // con precios/tallas porque esos nunca son un solo dígito 1-3
+    const option = menuReply(getText(msg))
+    if (option) {
+        await sock.sendMessage(jid, { text: option })
+        return
+    }
+
     const image = msg.message?.imageMessage
     if (!image) return
 
