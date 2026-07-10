@@ -212,8 +212,8 @@ describe('buildRyalForward', () => {
         expect(out).toContain('▪')
         // tallas intactas
         expect(out).toContain('#2 al 5')
-        // pie de Ryal con sus 2 emojis
-        expect(out).toContain('↪️ Reenvía esta imagen con las tallas que quieres para tu pedido.')
+        // pie de Ryal con sus emojis
+        expect(out).toContain('🔥 Reenvía la imagen del modelo que quieres y las tallas para tu pedido 🔥')
         expect(out).toContain('🌐 ryalsneackers.com')
     })
 })

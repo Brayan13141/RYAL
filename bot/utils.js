@@ -16,7 +16,7 @@ const MIN_PRICE = 50
 const MAX_PRICE = 99999
 
 const RYAL_FOOTER =
-    '↪️ Reenvía esta imagen con las tallas que quieres para tu pedido.\n' +
+    '🔥 Reenvía la imagen del modelo que quieres y las tallas para tu pedido 🔥\n' +
     '🌐 ryalsneackers.com'
 
 function _tokenValue(token) {
