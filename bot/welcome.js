@@ -26,9 +26,7 @@ const MENU_RESPONSES = {
     2: '📦 *Cómo hacer un pedido:*\n' +
        '\n' +
        '🌐 *Por la página* — el pedido se hace directo en https://ryalsneackers.com\n' +
-       '🚚 Envío GRATIS y 🎁 *$200 MXN de descuento* en tu primer pedido.\n' +
-       '🎥 Video de cómo pedir:\n' +
-       'https://instagram.com/p/DajNuW1pQsS/\n' +
+       '🚚 Envío GRATIS y 🎁 *$200 MXN de descuento* en tu primer pedido — solicítalo al administrador por este chat.\n' +
        '\n' +
        '📲 *Por WhatsApp* — reenvía por este chat la imagen del modelo que quieres (del Grupo Ryal) con tus tallas y te confirmamos total y forma de pago.\n' +
        '\n' +
