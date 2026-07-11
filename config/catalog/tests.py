@@ -892,42 +892,53 @@ class LoadModaverseRawNameTest(TestCase):
 
 
 class AutoSyncCatalogScheduleTests(TestCase):
-    """Verifica el mapa día→categoría sin tocar BD ni load_productos."""
+    """Verifica el mapa slot→categoría sin tocar BD ni load_productos."""
 
-    def _kw(self, weekday):
-        from catalog.management.commands.auto_sync_catalog import category_for_weekday
-        entry = category_for_weekday(weekday)
+    def _kw(self, slot):
+        from catalog.management.commands.auto_sync_catalog import category_for_slot
+        entry = category_for_slot(slot)
         return entry[0] if entry else None
 
-    def test_todos_los_dias_tienen_entrada(self):
-        from catalog.management.commands.auto_sync_catalog import category_for_weekday
-        for day in range(7):
-            self.assertIsNotNone(category_for_weekday(day), f'Falta día {day}')
+    def test_todos_los_slots_tienen_entrada(self):
+        from catalog.management.commands.auto_sync_catalog import category_for_slot
+        for slot in range(7):
+            self.assertIsNotNone(category_for_slot(slot), f'Falta slot {slot}')
 
-    def test_lunes_es_gorra(self):
+    def test_slot_0_es_gorra(self):
         self.assertIn('gorra', self._kw(0))
 
-    def test_martes_es_deportiva(self):
+    def test_slot_1_es_deportiva(self):
         self.assertIn('deportiva', self._kw(1))
 
-    def test_miercoles_es_1a1(self):
+    def test_slot_2_es_1a1(self):
         self.assertIn('1:1', self._kw(2))
 
-    def test_jueves_es_g5(self):
+    def test_slot_3_es_g5(self):
         self.assertIn('g5', self._kw(3))
 
-    def test_viernes_es_calzado(self):
+    def test_slot_4_es_calzado(self):
         self.assertIn('calzado', self._kw(4))
 
-    def test_sabado_es_auricular(self):
+    def test_slot_5_es_auricular(self):
         self.assertIn('auricular', self._kw(5))
 
-    def test_domingo_es_van_cleef(self):
+    def test_slot_6_es_van_cleef(self):
         self.assertIn('van cleef', self._kw(6))
 
-    def test_dia_invalido_retorna_none(self):
-        from catalog.management.commands.auto_sync_catalog import category_for_weekday
-        self.assertIsNone(category_for_weekday(7))
+    def test_slot_invalido_retorna_none(self):
+        from catalog.management.commands.auto_sync_catalog import category_for_slot
+        self.assertIsNone(category_for_slot(7))
+
+    def test_slot_for_date_avanza_cada_2_dias(self):
+        from datetime import date
+        from catalog.management.commands.auto_sync_catalog import slot_for_date
+        d0 = date(2026, 1, 1)
+        s0 = slot_for_date(d0)
+        # mismo día y el día siguiente caen en el mismo slot (bloque de 2 días)
+        self.assertEqual(slot_for_date(d0), s0)
+        # 2 días después ya avanzó al siguiente slot del ciclo
+        from datetime import timedelta
+        self.assertEqual(slot_for_date(d0 + timedelta(days=2)), (s0 + 1) % 7)
 
 
 class PendingProductApproveTests(TestCase):

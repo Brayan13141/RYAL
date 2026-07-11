@@ -1,6 +1,6 @@
 """
-Scrape + carga la categoría del día. Crontab diario en el servidor:
-  0 2 * * * cd ~/WEB_RYAL && PYTHONUTF8=1 venv/bin/python config/manage.py auto_sync_catalog >> /var/log/ryal_sync.log 2>&1
+Scrape + carga la categoría del slot. Crontab cada 2 días en el servidor:
+  0 2 */2 * * cd ~/WEB_RYAL && PYTHONUTF8=1 venv/bin/python config/manage.py auto_sync_catalog >> /var/log/ryal_sync.log 2>&1
 """
 import subprocess
 import sys
@@ -10,7 +10,9 @@ from pathlib import Path
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
 
-# Semana: 0=lunes … 6=domingo
+# Slot secuencial de 2 días (0-6) — NO es día de la semana. Con el cron corriendo
+# cada 2 días, cada ejecución cae en el siguiente slot; el ciclo completo de las
+# 7 categorías tarda 14 días. slot = (fecha_ordinal // 2) % 7 — ver slot_for_date().
 # (keywords_load, label, scraper_kw)
 # scraper_kw=None → no hay scraper para esa categoría (calzado usa yupoo)
 _SCHEDULE = {
@@ -27,9 +29,14 @@ _SCHEDULE = {
 _SCRAPER = 'scrape_modaverse_final.py'
 
 
-def category_for_weekday(weekday: int):
-    """Retorna (keywords, label) para el día dado (0=lunes). None si no hay entrada."""
-    entry = _SCHEDULE.get(weekday)
+def slot_for_date(d: date) -> int:
+    """Slot secuencial (0-6) para la fecha dada, avanzando 1 slot cada 2 días."""
+    return (d.toordinal() // 2) % 7
+
+
+def category_for_slot(slot: int):
+    """Retorna (keywords, label) para el slot dado (0-6). None si no hay entrada."""
+    entry = _SCHEDULE.get(slot)
     if entry is None:
         return None
     keywords, label = entry[0], entry[1]
@@ -37,12 +44,12 @@ def category_for_weekday(weekday: int):
 
 
 class Command(BaseCommand):
-    help = 'Scrape + sincroniza la categoría del día (crontab semanal).'
+    help = 'Scrape + sincroniza la categoría del slot (crontab cada 2 días, ciclo de 14 días).'
 
     def add_arguments(self, parser):
         parser.add_argument(
             '--day', type=int, default=None,
-            help='Forzar día de semana (0=lunes … 6=domingo). Por defecto: hoy.',
+            help='Forzar slot (0-6) en vez de calcularlo de la fecha de hoy. Por defecto: slot de hoy.',
         )
         parser.add_argument(
             '--dry-run', action='store_true',
@@ -62,16 +69,16 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        weekday = options['day'] if options['day'] is not None else date.today().weekday()
-        entry = _SCHEDULE.get(weekday)
+        slot = options['day'] if options['day'] is not None else slot_for_date(date.today())
+        entry = _SCHEDULE.get(slot)
 
         if entry is None:
-            self.stdout.write(f'Sin categoría programada para día {weekday}.')
+            self.stdout.write(f'Sin categoría programada para slot {slot}.')
             return
 
         keywords, label, scraper_kw = entry
         self.stdout.write(
-            f'[auto_sync_catalog] día {weekday} → {label}'
+            f'[auto_sync_catalog] slot {slot} → {label}'
             + (f'  |  scraper: --category {scraper_kw}' if scraper_kw else '  |  sin scrape (calzado)')
         )
 
