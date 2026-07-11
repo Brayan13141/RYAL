@@ -728,6 +728,19 @@ async function connect() {
 
     sock.ev.on('creds.update', saveCreds)
 
+    // WA reenvía un snapshot de chats recientes al conectar (cada arranque del
+    // proceso, no solo en el primer QR — ver AwaitingInitialSync en Baileys).
+    // Se usa para NO mandar la bienvenida a números que ya tenían conversación
+    // con este WhatsApp antes de que existiera el bot.
+    sock.ev.on('messaging-history.set', ({ chats }) => {
+        const jids = (chats || [])
+            .map(c => c.id)
+            .filter(isGreetableJid)
+        if (jids.length === 0) return
+        welcome.markSeenBulk(jids)
+        logger.info({ count: jids.length }, 'Chats existentes sembrados en welcome store — no recibirán bienvenida')
+    })
+
     sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
         // printQRInTerminal esta deprecado en Baileys >=6.6 — renderizamos el QR manualmente
         if (qr) {

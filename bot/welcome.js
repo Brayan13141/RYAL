@@ -10,10 +10,14 @@ const WELCOME_MESSAGE =
     '\n' +
     'Somos tienda de importación: tenis, gorras, ropa y más al mejor precio.\n' +
     '\n' +
+    'Estamos contestando mensajes constantemente, gracias por tu espera 🙏\n' +
+    '\n' +
     'Escribe el número de la opción que necesitas:\n' +
-    '1️⃣ Ver el catálogo\n' +
-    '2️⃣ Cómo hacer un pedido\n' +
-    '3️⃣ Hablar con un asesor'
+    '1. Ver el catálogo\n' +
+    '2. Cómo hacer un pedido\n' +
+    '3. Hablar con un asesor\n' +
+    '\n' +
+    'Responde solo con el número.'
 
 const MENU_RESPONSES = {
     1: '🛒 Tenemos dos catálogos:\n' +
@@ -82,16 +86,30 @@ function createWelcomeStore({ filePath, maxEntries = 20000 } = {}) {
         }
     }
 
+    function addWithoutPersist(jid) {
+        if (!jid || seen.has(jid)) return
+        if (seen.size >= maxEntries) {
+            seen.delete(seen.values().next().value)
+        }
+        seen.add(jid)
+    }
+
     return {
         hasSeen(jid) {
             return seen.has(jid)
         },
         markSeen(jid) {
-            if (!jid || seen.has(jid)) return
-            if (seen.size >= maxEntries) {
-                seen.delete(seen.values().next().value)
-            }
-            seen.add(jid)
+            addWithoutPersist(jid)
+            persist()
+        },
+        /**
+         * Marca varios JIDs de una vez con un solo write a disco — pensado para
+         * sembrar de golpe los chats que Baileys reporta como ya existentes
+         * (ver messaging-history.set en bot.js) sin escribir el archivo N veces.
+         */
+        markSeenBulk(jids) {
+            if (!jids || jids.length === 0) return
+            for (const jid of jids) addWithoutPersist(jid)
             persist()
         },
         size() {

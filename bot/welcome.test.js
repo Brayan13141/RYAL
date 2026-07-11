@@ -105,4 +105,20 @@ describe('createWelcomeStore', () => {
         store.markSeen('a@x')
         expect(store.size()).toBe(1)
     })
+
+    test('markSeenBulk marca varios JIDs y persiste', () => {
+        const s1 = createWelcomeStore({ filePath: tmpFile })
+        s1.markSeenBulk(['a@s.whatsapp.net', 'b@s.whatsapp.net', 'a@s.whatsapp.net'])
+        expect(s1.size()).toBe(2)
+        const s2 = createWelcomeStore({ filePath: tmpFile })
+        expect(s2.hasSeen('a@s.whatsapp.net')).toBe(true)
+        expect(s2.hasSeen('b@s.whatsapp.net')).toBe(true)
+    })
+
+    test('markSeenBulk con lista vacía o undefined no rompe', () => {
+        const store = createWelcomeStore({ filePath: tmpFile })
+        store.markSeenBulk([])
+        store.markSeenBulk(undefined)
+        expect(store.size()).toBe(0)
+    })
 })
