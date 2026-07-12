@@ -724,14 +724,21 @@ async function connect() {
         // muerta y mantiene vivo el NAT durante los reenvíos de lotes pesados.
         keepAliveIntervalMs: 20000,
         getMessage: async (key) => sentMsgCache.get(key?.id),
+        // Sin esto WA solo manda un snapshot de unos pocos chats recientes en
+        // messaging-history.set (verificado: 8-13 chats en un número con muchos
+        // más contactos reales) — el sembrado del filtro anti-spam de bienvenida
+        // quedaba incompleto y clientes viejos recibían la bienvenida de nuevo.
+        syncFullHistory: true,
     })
 
     sock.ev.on('creds.update', saveCreds)
 
-    // WA reenvía un snapshot de chats recientes al conectar (cada arranque del
-    // proceso, no solo en el primer QR — ver AwaitingInitialSync en Baileys).
+    // WA reenvía el historial de chats al conectar — solo se sembra de verdad
+    // en un login QR nuevo (verificado 2026-07-11: un `systemctl restart` con
+    // .baileys_auth ya guardado NO dispara este evento con datos útiles).
     // Se usa para NO mandar la bienvenida a números que ya tenían conversación
-    // con este WhatsApp antes de que existiera el bot.
+    // con este WhatsApp antes de que existiera el bot. Con syncFullHistory
+    // puede llegar en varios chunks — markSeenBulk acumula, no pisa.
     sock.ev.on('messaging-history.set', ({ chats }) => {
         const jids = (chats || [])
             .map(c => c.id)
