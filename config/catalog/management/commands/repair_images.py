@@ -30,6 +30,7 @@ from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand
 
 from catalog.models import Product, ProductImage
+from catalog.modaverse import pid_from_url
 
 _DOWNLOAD_HEADERS = {
     'User-Agent': (
@@ -181,9 +182,16 @@ class Command(BaseCommand):
         with open(json_path, encoding='utf-8') as f:
             data = json.load(f)
 
-        # Mapa supplier_url → images[]
-        url_to_images = {p['url']: p.get('images', []) for p in data.get('products', [])}
-        self.stdout.write(f'  JSON cargado: {len(url_to_images)} productos')
+        # Mapa pid → images[]. Las URLs del JSON (#/product/...?pid=X) NUNCA
+        # coinciden con el formato normalizado en BD (#/proinfo/{pid}, ver
+        # decisión "supplier_url formato #/proinfo/{pid}") — comparar por pid
+        # extraído, no por URL exacta, o esto nunca encuentra nada.
+        pid_to_images = {}
+        for p in data.get('products', []):
+            pid = pid_from_url(p.get('url'))
+            if pid:
+                pid_to_images[pid] = p.get('images', [])
+        self.stdout.write(f'  JSON cargado: {len(pid_to_images)} productos')
 
         # Productos en BD sin ninguna imagen
         sin_img = Product.objects.filter(images__isnull=True).select_related('category')
@@ -193,7 +201,8 @@ class Command(BaseCommand):
         fixed = failed = skipped = 0
 
         for product in sin_img:
-            raw_images = url_to_images.get(product.supplier_url, [])
+            pid = pid_from_url(product.supplier_url)
+            raw_images = pid_to_images.get(pid, []) if pid else []
             if not raw_images:
                 skipped += 1
                 continue
