@@ -62,17 +62,19 @@ class ContentSecurityPolicyMiddleware:
 
     NOTE: script-src includes 'unsafe-inline' because templates use inline <script> blocks.
     To fully harden XSS protection, migrate inline scripts to external files or use nonces.
-    CDL inventory: Bootstrap/Icons/SortableJS/Chart.js all served from cdn.jsdelivr.net;
-    fonts from fonts.googleapis.com (CSS) and fonts.gstatic.com (font files).
+    CDN inventory: Bootstrap/Icons/SortableJS/Chart.js all served from cdn.jsdelivr.net;
+    fonts from fonts.googleapis.com (CSS) and fonts.gstatic.com (font files);
+    Meta Pixel loads fbevents.js from connect.facebook.net and beacons/noscript
+    fallback to www.facebook.com.
     """
 
     _CSP = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' cdn.jsdelivr.net; "
+        "script-src 'self' 'unsafe-inline' cdn.jsdelivr.net connect.facebook.net; "
         "style-src 'self' 'unsafe-inline' cdn.jsdelivr.net fonts.googleapis.com; "
         "font-src 'self' data: fonts.gstatic.com cdn.jsdelivr.net; "
-        "img-src 'self' data: blob:; "
-        "connect-src 'self' cdn.jsdelivr.net; "
+        "img-src 'self' data: blob: www.facebook.com; "
+        "connect-src 'self' cdn.jsdelivr.net www.facebook.com; "
         "frame-ancestors 'none'; "
         "base-uri 'self'; "
         "form-action 'self'; "

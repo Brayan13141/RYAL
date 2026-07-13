@@ -4,8 +4,9 @@ from pathlib import Path
 
 from django.test import TestCase, RequestFactory, override_settings
 from django.contrib.auth import get_user_model
+from django.http import HttpResponse as _HttpResponse
 
-from core.middleware import MaintenanceModeMiddleware
+from core.middleware import ContentSecurityPolicyMiddleware, MaintenanceModeMiddleware
 
 User = get_user_model()
 
@@ -120,3 +121,33 @@ class MaintenanceModeMiddlewareTests(TestCase):
         mw = MaintenanceModeMiddleware(_get_response)
         response = mw(request)
         self.assertEqual(response.status_code, 503)
+
+
+class ContentSecurityPolicyMiddlewareTests(TestCase):
+    """El Meta Pixel necesita cargar fbevents.js y mandar su beacon de tracking;
+    si el CSP no lista esos dominios, el navegador los bloquea en silencio y
+    herramientas como Meta Pixel Helper nunca lo detectan."""
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def _csp(self):
+        request = self.factory.get('/')
+        mw = ContentSecurityPolicyMiddleware(lambda r: _HttpResponse('ok'))
+        response = mw(request)
+        return response['Content-Security-Policy']
+
+    def test_script_src_allows_facebook_pixel_script(self):
+        csp = self._csp()
+        script_src = [d for d in csp.split(';') if d.strip().startswith('script-src')][0]
+        self.assertIn('connect.facebook.net', script_src)
+
+    def test_connect_src_allows_facebook_pixel_beacon(self):
+        csp = self._csp()
+        connect_src = [d for d in csp.split(';') if d.strip().startswith('connect-src')][0]
+        self.assertIn('www.facebook.com', connect_src)
+
+    def test_img_src_allows_facebook_pixel_noscript_fallback(self):
+        csp = self._csp()
+        img_src = [d for d in csp.split(';') if d.strip().startswith('img-src')][0]
+        self.assertIn('www.facebook.com', img_src)
