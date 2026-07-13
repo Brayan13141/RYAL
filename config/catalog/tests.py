@@ -936,6 +936,23 @@ class AutoSyncCatalogScheduleTests(TestCase):
         keywords_planas = [kw for entry in _SCHEDULE.values() for kw in entry[0]]
         self.assertNotIn('auricular', keywords_planas)
 
+    def test_todos_los_slots_excepto_calzado_tienen_images_hint(self):
+        from catalog.management.commands.auto_sync_catalog import _SCHEDULE
+        for slot, entry in _SCHEDULE.items():
+            label, images_hint = entry[1], entry[3]
+            if label == 'Calzado':
+                self.assertIsNone(images_hint, 'Calzado usa download_yupoo_images aparte')
+            else:
+                self.assertIsNotNone(images_hint, f'Falta images_hint en slot {slot} ({label})')
+
+    def test_images_hint_matchea_una_choice_valida_de_import_images(self):
+        from catalog.management.commands.auto_sync_catalog import _SCHEDULE
+        from catalog.management.commands.import_images import _CATEGORY_SLUG_HINT
+        for slot, entry in _SCHEDULE.items():
+            images_hint = entry[3]
+            if images_hint is not None:
+                self.assertIn(images_hint, _CATEGORY_SLUG_HINT, f'slot {slot}: {images_hint!r} no es --only válido')
+
     def test_slot_invalido_retorna_none(self):
         from catalog.management.commands.auto_sync_catalog import category_for_slot
         self.assertIsNone(category_for_slot(9))

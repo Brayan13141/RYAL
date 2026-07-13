@@ -39,11 +39,17 @@ HEADERS = {
 # Fragmento del slug de categoría raíz — se usa con __contains para capturar
 # tanto la categoría padre como sus subcategorías hijas.
 _CATEGORY_SLUG_HINT = {
-    'gorras':    'gorra',
-    'camisetas': 'camiseta',
-    'sudaderas': 'sudadera',
-    'airpods':   'electronica',
-    'bolsos':    'bolsos-de-lujo',
+    'gorras':      'gorra',
+    'camisetas':   'camiseta',
+    'sudaderas':   'sudadera',
+    'airpods':     'electronica',
+    'bolsos':      'bolsos-de-lujo',
+    'reloj':       'reloj',
+    'joyeria':     'joyeria-chrome-hearts',
+    'deportivas':  'camisetas-deportivas',
+    'g5':          'calidad-g5',
+    '1a1':         'calidad-11',
+    'van-cleef':   'van-cleef-arpels',
 }
 
 

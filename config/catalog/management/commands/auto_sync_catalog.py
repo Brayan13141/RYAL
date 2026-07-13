@@ -13,23 +13,29 @@ from django.core.management.base import BaseCommand
 # Slot secuencial de 2 días (0-8) — NO es día de la semana. Con el cron corriendo
 # cada 2 días, cada ejecución cae en el siguiente slot; el ciclo completo de las
 # 9 categorías tarda 18 días. slot = (fecha_ordinal // 2) % 9 — ver slot_for_date().
-# (keywords_load, label, scraper_kw)
+# (keywords_load, label, scraper_kw, images_hint)
 # scraper_kw=None → no hay scraper para esa categoría (calzado usa yupoo)
+# images_hint → valor de --only para import_images (galería completa, no solo
+# la portada); None → no aplica (calzado usa download_yupoo_images aparte).
 #
 # 2026-07-13: el proveedor reestructuró su árbol de categorías (9 top-level en
 # vez de 7). "Electrónica/auricular" ya no existe en modaverse.vip (retirada,
 # is_active=False en BD) — se quitó del schedule. Se agregaron 3 categorías
 # nuevas del proveedor: Reloj, Joyería Chrome Hearts, Bolsos de lujo de gama alta.
+#
+# 2026-07-13 (cont.): 85% del catálogo activo tenía exactamente 1 foto — import_images
+# existía pero nunca se había sumado al pipeline automático. Se agrega como Paso 4
+# (--fill-gaps, completa desde 1 hasta lo que el JSON tenga disponible por producto).
 _SCHEDULE = {
-    0: (['gorra'],          'Gorra',                       'gorra'),
-    1: (['deportiva'],      'Camisetas deportivas',        'deportiva'),
-    2: (['1:1'],            'Camisetas/Sudaderas 1:1',     '1:1'),
-    3: (['g5'],             'Camisetas/Sudaderas G5',      'G5'),
-    4: (['calzado'],        'Calzado',                     None),
-    5: (['van cleef'],      'Van Cleef & Arpels',          'van cleef'),
-    6: (['reloj'],          'Reloj',                       'reloj'),
-    7: (['chrome hearts'],  'Joyería Chrome Hearts',       'chrome hearts'),
-    8: (['bolsos'],         'Bolsos de lujo de gama alta', 'bolsos'),
+    0: (['gorra'],          'Gorra',                       'gorra',        'gorras'),
+    1: (['deportiva'],      'Camisetas deportivas',        'deportiva',    'deportivas'),
+    2: (['1:1'],            'Camisetas/Sudaderas 1:1',     '1:1',          '1a1'),
+    3: (['g5'],             'Camisetas/Sudaderas G5',      'G5',           'g5'),
+    4: (['calzado'],        'Calzado',                     None,           None),
+    5: (['van cleef'],      'Van Cleef & Arpels',          'van cleef',    'van-cleef'),
+    6: (['reloj'],          'Reloj',                       'reloj',        'reloj'),
+    7: (['chrome hearts'],  'Joyería Chrome Hearts',       'chrome hearts', 'joyeria'),
+    8: (['bolsos'],         'Bolsos de lujo de gama alta', 'bolsos',       'bolsos'),
 }
 
 # Ruta del scraper relativa a la raíz del repo
@@ -83,7 +89,7 @@ class Command(BaseCommand):
             self.stdout.write(f'Sin categoría programada para slot {slot}.')
             return
 
-        keywords, label, scraper_kw = entry
+        keywords, label, scraper_kw, images_hint = entry
         self.stdout.write(
             f'[auto_sync_catalog] slot {slot} → {label}'
             + (f'  |  scraper: --category {scraper_kw}' if scraper_kw else '  |  sin scrape (calzado)')
@@ -126,5 +132,16 @@ class Command(BaseCommand):
 
         # La reconciliación (baja de productos eliminados) se ejecuta dentro
         # de load_productos al recibir --category. No se repite aquí.
+
+        # ── Paso 4: galería completa de productos ya aprobados ────────────────
+        # import_pending_images solo baja 1 foto de portada por PendingProduct.
+        # Aquí se completa la galería de los Product ya aprobados de esta
+        # categoría con --fill-gaps (hasta lo que el JSON tenga disponible).
+        if images_hint:
+            self.stdout.write(f'  ► Completando galería de productos ({label})...')
+            call_command(
+                'import_images', only=images_hint, fill_gaps=True,
+                verbosity=options['verbosity'],
+            )
 
         self.stdout.write(self.style.SUCCESS(f'  ✓ {label} sincronizada.'))
