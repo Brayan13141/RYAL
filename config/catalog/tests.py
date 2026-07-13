@@ -901,7 +901,7 @@ class AutoSyncCatalogScheduleTests(TestCase):
 
     def test_todos_los_slots_tienen_entrada(self):
         from catalog.management.commands.auto_sync_catalog import category_for_slot
-        for slot in range(7):
+        for slot in range(9):
             self.assertIsNotNone(category_for_slot(slot), f'Falta slot {slot}')
 
     def test_slot_0_es_gorra(self):
@@ -919,15 +919,26 @@ class AutoSyncCatalogScheduleTests(TestCase):
     def test_slot_4_es_calzado(self):
         self.assertIn('calzado', self._kw(4))
 
-    def test_slot_5_es_auricular(self):
-        self.assertIn('auricular', self._kw(5))
+    def test_slot_5_es_van_cleef(self):
+        self.assertIn('van cleef', self._kw(5))
 
-    def test_slot_6_es_van_cleef(self):
-        self.assertIn('van cleef', self._kw(6))
+    def test_slot_6_es_reloj(self):
+        self.assertIn('reloj', self._kw(6))
+
+    def test_slot_7_es_chrome_hearts(self):
+        self.assertIn('chrome hearts', self._kw(7))
+
+    def test_slot_8_es_bolsos(self):
+        self.assertIn('bolsos', self._kw(8))
+
+    def test_electronica_ya_no_esta_en_el_schedule(self):
+        from catalog.management.commands.auto_sync_catalog import _SCHEDULE
+        keywords_planas = [kw for entry in _SCHEDULE.values() for kw in entry[0]]
+        self.assertNotIn('auricular', keywords_planas)
 
     def test_slot_invalido_retorna_none(self):
         from catalog.management.commands.auto_sync_catalog import category_for_slot
-        self.assertIsNone(category_for_slot(7))
+        self.assertIsNone(category_for_slot(9))
 
     def test_slot_for_date_avanza_cada_2_dias(self):
         from datetime import date
@@ -938,7 +949,7 @@ class AutoSyncCatalogScheduleTests(TestCase):
         self.assertEqual(slot_for_date(d0), s0)
         # 2 días después ya avanzó al siguiente slot del ciclo
         from datetime import timedelta
-        self.assertEqual(slot_for_date(d0 + timedelta(days=2)), (s0 + 1) % 7)
+        self.assertEqual(slot_for_date(d0 + timedelta(days=2)), (s0 + 1) % 9)
 
 
 class PendingProductApproveTests(TestCase):

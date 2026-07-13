@@ -10,19 +10,26 @@ from pathlib import Path
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
 
-# Slot secuencial de 2 días (0-6) — NO es día de la semana. Con el cron corriendo
+# Slot secuencial de 2 días (0-8) — NO es día de la semana. Con el cron corriendo
 # cada 2 días, cada ejecución cae en el siguiente slot; el ciclo completo de las
-# 7 categorías tarda 14 días. slot = (fecha_ordinal // 2) % 7 — ver slot_for_date().
+# 9 categorías tarda 18 días. slot = (fecha_ordinal // 2) % 9 — ver slot_for_date().
 # (keywords_load, label, scraper_kw)
 # scraper_kw=None → no hay scraper para esa categoría (calzado usa yupoo)
+#
+# 2026-07-13: el proveedor reestructuró su árbol de categorías (9 top-level en
+# vez de 7). "Electrónica/auricular" ya no existe en modaverse.vip (retirada,
+# is_active=False en BD) — se quitó del schedule. Se agregaron 3 categorías
+# nuevas del proveedor: Reloj, Joyería Chrome Hearts, Bolsos de lujo de gama alta.
 _SCHEDULE = {
-    0: (['gorra'],      'Gorra',                    'gorra'),
-    1: (['deportiva'],  'Camisetas deportivas',      'deportiva'),
-    2: (['1:1'],        'Camisetas/Sudaderas 1:1',   '1:1'),
-    3: (['g5'],         'Camisetas/Sudaderas G5',    'G5'),
-    4: (['calzado'],    'Calzado',                   None),
-    5: (['auricular'],  'Electrónica',               'Electronica'),
-    6: (['van cleef'],  'Van Cleef & Arpels',        'van cleef'),
+    0: (['gorra'],          'Gorra',                       'gorra'),
+    1: (['deportiva'],      'Camisetas deportivas',        'deportiva'),
+    2: (['1:1'],            'Camisetas/Sudaderas 1:1',     '1:1'),
+    3: (['g5'],             'Camisetas/Sudaderas G5',      'G5'),
+    4: (['calzado'],        'Calzado',                     None),
+    5: (['van cleef'],      'Van Cleef & Arpels',          'van cleef'),
+    6: (['reloj'],          'Reloj',                       'reloj'),
+    7: (['chrome hearts'],  'Joyería Chrome Hearts',       'chrome hearts'),
+    8: (['bolsos'],         'Bolsos de lujo de gama alta', 'bolsos'),
 }
 
 # Ruta del scraper relativa a la raíz del repo
@@ -30,12 +37,12 @@ _SCRAPER = 'scrape_modaverse_final.py'
 
 
 def slot_for_date(d: date) -> int:
-    """Slot secuencial (0-6) para la fecha dada, avanzando 1 slot cada 2 días."""
-    return (d.toordinal() // 2) % 7
+    """Slot secuencial (0-8) para la fecha dada, avanzando 1 slot cada 2 días."""
+    return (d.toordinal() // 2) % 9
 
 
 def category_for_slot(slot: int):
-    """Retorna (keywords, label) para el slot dado (0-6). None si no hay entrada."""
+    """Retorna (keywords, label) para el slot dado (0-8). None si no hay entrada."""
     entry = _SCHEDULE.get(slot)
     if entry is None:
         return None
@@ -44,12 +51,12 @@ def category_for_slot(slot: int):
 
 
 class Command(BaseCommand):
-    help = 'Scrape + sincroniza la categoría del slot (crontab cada 2 días, ciclo de 14 días).'
+    help = 'Scrape + sincroniza la categoría del slot (crontab cada 2 días, ciclo de 18 días).'
 
     def add_arguments(self, parser):
         parser.add_argument(
             '--day', type=int, default=None,
-            help='Forzar slot (0-6) en vez de calcularlo de la fecha de hoy. Por defecto: slot de hoy.',
+            help='Forzar slot (0-8) en vez de calcularlo de la fecha de hoy. Por defecto: slot de hoy.',
         )
         parser.add_argument(
             '--dry-run', action='store_true',
