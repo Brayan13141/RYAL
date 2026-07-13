@@ -76,6 +76,7 @@ TEMPLATES = [
                 'core.context_processors.cart_count',
                 'core.context_processors.active_categories',
                 'core.context_processors.site_config',
+                'core.context_processors.meta_pixel',
             ],
         },
     },
@@ -219,3 +220,7 @@ if not DEBUG:
     X_FRAME_OPTIONS                 = 'DENY'
 
 NEGOCIO_API_KEY = os.environ['NEGOCIO_API_KEY']
+
+# ID del Meta Pixel para tracking de anuncios de Facebook e Instagram.
+# Valor vacio por defecto: el pixel no se renderiza si no esta configurado.
+META_PIXEL_ID = os.environ.get('META_PIXEL_ID', '')

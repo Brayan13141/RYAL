@@ -3,6 +3,29 @@
 <html lang="es-MX">
 <head>
   <meta charset="UTF-8">
+
+  {% if META_PIXEL_ID %}
+  <!-- Meta Pixel Code -->
+  <!-- Carga el script de fbevents y dispara PageView en cada carga de pagina -->
+  <script>
+  !function(f,b,e,v,n,t,s)
+  {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+  n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+  if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+  n.queue=[];t=b.createElement(e);t.async=!0;
+  t.src=v;s=b.getElementsByTagName(e)[0];
+  s.parentNode.insertBefore(t,s)}(window, document,'script',
+  'https://connect.facebook.net/en_US/fbevents.js');
+  fbq('init', '{{ META_PIXEL_ID }}');
+  fbq('track', 'PageView');
+  </script>
+  <!-- Imagen de respaldo para navegadores sin JavaScript habilitado -->
+  <noscript><img height="1" width="1" style="display:none"
+  src="https://www.facebook.com/tr?id={{ META_PIXEL_ID }}&ev=PageView&noscript=1"
+  /></noscript>
+  <!-- End Meta Pixel Code -->
+  {% endif %}
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}RYAL — Importación Premium{% endblock %}</title>
   <meta name="description" content="{% block meta_description %}Gorras, tenis y sudaderas de importación directa. Precios de proveedor, sin intermediarios.{% endblock %}">
@@ -782,8 +805,8 @@
         <div class="col-lg-2 col-md-6 col-6">
           <h6>Contacto</h6>
           <ul class="list-unstyled">
-            <li><a href="https://wa.me/524451129186" target="_blank" rel="noopener">WA · 4451 129186</a></li>
-            <li><a href="https://wa.me/524451076015" target="_blank" rel="noopener">WA · 4451 076015</a></li>
+            <li><a href="https://wa.me/524451129186" target="_blank" rel="noopener" onclick="if(window.fbq){fbq('track', 'Contact');}">WA · 4451 129186</a></li>
+            <li><a href="https://wa.me/524451076015" target="_blank" rel="noopener" onclick="if(window.fbq){fbq('track', 'Contact');}">WA · 4451 076015</a></li>
             <li><a href="mailto:ryalsneackershop@gmail.com">ryalsneackershop@gmail.com</a></li>
             <li><a href="https://www.instagram.com/ryalsneackers" target="_blank" rel="noopener">Instagram</a></li>
             <li><a href="https://www.tiktok.com/@ryalsneackershop" target="_blank" rel="noopener">TikTok</a></li>
@@ -853,10 +876,10 @@
        BOTÓN FLOTANTE WHATSAPP
   ═══════════════════════════════════════════ -->
   <div class="wa-wrap" id="waWrap">
-    <a href="https://wa.me/524451129186" target="_blank" rel="noopener" class="wa-bubble">
+    <a href="https://wa.me/524451129186" target="_blank" rel="noopener" class="wa-bubble" onclick="if(window.fbq){fbq('track', 'Contact');}">
       <i class="bi bi-whatsapp"></i> +52 4451 129186
     </a>
-    <a href="https://wa.me/524451076015" target="_blank" rel="noopener" class="wa-bubble">
+    <a href="https://wa.me/524451076015" target="_blank" rel="noopener" class="wa-bubble" onclick="if(window.fbq){fbq('track', 'Contact');}">
       <i class="bi bi-whatsapp"></i> +52 4451 076015
     </a>
     <button class="wa-btn" id="waBtn" aria-label="Contactar por WhatsApp">

@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db.models import Prefetch
 
 from catalog.models import Category, SiteConfig
@@ -22,3 +23,9 @@ def active_categories(request):
 
 def site_config(request):
     return {'site_config': SiteConfig.get()}
+
+
+def meta_pixel(request):
+    # Expone el ID del Meta Pixel a todos los templates.
+    # Si esta vacio, el bloque del pixel en base.html no se renderiza.
+    return {'META_PIXEL_ID': settings.META_PIXEL_ID}

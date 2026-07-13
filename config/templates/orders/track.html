@@ -140,7 +140,8 @@
       <a href="https://wa.me/{{ site_config.whatsapp }}?text=Hola%2C%20quiero%20consultar%20mi%20pedido%20{{ order.order_code }}"
          target="_blank" rel="noopener"
          class="btn btn-outline-gold btn-sm d-inline-flex align-items-center gap-2"
-         style="font-size:.78rem;">
+         style="font-size:.78rem;"
+         onclick="if(window.fbq){fbq('track', 'Contact');}">
         <i class="bi bi-whatsapp"></i> Consultar por WhatsApp
       </a>
     </div>

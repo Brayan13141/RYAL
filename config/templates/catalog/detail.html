@@ -798,6 +798,18 @@
   const HAS_COLORWAY     = {{ has_colorway|yesno:"true,false" }};  /* colorway activo en cualquier nivel */
   const VARIANT_COLORS   = {{ variant_colors_json|safe }};  /* [] si el producto no pide color */
 </script>
+{% if META_PIXEL_ID %}
+<script>
+  /* Evento ViewContent del Meta Pixel al cargar la pagina de detalle de producto */
+  fbq('track', 'ViewContent', {
+    content_name: '{{ product.name|escapejs }}',
+    content_ids: ['{{ product.sku|escapejs }}'],
+    content_type: 'product',
+    value: {{ product.final_price }},
+    currency: 'MXN'
+  });
+</script>
+{% endif %}
 <script src="{% static 'js/product.js' %}?v=5"></script>
 <script>
   function toggleDesc(toggle) {

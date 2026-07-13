@@ -285,12 +285,14 @@
             <div style="display:flex;flex-direction:column;gap:4px;">
               <a href="https://wa.me/524451129186" target="_blank" rel="noopener"
                  class="text-white-50 fw-light text-decoration-none" style="font-size:.88rem;transition:color .2s;"
-                 onmouseover="this.style.color='var(--ryal-gold)'" onmouseout="this.style.color=''">
+                 onmouseover="this.style.color='var(--ryal-gold)'" onmouseout="this.style.color=''"
+                 onclick="if(window.fbq){fbq('track', 'Contact');}">
                 +52 4451 129186
               </a>
               <a href="https://wa.me/524451076015" target="_blank" rel="noopener"
                  class="text-white-50 fw-light text-decoration-none" style="font-size:.88rem;transition:color .2s;"
-                 onmouseover="this.style.color='var(--ryal-gold)'" onmouseout="this.style.color=''">
+                 onmouseover="this.style.color='var(--ryal-gold)'" onmouseout="this.style.color=''"
+                 onclick="if(window.fbq){fbq('track', 'Contact');}">
                 +52 4451 076015
               </a>
             </div>
@@ -343,7 +345,8 @@
     <div class="d-flex gap-3 justify-content-center flex-wrap">
       <a href="https://wa.me/{{ site_config.whatsapp }}?text=Hola%2C%20quiero%20información%20sobre%20sus%20productos%20para%20reventa"
          target="_blank" rel="noopener"
-         class="btn btn-gold px-4 py-3 d-inline-flex align-items-center gap-2">
+         class="btn btn-gold px-4 py-3 d-inline-flex align-items-center gap-2"
+         onclick="if(window.fbq){fbq('track', 'Contact');}">
         <i class="bi bi-whatsapp fs-5"></i> Hablar con nosotros
       </a>
       <a href="{% url 'catalog:hub' %}" class="btn btn-outline-gold px-4 py-3">
