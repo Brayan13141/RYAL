@@ -738,6 +738,125 @@ class ReconcileCatalogTests(TestCase):
         self.assertTrue(p_manual.is_active)
 
 
+class ReconcileYupooTests(TestCase):
+    """reconcile_yupoo: soft-delete/reactivación de Calzado (Yupoo) por supplier_url exacta
+    (Yupoo no expone yn_launch — la única señal de baja es ausencia en un scrape fresco)."""
+
+    def setUp(self):
+        self.root = Category.objects.create(name='Calzado', slug='calzado')
+
+    def _make_product(self, url_id, *, is_active=True, auto_deactivated=False, modaverse=False):
+        url = (
+            f'https://www.modaverse.vip/#/proinfo/{url_id}' if modaverse
+            else f'https://putianshoefactory.x.yupoo.com/albums/{url_id}'
+        )
+        return Product.objects.create(
+            sku=f'RYL-TEST-{url_id}',
+            name=f'Tenis {url_id}',
+            category=self.root,
+            base_price=Decimal('500'),
+            supplier_url=url,
+            is_active=is_active,
+            auto_deactivated=auto_deactivated,
+        )
+
+    def _json(self, url_ids):
+        return {
+            'products': [
+                {'url': f'https://putianshoefactory.x.yupoo.com/albums/{u}'}
+                for u in url_ids
+            ],
+        }
+
+    def _call(self, *args, json_data=None, **kwargs):
+        stdout, stderr = StringIO(), StringIO()
+        data = json_data if json_data is not None else self._json([])
+        with patch(
+            'catalog.management.commands.reconcile_yupoo.read_yupoo_json',
+            return_value=data,
+        ):
+            call_command('reconcile_yupoo', *args, stdout=stdout, stderr=stderr, **kwargs)
+        return stdout.getvalue(), stderr.getvalue()
+
+    def test_desactiva_producto_cuya_url_no_esta_en_scrape_fresco(self):
+        """3 sobreviven → 1/4 = 25 % < 30 % (threshold no dispara)."""
+        p = self._make_product('A001')
+        for uid in ('A002', 'A003', 'A004'):
+            self._make_product(uid)
+        self._call(json_data=self._json(['A002', 'A003', 'A004']))
+        p.refresh_from_db()
+        self.assertFalse(p.is_active)
+        self.assertTrue(p.auto_deactivated)
+
+    def test_reactiva_producto_auto_deactivated_que_reaparece(self):
+        p = self._make_product('A001', is_active=False, auto_deactivated=True)
+        self._call(json_data=self._json(['A001']))
+        p.refresh_from_db()
+        self.assertTrue(p.is_active)
+        self.assertFalse(p.auto_deactivated)
+
+    def test_no_reactiva_producto_desactivado_manualmente(self):
+        p = self._make_product('A001', is_active=False, auto_deactivated=False)
+        self._call(json_data=self._json(['A001']))
+        p.refresh_from_db()
+        self.assertFalse(p.is_active)
+        self.assertFalse(p.auto_deactivated)
+
+    def test_zero_guard_aborta_cuando_json_esta_vacio(self):
+        p = self._make_product('A001')
+        _, stderr = self._call(json_data={'products': []})
+        p.refresh_from_db()
+        self.assertTrue(p.is_active)
+        self.assertIn('zero', stderr.lower())
+
+    def test_umbral_aborta_cuando_bajas_superan_el_porcentaje(self):
+        for i in range(4):
+            self._make_product(f'A{i:03}')
+        self._call(json_data=self._json(['A000', 'A001']))
+        self.assertEqual(
+            Product.objects.filter(is_active=True, sku__startswith='RYL-TEST-').count(), 4
+        )
+
+    def test_force_bypasses_umbral(self):
+        for i in range(4):
+            self._make_product(f'A{i:03}')
+        self._call('--force', json_data=self._json(['A000', 'A001']))
+        self.assertEqual(
+            Product.objects.filter(
+                is_active=False, auto_deactivated=True, sku__startswith='RYL-TEST-'
+            ).count(), 2
+        )
+
+    def test_dry_run_no_escribe_ninguna_baja(self):
+        p = self._make_product('A001')
+        for uid in ('A002', 'A003', 'A004'):
+            self._make_product(uid)
+        stdout, _ = self._call('--dry-run', json_data=self._json(['A002', 'A003', 'A004']))
+        p.refresh_from_db()
+        self.assertTrue(p.is_active)
+        self.assertIn('dry-run', stdout.lower())
+
+    def test_no_toca_productos_modaverse(self):
+        """Productos modaverse (sin 'yupoo' en supplier_url) no son afectados."""
+        p_modaverse = self._make_product('A001', modaverse=True)
+        self._call(json_data=self._json(['A999']))
+        p_modaverse.refresh_from_db()
+        self.assertTrue(p_modaverse.is_active)
+
+    def test_prune_elimina_auto_desactivados(self):
+        p_dead = self._make_product('A001', is_active=False, auto_deactivated=True)
+        p_alive = self._make_product('A002')
+        self._call('--prune', json_data=self._json([]))
+        self.assertFalse(Product.objects.filter(pk=p_dead.pk).exists())
+        self.assertTrue(Product.objects.filter(pk=p_alive.pk).exists())
+
+    def test_prune_dry_run_no_borra(self):
+        p_dead = self._make_product('A001', is_active=False, auto_deactivated=True)
+        stdout, _ = self._call('--prune', '--dry-run', json_data=self._json([]))
+        self.assertTrue(Product.objects.filter(pk=p_dead.pk).exists())
+        self.assertIn('dry-run', stdout.lower())
+
+
 # ── Fix C: Product.modaverse_name ────────────────────────────────────────────
 
 from django.core.management import BaseCommand as DjBaseCmd
@@ -892,44 +1011,51 @@ class LoadModaverseRawNameTest(TestCase):
 
 
 class AutoSyncCatalogScheduleTests(TestCase):
-    """Verifica el mapa slot→categoría sin tocar BD ni load_productos."""
+    """Verifica el mapa slot→categoría rotativa + Gorra siempre-activa, sin tocar BD ni load_productos."""
 
     def _kw(self, slot):
         from catalog.management.commands.auto_sync_catalog import category_for_slot
         entry = category_for_slot(slot)
         return entry[0] if entry else None
 
-    def test_todos_los_slots_tienen_entrada(self):
+    def test_gorra_es_siempre_activa_fuera_de_la_rotacion(self):
+        from catalog.management.commands.auto_sync_catalog import _ALWAYS
+        self.assertIn('gorra', _ALWAYS[0])
+        self.assertEqual(_ALWAYS[1], 'Gorra')
+
+    def test_gorra_no_esta_en_el_schedule_rotativo(self):
+        from catalog.management.commands.auto_sync_catalog import _SCHEDULE
+        labels = [entry[1] for entry in _SCHEDULE.values()]
+        self.assertNotIn('Gorra', labels)
+
+    def test_todos_los_slots_rotativos_tienen_entrada(self):
         from catalog.management.commands.auto_sync_catalog import category_for_slot
-        for slot in range(9):
+        for slot in range(8):
             self.assertIsNotNone(category_for_slot(slot), f'Falta slot {slot}')
 
-    def test_slot_0_es_gorra(self):
-        self.assertIn('gorra', self._kw(0))
+    def test_slot_0_es_deportiva(self):
+        self.assertIn('deportiva', self._kw(0))
 
-    def test_slot_1_es_deportiva(self):
-        self.assertIn('deportiva', self._kw(1))
+    def test_slot_1_es_1a1(self):
+        self.assertIn('1:1', self._kw(1))
 
-    def test_slot_2_es_1a1(self):
-        self.assertIn('1:1', self._kw(2))
+    def test_slot_2_es_g5(self):
+        self.assertIn('g5', self._kw(2))
 
-    def test_slot_3_es_g5(self):
-        self.assertIn('g5', self._kw(3))
+    def test_slot_3_es_calzado(self):
+        self.assertIn('calzado', self._kw(3))
 
-    def test_slot_4_es_calzado(self):
-        self.assertIn('calzado', self._kw(4))
+    def test_slot_4_es_van_cleef(self):
+        self.assertIn('van cleef', self._kw(4))
 
-    def test_slot_5_es_van_cleef(self):
-        self.assertIn('van cleef', self._kw(5))
+    def test_slot_5_es_reloj(self):
+        self.assertIn('reloj', self._kw(5))
 
-    def test_slot_6_es_reloj(self):
-        self.assertIn('reloj', self._kw(6))
+    def test_slot_6_es_chrome_hearts(self):
+        self.assertIn('chrome hearts', self._kw(6))
 
-    def test_slot_7_es_chrome_hearts(self):
-        self.assertIn('chrome hearts', self._kw(7))
-
-    def test_slot_8_es_bolsos(self):
-        self.assertIn('bolsos', self._kw(8))
+    def test_slot_7_es_bolsos(self):
+        self.assertIn('bolsos', self._kw(7))
 
     def test_electronica_ya_no_esta_en_el_schedule(self):
         from catalog.management.commands.auto_sync_catalog import _SCHEDULE
@@ -946,16 +1072,16 @@ class AutoSyncCatalogScheduleTests(TestCase):
                 self.assertIsNotNone(images_hint, f'Falta images_hint en slot {slot} ({label})')
 
     def test_images_hint_matchea_una_choice_valida_de_import_images(self):
-        from catalog.management.commands.auto_sync_catalog import _SCHEDULE
+        from catalog.management.commands.auto_sync_catalog import _SCHEDULE, _ALWAYS
         from catalog.management.commands.import_images import _CATEGORY_SLUG_HINT
-        for slot, entry in _SCHEDULE.items():
+        for slot, entry in {**_SCHEDULE, 'always': _ALWAYS}.items():
             images_hint = entry[3]
             if images_hint is not None:
                 self.assertIn(images_hint, _CATEGORY_SLUG_HINT, f'slot {slot}: {images_hint!r} no es --only válido')
 
     def test_slot_invalido_retorna_none(self):
         from catalog.management.commands.auto_sync_catalog import category_for_slot
-        self.assertIsNone(category_for_slot(9))
+        self.assertIsNone(category_for_slot(8))
 
     def test_slot_for_date_avanza_cada_2_dias(self):
         from datetime import date
@@ -966,7 +1092,7 @@ class AutoSyncCatalogScheduleTests(TestCase):
         self.assertEqual(slot_for_date(d0), s0)
         # 2 días después ya avanzó al siguiente slot del ciclo
         from datetime import timedelta
-        self.assertEqual(slot_for_date(d0 + timedelta(days=2)), (s0 + 1) % 9)
+        self.assertEqual(slot_for_date(d0 + timedelta(days=2)), (s0 + 1) % 8)
 
 
 class PendingProductApproveTests(TestCase):

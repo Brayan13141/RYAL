@@ -1,5 +1,5 @@
 """
-Scrape + carga la categoría del slot. Crontab cada 2 días en el servidor:
+Scrape + carga Gorra (siempre) + la categoría rotativa del slot. Crontab cada 2 días:
   0 2 */2 * * cd ~/WEB_RYAL && PYTHONUTF8=1 venv/bin/python config/manage.py auto_sync_catalog >> /var/log/ryal_sync.log 2>&1
 """
 import subprocess
@@ -10,9 +10,16 @@ from pathlib import Path
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
 
-# Slot secuencial de 2 días (0-8) — NO es día de la semana. Con el cron corriendo
-# cada 2 días, cada ejecución cae en el siguiente slot; el ciclo completo de las
-# 9 categorías tarda 18 días. slot = (fecha_ordinal // 2) % 9 — ver slot_for_date().
+# Gorra es la categoría de mayor volumen/rotación del negocio — se sincroniza en
+# TODAS las corridas del cron (cada 2 días), sin esperar su turno en el schedule
+# rotativo. Decisión de Bryan 2026-07-13.
+# (keywords_load, label, scraper_kw, images_hint)
+_ALWAYS = (['gorra'], 'Gorra', 'gorra', 'gorras')
+
+# Slot secuencial de 2 días (0-7) para las 8 categorías restantes — NO es día de
+# la semana. Con el cron corriendo cada 2 días, cada ejecución cae en el
+# siguiente slot; el ciclo completo tarda 16 días. slot = (fecha_ordinal // 2) % 8
+# — ver slot_for_date(). Gorra queda fuera de esta rotación (ver _ALWAYS arriba).
 # (keywords_load, label, scraper_kw, images_hint)
 # scraper_kw=None → no hay scraper para esa categoría (calzado usa yupoo)
 # images_hint → valor de --only para import_images (galería completa, no solo
@@ -27,15 +34,14 @@ from django.core.management.base import BaseCommand
 # existía pero nunca se había sumado al pipeline automático. Se agrega como Paso 4
 # (--fill-gaps, completa desde 1 hasta lo que el JSON tenga disponible por producto).
 _SCHEDULE = {
-    0: (['gorra'],          'Gorra',                       'gorra',        'gorras'),
-    1: (['deportiva'],      'Camisetas deportivas',        'deportiva',    'deportivas'),
-    2: (['1:1'],            'Camisetas/Sudaderas 1:1',     '1:1',          '1a1'),
-    3: (['g5'],             'Camisetas/Sudaderas G5',      'G5',           'g5'),
-    4: (['calzado'],        'Calzado',                     None,           None),
-    5: (['van cleef'],      'Van Cleef & Arpels',          'van cleef',    'van-cleef'),
-    6: (['reloj'],          'Reloj',                       'reloj',        'reloj'),
-    7: (['chrome hearts'],  'Joyería Chrome Hearts',       'chrome hearts', 'joyeria'),
-    8: (['bolsos'],         'Bolsos de lujo de gama alta', 'bolsos',       'bolsos'),
+    0: (['deportiva'],      'Camisetas deportivas',        'deportiva',    'deportivas'),
+    1: (['1:1'],            'Camisetas/Sudaderas 1:1',     '1:1',          '1a1'),
+    2: (['g5'],             'Camisetas/Sudaderas G5',      'G5',           'g5'),
+    3: (['calzado'],        'Calzado',                     None,           None),
+    4: (['van cleef'],      'Van Cleef & Arpels',          'van cleef',    'van-cleef'),
+    5: (['reloj'],          'Reloj',                       'reloj',        'reloj'),
+    6: (['chrome hearts'],  'Joyería Chrome Hearts',       'chrome hearts', 'joyeria'),
+    7: (['bolsos'],         'Bolsos de lujo de gama alta', 'bolsos',       'bolsos'),
 }
 
 # Ruta del scraper relativa a la raíz del repo
@@ -43,12 +49,12 @@ _SCRAPER = 'scrape_modaverse_final.py'
 
 
 def slot_for_date(d: date) -> int:
-    """Slot secuencial (0-8) para la fecha dada, avanzando 1 slot cada 2 días."""
-    return (d.toordinal() // 2) % 9
+    """Slot secuencial (0-7) para la fecha dada, avanzando 1 slot cada 2 días."""
+    return (d.toordinal() // 2) % 8
 
 
 def category_for_slot(slot: int):
-    """Retorna (keywords, label) para el slot dado (0-8). None si no hay entrada."""
+    """Retorna (keywords, label) para el slot rotativo dado (0-7). None si no hay entrada."""
     entry = _SCHEDULE.get(slot)
     if entry is None:
         return None
@@ -57,12 +63,19 @@ def category_for_slot(slot: int):
 
 
 class Command(BaseCommand):
-    help = 'Scrape + sincroniza la categoría del slot (crontab cada 2 días, ciclo de 18 días).'
+    help = (
+        'Sincroniza Gorra (siempre) + la categoría rotativa del slot '
+        '(crontab cada 2 días, ciclo rotativo de 16 días).'
+    )
 
     def add_arguments(self, parser):
         parser.add_argument(
             '--day', type=int, default=None,
-            help='Forzar slot (0-8) en vez de calcularlo de la fecha de hoy. Por defecto: slot de hoy.',
+            help='Forzar slot rotativo (0-7) en vez de calcularlo de la fecha de hoy. Por defecto: slot de hoy.',
+        )
+        parser.add_argument(
+            '--skip-gorra', action='store_true',
+            help='Omitir la sincronización siempre-activa de Gorra (solo la categoría rotativa).',
         )
         parser.add_argument(
             '--dry-run', action='store_true',
@@ -82,22 +95,37 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        to_run = []
+
+        if not options['skip_gorra']:
+            to_run.append(_ALWAYS)
+
         slot = options['day'] if options['day'] is not None else slot_for_date(date.today())
         entry = _SCHEDULE.get(slot)
-
         if entry is None:
-            self.stdout.write(f'Sin categoría programada para slot {slot}.')
-            return
+            self.stdout.write(f'Sin categoría rotativa programada para slot {slot}.')
+        else:
+            to_run.append(entry)
 
-        keywords, label, scraper_kw, images_hint = entry
-        self.stdout.write(
-            f'[auto_sync_catalog] slot {slot} → {label}'
-            + (f'  |  scraper: --category {scraper_kw}' if scraper_kw else '  |  sin scrape (calzado)')
-        )
+        if not to_run:
+            return
 
         if options['dry_run']:
-            self.stdout.write('  --dry-run: nada ejecutado.')
+            for keywords, label, scraper_kw, images_hint in to_run:
+                self.stdout.write(
+                    f'[dry-run] {label}'
+                    + (f'  |  scraper: --category {scraper_kw}' if scraper_kw else '  |  sin scrape')
+                )
             return
+
+        for keywords, label, scraper_kw, images_hint in to_run:
+            self._sync_one(keywords, label, scraper_kw, images_hint, options)
+
+    def _sync_one(self, keywords, label, scraper_kw, images_hint, options):
+        self.stdout.write(
+            f'[auto_sync_catalog] {label}'
+            + (f'  |  scraper: --category {scraper_kw}' if scraper_kw else '  |  sin scrape (calzado)')
+        )
 
         # ── Paso 1: scrape ────────────────────────────────────────────────────
         if scraper_kw and not options['no_scrape']:
