@@ -659,6 +659,10 @@
                   onclick="toggleSubBanner({{ sub.pk }})" title="Mensaje informativo">
                   <i class="bi bi-chat-left-text"></i> Aviso
                 </button>
+                <a href="{% url 'panel:category_edit' sub.pk %}" class="sub-btn"
+                  title="Editar precios y reglas (incluye overrides de precio base y ganancia)">
+                  <i class="bi bi-pencil-square"></i> Editar
+                </a>
               </div>
             </div>
 
