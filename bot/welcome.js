@@ -6,40 +6,58 @@ const fs = require('fs')
 // módulo — cada instancia tiene su propio archivo de vistos.
 
 const WELCOME_MESSAGE =
-    '¡Hola! 👋 Bienvenido(a) a *RYAL Sneakers* 🔥\n' +
+    '¡Hola! Soy tu asesor de RYAL 👋\n' +
     '\n' +
-    'Somos tienda de importación: tenis, gorras, ropa y más al mejor precio.\n' +
+    'Importación directa: playeras 280g, tenis, gorras, bolsos y sudaderas. Más de 20,000 productos a precio de fábrica.\n' +
     '\n' +
-    'Estamos contestando mensajes constantemente, gracias por tu espera 🙏\n' +
-    '\n' +
-    'Escribe el número de la opción que necesitas:\n' +
-    '1. Ver el catálogo\n' +
-    '2. Cómo hacer un pedido\n' +
-    '3. Hablar con un asesor\n' +
-    '\n' +
-    'Responde solo con el número.'
+    'Cuéntame, ¿qué necesitas? Escribe el número:\n' +
+    '1. Ya vendo y quiero precios de mayoreo\n' +
+    '2. Quiero emprender (paquete con productos variados)\n' +
+    '3. Información general'
 
 const MENU_RESPONSES = {
-    1: '🛒 Tenemos dos catálogos:\n' +
+    1: '¡Perfecto! Vas directo a precio de fábrica 🔥\n' +
        '\n' +
-       '🏬 *Tienda física* — entrega más rápida. Pregúntanos qué hay disponible y te mandamos fotos.\n' +
-       '📱 *Catálogo web* — fabricación desde 0, mejor precio:\n' +
-       '🌐 https://ryalsneackers.com\n' +
+       'Mínimos por categoría:\n' +
+       '• Playeras, gorras y otros: 20 piezas\n' +
+       '• Tenis: 12 pares (mismo modelo, hasta 2 colores)\n' +
+       '• Bolsos: 5 piezas\n' +
        '\n' +
-       'Cuando veas algo que te guste, reenvíanos la imagen por este chat y te cotizamos 😉',
-    2: '📦 *Cómo hacer un pedido:*\n' +
+       'Puedes combinar modelos dentro de la misma categoría. Lo único que no se mezcla son categorías para llegar al mínimo.\n' +
        '\n' +
-       '🌐 *Por la página* — el pedido se hace directo en https://ryalsneackers.com\n' +
-       '🎥 Mira cómo hacer tu pedido en la web: https://www.instagram.com/reel/DajNuW1pQsS/?igsh=OTF2dXBxam9xdnA=\n' +
-       '🚚 Envío GRATIS y 🎁 *$200 MXN de descuento* en tu primer pedido — solicítalo al administrador por este chat.\n' +
+       'Envío GRATIS en pedidos de fábrica 🚚\n' +
        '\n' +
-       '📲 *Por WhatsApp* — reenvía por este chat la imagen del modelo que quieres (del Grupo Ryal) con tus tallas y te confirmamos total y forma de pago.\n' +
+       'Nuestra página es exclusiva para mayoristas — productos G5 idénticos, y entre más compras, mejor precio:\n' +
+       'https://ryalsneackers.com\n' +
        '\n' +
-       '👟 *Tenis calidad nacional* — únete al grupo:\n' +
+       'En el grupo de WhatsApp encuentras tenis de calidad nacional y productos de la tienda física, con entrega en 3-5 días:\n' +
        'https://chat.whatsapp.com/DtVZ8aANnFg8qacSGp9E5s\n' +
-       '🚀 *Paquetes emprendedores:* todo lo de la tienda física para arrancar tu negocio — pregunta por ellos.',
-    3: '👤 ¡Listo! En breve te atiende una persona del equipo Ryal.\n' +
-       'Mientras tanto puedes mandarnos la foto del modelo que te interesa.',
+       '\n' +
+       'Dime qué te interesa y te hacemos la cotización sin pagar nada 😉',
+    2: '¡Excelente decisión! 🚀 El Paquete Emprendedor es surtido listo para revender: te lo armamos nosotros con lo que más rota — playeras, gorras, tenis y accesorios variados.\n' +
+       '\n' +
+       'Desde $4,000 hasta $10,000 pesos.\n' +
+       'Envío no incluido (se cotiza según tu ciudad).\n' +
+       '\n' +
+       'Tú no adivinas qué comprar: nosotros te surtimos.\n' +
+       '\n' +
+       'Dime con cuánto quieres arrancar y te armamos la propuesta sin compromiso 💪',
+    3: 'Así trabajamos en RYAL 👌\n' +
+       '\n' +
+       '🏭 *Pedidos de fábrica (nuestra página):*\n' +
+       '• Catálogo exclusivo para mayoristas, productos G5 idénticos: https://ryalsneackers.com\n' +
+       '• Mínimos por categoría: playeras/gorras 20 piezas, tenis 12 pares, bolsos 5 piezas\n' +
+       '• Pides tu cotización sin compromiso — no pagas nada hasta confirmar tu pedido\n' +
+       '• Envío GRATIS\n' +
+       '\n' +
+       '📲 *Grupo de WhatsApp:*\n' +
+       '• Tenis de calidad nacional y productos de la tienda física\n' +
+       '• Manda la imagen del producto con tus tallas y te cotizamos\n' +
+       '• Entrega en 3-5 días\n' +
+       '• https://chat.whatsapp.com/DtVZ8aANnFg8qacSGp9E5s\n' +
+       '\n' +
+       'Si ya vendes y quieres precios, escribe 1.\n' +
+       'Si quieres empezar de cero, escribe 2.',
 }
 
 // JIDs que nunca deben recibir bienvenida (no son chats de personas)
