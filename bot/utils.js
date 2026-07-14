@@ -12,6 +12,13 @@ const NUM_IN_TOKEN = /\d{2,5}(?:\.\d{1,2})?/
 // proporcional a la cantidad de piezas: cantidad x (precio c/u ya marcado).
 const PACKAGE_TOKEN = /(\d{1,3})\*?\s*pz\D{0,10}?\$\s*([\d,]+(?:\.\d{1,2})?)\s*\$\s*(\d{2,5})(?:\.\d{1,2})?\s*c\/u/gi
 
+// Paquete SIN estructura "$total $X c/u" (ej. "Paquete de 6 pares" + "1,500$"
+// en línea aparte). El total puede llevar coma de miles y el "$" antes o
+// después — combinaciones invisibles para PRICE_TOKEN, que dejaban el total
+// del proveedor publicado intacto (caso real 2026-07-14: 1,500 en vez de 2,100).
+const PACKAGE_QTY = /paquete\s+de\s+(\d{1,3})\b/i
+const PACKAGE_TOTAL_TOKEN = /\$\s*(\d{1,2},\d{3}|\d{4,5})(?:\.\d{1,2})?|(\d{1,2},\d{3}|\d{4,5})(?:\.\d{1,2})?\s*\$/g
+
 const MIN_PRICE = 50
 const MAX_PRICE = 99999
 
@@ -56,9 +63,28 @@ function markupCaption(text, markup) {
     })
     // El c/u de arriba ya quedó marcado; el total del paquete se recalcula
     // desde ese c/u marcado x cantidad, en vez de sumarle el markup plano.
-    return marked.replace(PACKAGE_TOKEN, (full, qty, total, perUnitMarked) => {
+    const withPackages = marked.replace(PACKAGE_TOKEN, (full, qty, total, perUnitMarked) => {
         const newTotal = parseInt(qty, 10) * parseFloat(perUnitMarked)
         return full.replace(total, newTotal.toLocaleString('en-US'))
+    })
+
+    // Tercera pasada — "paquete de N" SIN estructura "$total $X c/u": el total
+    // (número con $ antes o después, con o sin coma de miles) se ajusta como
+    // total + N x markup, que equivale a N x (c/u + markup) cuando el total del
+    // proveedor es N x c/u, y preserva el markup POR PIEZA en cualquier caso.
+    // Solo aplica si PACKAGE_TOKEN no matcheó nada (evita el doble ajuste) y
+    // solo a números pegados a un "$" (un número suelto no es un precio).
+    const pkg = PACKAGE_QTY.exec(withPackages)
+    const hasCuStructure = new RegExp(PACKAGE_TOKEN.source, 'i').test(withPackages)
+    if (!pkg || hasCuStructure) return withPackages
+
+    const qty = parseInt(pkg[1], 10)
+    return withPackages.replace(PACKAGE_TOTAL_TOKEN, (full, g1, g2) => {
+        const raw = g1 || g2
+        const value = parseFloat(raw.replace(/,/g, ''))
+        if (!(value >= MIN_PRICE && value <= MAX_PRICE)) return full
+        const newTotal = value + qty * markup
+        return full.replace(raw, newTotal.toLocaleString('en-US'))
     })
 }
 

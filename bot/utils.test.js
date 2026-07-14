@@ -68,6 +68,26 @@ Ejemplo como viene la media corrida
 2pz del 7
 1pz del 8`
 
+// Mensaje real del proveedor con "Paquete de 6 pares" y total "1,500$"
+// (capturado 2026-07-14, reportado por Bryan: el total salió publicado como
+// 1,500 en vez de 2,100). El total es invisible para PRICE_TOKEN (coma de
+// miles + "$" pegado después SIN sufijo) y PACKAGE_TOKEN no aplica (dice
+// "pares", no "pz", y no hay "$X c/u") → se filtraba el total del proveedor.
+const MSG_PAQUETE_PARES = `*Tenis $300*
+*_Variedad de modelos_*
+▪️#_3 al 6_
+▪️ *$300 Mayoreo*
+▪️Dama & juvenil
+▪️Caja de su marca
+Ojo: *A partir de una media corrida el precio es de $250 c/p*
+Ejemplo de cómo viene la media corrida
+*Paquete de 6 pares precios*
+1,500$
+1pz del 3
+2pz del 4
+2pz del 5
+1pz del 6`
+
 describe('extractPrice', () => {
     test('extrae precio con símbolo $', () => {
         expect(extractPrice('Nike Air Max 🔥 $350 disponible talla 42')).toBe(350)
@@ -180,6 +200,36 @@ describe('markupCaption', () => {
         // precios individuales sin relación a paquete siguen igual
         expect(out).toContain('$700  Mayoreo')
         expect(out).toContain('$800 menudeo')
+    })
+    test('paquete "de N pares" con total "1,500$" (coma + $ después, sin c/u): total + N×markup', () => {
+        const out = markupCaption(MSG_PAQUETE_PARES, 100)
+        // los precios individuales se marcan normal
+        expect(out).toContain('Tenis $400')
+        expect(out).toContain('$400 Mayoreo')
+        expect(out).toContain('$350 c/p')
+        // total del paquete: 1,500 + 6×100 = 2,100 (equivale a 6 × 350)
+        expect(out).toContain('2,100$')
+        expect(out).not.toContain('1,500')
+        // las tallas del desglose no se tocan
+        expect(out).toContain('1pz del 3')
+        expect(out).toContain('2pz del 4')
+    })
+    test('paquete de N con total "$1,500" ($ antes, coma de miles)', () => {
+        expect(markupCaption('Paquete de 6 pares\n$1,500', 100)).toContain('$2,100')
+    })
+    test('paquete de N con total "1500$" sin coma', () => {
+        expect(markupCaption('Paquete de 6\n1500$', 100)).toContain('2,100$')
+    })
+    test('paquete de N NO inventa precio si el total no lleva $', () => {
+        // un número suelto sin $ no es un precio confiable — no se toca
+        const out = markupCaption('Paquete de 6 pares\ncódigo 1500', 100)
+        expect(out).toContain('código 1500')
+    })
+    test('paquete CON estructura c/u sigue usando cantidad × c/u marcado (sin doble ajuste)', () => {
+        const out = markupCaption('Paquete de 10 pz por $4,750  $575c/u', 100)
+        expect(out).toContain('$675c/u')
+        expect(out).toContain('$6,750')      // 10 × 675
+        expect(out).not.toContain('$7,750')  // NO sumar además 10×100 en la 3ª pasada
     })
 })
 
