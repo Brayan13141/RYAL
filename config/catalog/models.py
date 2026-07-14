@@ -147,12 +147,29 @@ class Product(models.Model):
         return self._root_category.shipping_cost
 
     @property
+    def effective_base_price(self):
+        """Costo del proveedor: override de la subcategoría (o raíz directa) si
+        está puesto, si no el base_price individual del producto."""
+        cat = self.category
+        if cat.base_price_override is not None:
+            return cat.base_price_override
+        bp = self.base_price
+        return bp if isinstance(bp, Decimal) else Decimal(str(bp))
+
+    @property
+    def effective_profit_margin(self):
+        """Ganancia: override de la subcategoría (o raíz directa) si está
+        puesto, si no la ganancia de la categoría raíz."""
+        cat = self.category
+        if cat.profit_margin_override is not None:
+            return cat.profit_margin_override
+        return self._root_category.profit_margin
+
+    @property
     def final_price(self):
         if self.price_override is not None:
             return self.price_override
-        bp = self.base_price if isinstance(self.base_price, Decimal) else Decimal(str(self.base_price))
-        # Margen desde la raíz (no la subcategoría directa); envío ya cascadea en effective_shipping
-        return bp + self.effective_shipping + self._root_category.profit_margin
+        return self.effective_base_price + self.effective_shipping + self.effective_profit_margin
 
     @property
     def effective_size_group(self):
