@@ -243,13 +243,23 @@ class PendingProduct(models.Model):
 
     @property
     def final_price(self):
-        """Precio estimado de venta: base + envío + margen de la categoría raíz."""
-        root = None
-        if self.category:
-            root = self.category.parent if self.category.parent_id else self.category
-        if root is None:
+        """Precio estimado de venta: respeta los mismos overrides de subcategoría
+        que Product.final_price, para que el estimado antes de aprobar sea
+        consistente con el precio real una vez aprobado."""
+        if not self.category:
             return self.base_price + Decimal('100')
-        return self.base_price + root.shipping_cost + root.profit_margin
+        root = self.category.parent if self.category.parent_id else self.category
+        bp = (
+            self.category.base_price_override
+            if self.category.base_price_override is not None
+            else self.base_price
+        )
+        margin = (
+            self.category.profit_margin_override
+            if self.category.profit_margin_override is not None
+            else root.profit_margin
+        )
+        return bp + root.shipping_cost + margin
 
     def approve(self):
         """Crea el Product en catálogo y marca como aprobado."""

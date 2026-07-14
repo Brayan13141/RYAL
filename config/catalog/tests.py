@@ -1538,3 +1538,24 @@ class SubcategoryPriceOverrideTests(TestCase):
         p = self._make_product(root_con_override, base_price=1)
         self.assertEqual(p.effective_base_price, Decimal('500'))
         self.assertEqual(p.effective_profit_margin, Decimal('250'))
+
+    def test_pending_product_respeta_base_price_override(self):
+        from catalog.models import PendingProduct
+        pp = PendingProduct.objects.create(
+            supplier_url='https://modaverse.vip/#/proinfo/PENDTEST1',
+            display_name='Anillo pendiente',
+            category=self.sub_con_override,
+            base_price=Decimal('1'),  # debe ser ignorado por el override
+        )
+        # final = base_price_override(300) + shipping de la raíz(50) + profit_margin_override(150)
+        self.assertEqual(pp.final_price, Decimal('300') + Decimal('50') + Decimal('150'))
+
+    def test_pending_product_sin_override_usa_comportamiento_actual(self):
+        from catalog.models import PendingProduct
+        pp = PendingProduct.objects.create(
+            supplier_url='https://modaverse.vip/#/proinfo/PENDTEST2',
+            display_name='Gargantilla pendiente',
+            category=self.sub_sin_override,
+            base_price=Decimal('200'),
+        )
+        self.assertEqual(pp.final_price, Decimal('200') + Decimal('50') + Decimal('100'))
