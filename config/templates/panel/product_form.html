@@ -19,7 +19,7 @@
 {% block content %}
 
 <div style="display:flex;gap:10px;margin-bottom:20px;">
-  <a href="{% url 'panel:products_list' %}" class="btn-o btn-sm">
+  <a href="{% url 'panel:products_list' %}?{{ return_qs }}" class="btn-o btn-sm">
     <i class="bi bi-arrow-left"></i> Volver
   </a>
 </div>
@@ -32,6 +32,7 @@
 
 <form method="post">
   {% csrf_token %}
+  <input type="hidden" name="_return_qs" value="{{ return_qs }}">
   <div class="pf-grid">
 
     <!-- Izq: datos principales -->

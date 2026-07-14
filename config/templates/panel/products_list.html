@@ -6,7 +6,7 @@
 
 <!-- ═══ ACCIÓN PRINCIPAL ══════════════════════════════════════════════════════ -->
 <div style="display:flex;justify-content:flex-end;margin-bottom:14px;">
-  <a href="{% url 'panel:product_create' %}" class="btn-g">
+  <a href="{% url 'panel:product_create' %}?{{ request.GET.urlencode }}" class="btn-g">
     <i class="bi bi-plus-circle"></i> Nuevo producto
   </a>
 </div>
@@ -171,7 +171,7 @@
             {% endwith %}
           </td>
           <td class="col-sku" style="font-family:monospace;font-size:11px;color:#555;">{{ p.sku }}</td>
-          <td><a href="{% url 'panel:product_edit' p.pk %}">{{ p.name }}</a></td>
+          <td><a href="{% url 'panel:product_edit' p.pk %}?{{ request.GET.urlencode }}">{{ p.name }}</a></td>
           <td class="col-cat" style="color:#555;font-size:12px;">{{ p.category.name }}</td>
           <td style="text-align:right;font-weight:600;color:#ddd;">${{ p.final_price|floatformat:0 }}</td>
           <td class="col-stock"><span class="bs bs-{{ p.status }}">{{ p.get_status_display }}</span></td>
@@ -183,7 +183,7 @@
             </label>
           </td>
           <td style="white-space:nowrap;">
-            <a href="{% url 'panel:product_edit' p.pk %}" class="btn-o btn-sm" title="Editar">
+            <a href="{% url 'panel:product_edit' p.pk %}?{{ request.GET.urlencode }}" class="btn-o btn-sm" title="Editar">
               <i class="bi bi-pencil"></i>
             </a>
             <button type="button" class="btn-r btn-sm btn-del"
@@ -550,7 +550,7 @@ const delModal = new bootstrap.Modal(document.getElementById('delModal'));
 document.querySelectorAll('.btn-del').forEach(btn => {
   btn.addEventListener('click', () => {
     document.getElementById('delName').textContent = btn.dataset.name;
-    document.getElementById('delForm').action = `/panel/productos/${btn.dataset.pk}/eliminar/`;
+    document.getElementById('delForm').action = `/panel/productos/${btn.dataset.pk}/eliminar/${window.location.search}`;
     delModal.show();
   });
 });
