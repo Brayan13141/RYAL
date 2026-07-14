@@ -13,7 +13,9 @@ const WELCOME_MESSAGE =
     'Cuéntame, ¿qué necesitas? Escribe el número:\n' +
     '1. Ya vendo y quiero precios de mayoreo\n' +
     '2. Quiero emprender (paquete con productos variados)\n' +
-    '3. Información general'
+    '3. Información general\n' +
+    '\n' +
+    'Responde con un solo número a la vez, por favor 🙂'
 
 const MENU_RESPONSES = {
     1: '¡Perfecto! Vas directo a precio de fábrica 🔥\n' +
