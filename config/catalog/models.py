@@ -147,12 +147,29 @@ class Product(models.Model):
         return self._root_category.shipping_cost
 
     @property
+    def effective_base_price(self):
+        """Costo del proveedor: override de la subcategoría (o raíz directa) si
+        está puesto, si no el base_price individual del producto."""
+        cat = self.category
+        if cat.base_price_override is not None:
+            return cat.base_price_override
+        bp = self.base_price
+        return bp if isinstance(bp, Decimal) else Decimal(str(bp))
+
+    @property
+    def effective_profit_margin(self):
+        """Ganancia: override de la subcategoría (o raíz directa) si está
+        puesto, si no la ganancia de la categoría raíz."""
+        cat = self.category
+        if cat.profit_margin_override is not None:
+            return cat.profit_margin_override
+        return self._root_category.profit_margin
+
+    @property
     def final_price(self):
         if self.price_override is not None:
             return self.price_override
-        bp = self.base_price if isinstance(self.base_price, Decimal) else Decimal(str(self.base_price))
-        # Margen desde la raíz (no la subcategoría directa); envío ya cascadea en effective_shipping
-        return bp + self.effective_shipping + self._root_category.profit_margin
+        return self.effective_base_price + self.effective_shipping + self.effective_profit_margin
 
     @property
     def effective_size_group(self):
@@ -226,13 +243,23 @@ class PendingProduct(models.Model):
 
     @property
     def final_price(self):
-        """Precio estimado de venta: base + envío + margen de la categoría raíz."""
-        root = None
-        if self.category:
-            root = self.category.parent if self.category.parent_id else self.category
-        if root is None:
+        """Precio estimado de venta: respeta los mismos overrides de subcategoría
+        que Product.final_price, para que el estimado antes de aprobar sea
+        consistente con el precio real una vez aprobado."""
+        if not self.category:
             return self.base_price + Decimal('100')
-        return self.base_price + root.shipping_cost + root.profit_margin
+        root = self.category.parent if self.category.parent_id else self.category
+        bp = (
+            self.category.base_price_override
+            if self.category.base_price_override is not None
+            else self.base_price
+        )
+        margin = (
+            self.category.profit_margin_override
+            if self.category.profit_margin_override is not None
+            else root.profit_margin
+        )
+        return bp + root.shipping_cost + margin
 
     def approve(self):
         """Crea el Product en catálogo y marca como aprobado."""

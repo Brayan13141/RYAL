@@ -1462,3 +1462,100 @@ class CleanupMediaTests(TestCase):
         out = self._run('--apply')
         self.assertTrue(os.path.exists(orphan))
         self.assertIn('saltado por seguridad', out)
+
+
+class SubcategoryPriceOverrideTests(TestCase):
+    """Subcategorías pueden fijar su propio costo de proveedor y ganancia,
+    en vez de heredar siempre de la categoría raíz."""
+
+    def setUp(self):
+        self.root = Category.objects.create(
+            name='Joyería', slug='joyeria-test',
+            shipping_cost=Decimal('50'), profit_margin=Decimal('100'),
+        )
+        self.sub_sin_override = Category.objects.create(
+            name='Gargantillas', slug='gargantillas-test', parent=self.root,
+        )
+        self.sub_con_override = Category.objects.create(
+            name='Anillos', slug='anillos-test', parent=self.root,
+            base_price_override=Decimal('300'),
+            profit_margin_override=Decimal('150'),
+        )
+
+    def _make_product(self, category, base_price):
+        return Product.objects.create(
+            sku=f'RYL-JOYTEST-{category.pk}-{base_price}',
+            name='Producto de prueba',
+            category=category,
+            base_price=Decimal(str(base_price)),
+        )
+
+    def test_sin_override_usa_base_price_propio_y_margen_de_la_raiz(self):
+        """Regresión: sin overrides, el comportamiento es igual que hoy."""
+        p = self._make_product(self.sub_sin_override, base_price=200)
+        self.assertEqual(p.effective_base_price, Decimal('200'))
+        self.assertEqual(p.effective_profit_margin, Decimal('100'))
+        self.assertEqual(p.final_price, Decimal('200') + Decimal('50') + Decimal('100'))
+
+    def test_base_price_override_reemplaza_el_base_price_individual(self):
+        """Dos productos con base_price distinto en la misma subcategoría con
+        override → ambos terminan con el mismo effective_base_price."""
+        p1 = self._make_product(self.sub_con_override, base_price=50)
+        p2 = self._make_product(self.sub_con_override, base_price=999)
+        self.assertEqual(p1.effective_base_price, Decimal('300'))
+        self.assertEqual(p2.effective_base_price, Decimal('300'))
+
+    def test_profit_margin_override_reemplaza_el_margen_de_la_raiz(self):
+        p = self._make_product(self.sub_con_override, base_price=300)
+        self.assertEqual(p.effective_profit_margin, Decimal('150'))
+
+    def test_ambos_overrides_juntos_en_final_price(self):
+        p = self._make_product(self.sub_con_override, base_price=1)  # base_price ignorado
+        # final = base_price_override(300) + shipping de la raíz(50) + profit_margin_override(150)
+        self.assertEqual(p.final_price, Decimal('300') + Decimal('50') + Decimal('150'))
+
+    def test_price_override_de_producto_sigue_ganando_a_todo(self):
+        p = self._make_product(self.sub_con_override, base_price=1)
+        p.price_override = Decimal('9999')
+        p.save(update_fields=['price_override'])
+        self.assertEqual(p.final_price, Decimal('9999'))
+
+    def test_subcategoria_sin_override_no_se_ve_afectada_por_la_de_al_lado(self):
+        """Aislamiento: que una subcategoría de la misma raíz tenga override
+        no debe afectar a otra subcategoría hermana sin override."""
+        p = self._make_product(self.sub_sin_override, base_price=77)
+        self.assertEqual(p.effective_base_price, Decimal('77'))
+        self.assertEqual(p.effective_profit_margin, Decimal('100'))
+
+    def test_producto_colgado_directo_de_la_raiz_con_override_en_la_raiz(self):
+        """Un producto sin subcategoría intermedia (category = raíz directa)
+        también respeta los overrides si están puestos en esa misma raíz."""
+        root_con_override = Category.objects.create(
+            name='Bolsos', slug='bolsos-test',
+            shipping_cost=Decimal('80'), profit_margin=Decimal('200'),
+            base_price_override=Decimal('500'), profit_margin_override=Decimal('250'),
+        )
+        p = self._make_product(root_con_override, base_price=1)
+        self.assertEqual(p.effective_base_price, Decimal('500'))
+        self.assertEqual(p.effective_profit_margin, Decimal('250'))
+
+    def test_pending_product_respeta_base_price_override(self):
+        from catalog.models import PendingProduct
+        pp = PendingProduct.objects.create(
+            supplier_url='https://modaverse.vip/#/proinfo/PENDTEST1',
+            display_name='Anillo pendiente',
+            category=self.sub_con_override,
+            base_price=Decimal('1'),  # debe ser ignorado por el override
+        )
+        # final = base_price_override(300) + shipping de la raíz(50) + profit_margin_override(150)
+        self.assertEqual(pp.final_price, Decimal('300') + Decimal('50') + Decimal('150'))
+
+    def test_pending_product_sin_override_usa_comportamiento_actual(self):
+        from catalog.models import PendingProduct
+        pp = PendingProduct.objects.create(
+            supplier_url='https://modaverse.vip/#/proinfo/PENDTEST2',
+            display_name='Gargantilla pendiente',
+            category=self.sub_sin_override,
+            base_price=Decimal('200'),
+        )
+        self.assertEqual(pp.final_price, Decimal('200') + Decimal('50') + Decimal('100'))

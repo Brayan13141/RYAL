@@ -12,8 +12,16 @@ class VolumeTierInline(admin.TabularInline):
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
-    list_display = ['name', 'parent', 'shipping_cost', 'profit_margin', 'min_order_qty', 'min_qty_per_item', 'is_active', 'display_order']
-    list_editable = ['shipping_cost', 'profit_margin', 'min_order_qty', 'min_qty_per_item', 'is_active', 'display_order']
+    list_display = [
+        'name', 'parent', 'shipping_cost', 'profit_margin',
+        'base_price_override', 'profit_margin_override',
+        'min_order_qty', 'min_qty_per_item', 'is_active', 'display_order',
+    ]
+    list_editable = [
+        'shipping_cost', 'profit_margin',
+        'base_price_override', 'profit_margin_override',
+        'min_order_qty', 'min_qty_per_item', 'is_active', 'display_order',
+    ]
     list_filter = ['is_active', 'parent']
     search_fields = ['name']
     prepopulated_fields = {'slug': ('name',)}

@@ -76,3 +76,74 @@ class ResumenGlobalTotalesTest(TestCase):
         self.assertEqual(res.context['ganancia_negocio'], 100)
         self.assertEqual(res.context['ingresos_total'], 450)
         self.assertEqual(res.context['ganancia_total'], 300)
+
+
+class CategoryOverridePricingFormTests(TestCase):
+    """El panel de staff permite configurar base_price_override y
+    profit_margin_override al editar una subcategoría."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            username='staff_cat', password='pass', is_staff=True
+        )
+        self.client.login(username='staff_cat', password='pass')
+        self.root = Category.objects.create(
+            name='Joyería Panel', slug='joyeria-panel-test',
+            shipping_cost=Decimal('50'), profit_margin=Decimal('100'),
+        )
+        self.sub = Category.objects.create(
+            name='Anillos Panel', slug='anillos-panel-test', parent=self.root,
+        )
+
+    def test_guarda_overrides_al_editar_subcategoria(self):
+        res = self.client.post(f'/panel/categorias/{self.sub.pk}/editar/', {
+            'name': self.sub.name,
+            'slug': self.sub.slug,
+            'parent': self.root.pk,
+            'shipping_cost': '0',
+            'profit_margin': '100',
+            'base_price_override': '300',
+            'profit_margin_override': '150',
+            'min_order_qty': '1',
+            'min_qty_per_item': '0',
+            'display_order': '0',
+            'is_active': 'on',
+        })
+        self.assertEqual(res.status_code, 302)
+        self.sub.refresh_from_db()
+        self.assertEqual(self.sub.base_price_override, Decimal('300'))
+        self.assertEqual(self.sub.profit_margin_override, Decimal('150'))
+
+    def test_campo_vacio_guarda_none_no_cero(self):
+        """Dejar el campo vacío debe significar 'heredar', no Decimal('0')."""
+        self.sub.base_price_override = Decimal('300')
+        self.sub.profit_margin_override = Decimal('150')
+        self.sub.save()
+
+        res = self.client.post(f'/panel/categorias/{self.sub.pk}/editar/', {
+            'name': self.sub.name,
+            'slug': self.sub.slug,
+            'parent': self.root.pk,
+            'shipping_cost': '0',
+            'profit_margin': '100',
+            'base_price_override': '',
+            'profit_margin_override': '',
+            'min_order_qty': '1',
+            'min_qty_per_item': '0',
+            'display_order': '0',
+            'is_active': 'on',
+        })
+        self.assertEqual(res.status_code, 302)
+        self.sub.refresh_from_db()
+        self.assertIsNone(self.sub.base_price_override)
+        self.assertIsNone(self.sub.profit_margin_override)
+
+    def test_form_de_subcategoria_muestra_los_campos_de_override(self):
+        res = self.client.get(f'/panel/categorias/{self.sub.pk}/editar/')
+        self.assertContains(res, 'base_price_override')
+        self.assertContains(res, 'profit_margin_override')
+
+    def test_form_de_raiz_no_muestra_los_campos_de_override(self):
+        res = self.client.get(f'/panel/categorias/{self.root.pk}/editar/')
+        self.assertNotContains(res, 'name="base_price_override"')
+        self.assertNotContains(res, 'name="profit_margin_override"')
