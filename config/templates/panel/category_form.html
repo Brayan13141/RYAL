@@ -81,6 +81,7 @@
         <div class="p-card-head"><h2>Precios y reglas</h2></div>
         <div class="p-card-body fp" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
 
+          {% if not cat.parent_id %}
           <div>
             <label>Costo de envío (MXN)</label>
             <input type="number" name="shipping_cost" step="0.01" min="0"
@@ -94,6 +95,7 @@
                    value="{% if data.profit_margin %}{{ data.profit_margin }}{% elif is_edit %}{{ cat.profit_margin }}{% else %}100{% endif %}"
                    placeholder="100.00">
           </div>
+          {% endif %}
 
           {% if cat.parent_id %}
           <div>
