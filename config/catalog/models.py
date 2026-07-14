@@ -15,6 +15,15 @@ class Category(models.Model):
     # Pricing rules — modify in admin to add new categories without code changes
     shipping_cost   = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     profit_margin   = models.DecimalField(max_digits=8, decimal_places=2, default=100)
+    base_price_override = models.DecimalField(
+        max_digits=8, decimal_places=2, null=True, blank=True,
+        help_text='Costo del proveedor para TODOS los productos de esta subcategoría. '
+                  'Vacío = usa el base_price individual de cada producto.'
+    )
+    profit_margin_override = models.DecimalField(
+        max_digits=8, decimal_places=2, null=True, blank=True,
+        help_text='Ganancia para esta subcategoría. Vacío = usa la ganancia de la categoría raíz.'
+    )
     min_order_qty   = models.PositiveIntegerField(default=1, help_text='Mínimo de piezas totales de esta categoría por pedido')
     min_qty_per_item = models.PositiveIntegerField(default=0, help_text='Mínimo de piezas por modelo en el carrito (0 = sin restricción por modelo, ej: calzado=12)')
     is_active       = models.BooleanField(default=True)
