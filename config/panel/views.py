@@ -1070,7 +1070,7 @@ def category_edit(request, cat_pk):
     errors = []
     delete_error = request.GET.get('delete_error', '')
     if request.method == 'POST':
-        _, errors = _save_category(request.POST, request.FILES, cat=cat)
+        _, errors = _save_category(request.POST, request.FILES, cat=cat, force_parent=cat.parent_id)
         if not errors:
             return redirect('panel:catalog_config')
     return render(request, 'panel/category_form.html', {
