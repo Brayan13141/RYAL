@@ -5,7 +5,7 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 
 from catalog.models import Product, Category
-from negocio.models import Cliente, Pedido
+from negocio.models import Cliente, Pedido, Pago
 from orders.models import Order, OrderItem
 
 
@@ -147,3 +147,68 @@ class CategoryOverridePricingFormTests(TestCase):
         res = self.client.get(f'/panel/categorias/{self.root.pk}/editar/')
         self.assertNotContains(res, 'name="base_price_override"')
         self.assertNotContains(res, 'name="profit_margin_override"')
+
+    def test_form_de_subcategoria_no_muestra_costo_envio_ni_margen_base(self):
+        """shipping_cost/profit_margin de una subcategoria nunca se leen (ver
+        Product._root_category) -- mostrarlos confunde, solo van los overrides."""
+        res = self.client.get(f'/panel/categorias/{self.sub.pk}/editar/')
+        self.assertNotContains(res, 'name="shipping_cost"')
+        self.assertNotContains(res, 'name="profit_margin"')
+
+    def test_editar_subcategoria_no_le_quita_el_padre(self):
+        """category_form.html no tiene campo parent -- category_edit no debe
+        resetear parent_id a None al guardar (bug: convertia la sub en raiz)."""
+        res = self.client.post(f'/panel/categorias/{self.sub.pk}/editar/', {
+            'name': self.sub.name,
+            'slug': self.sub.slug,
+            'shipping_cost': '0',
+            'profit_margin': '100',
+            'min_order_qty': '1',
+            'min_qty_per_item': '0',
+            'display_order': '0',
+            'is_active': 'on',
+        })
+        self.assertEqual(res.status_code, 302)
+        self.sub.refresh_from_db()
+        self.assertEqual(self.sub.parent_id, self.root.pk)
+
+
+class DashboardAdelantosSaldoPendienteTests(TestCase):
+    """El dashboard debe mostrar adelantos y saldo pendiente por separado,
+    para checkout web (Order.deposit) y para WhatsApp/tienda (Pago parcial)."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            username='staff_dash', password='pass', is_staff=True
+        )
+        self.client.login(username='staff_dash', password='pass')
+
+        order = Order.objects.create(
+            customer_name='Victor', customer_phone='5550001111',
+            status='in_preparation', is_paid=False, deposit=Decimal('300'),
+        )
+        OrderItem.objects.create(
+            order=order, product=None, quantity=1,
+            price_snapshot=Decimal('800'), sku_snapshot='X', name_snapshot='X',
+        )
+        # total = 800, deposit = 300 -> balance_due = 500
+
+        cliente = Cliente.objects.create(nombre='Cliente WA', telefono='5559998888')
+        pedido = Pedido.objects.create(
+            cliente=cliente, descripcion='Venta WA',
+            costo_producto=Decimal('300'), precio_venta=Decimal('800'),
+            estado=Pedido.PENDIENTE,
+        )
+        Pago.objects.create(
+            pedido=pedido, fecha=date.today(), monto=Decimal('300'),
+            metodo_pago=Pago.EFECTIVO,
+        )
+        # total_a_cobrar = 800, pagado = 300 -> balance_pendiente = 500
+
+    def test_dashboard_separa_adelantos_y_saldo_pendiente(self):
+        res = self.client.get('/panel/')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.context['adelantos_web'], 300)
+        self.assertEqual(res.context['saldo_pendiente_web'], 500)
+        self.assertEqual(res.context['adelantos_negocio'], 300)
+        self.assertEqual(res.context['saldo_negocio_pendiente'], 500)

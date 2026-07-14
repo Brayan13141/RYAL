@@ -256,7 +256,12 @@ def dashboard(request):
 
     # Pedidos sin liquidar (checkout web) — el saldo pendiente de negocio.Pedido
     # ya se cubre aparte con pedidos_negocio_pendientes / saldo_negocio_pendiente.
-    pedidos_sin_pagar = Order.objects.exclude(status='cancelled').filter(is_paid=False).count()
+    ordenes_sin_pagar = list(
+        Order.objects.exclude(status='cancelled').filter(is_paid=False).prefetch_related('items')
+    )
+    pedidos_sin_pagar = len(ordenes_sin_pagar)
+    adelantos_web = sum((o.deposit for o in ordenes_sin_pagar), Decimal('0'))
+    saldo_pendiente_web = sum((o.balance_due for o in ordenes_sin_pagar), Decimal('0'))
 
     # Top productos del mes — combinado Order (checkout web) + Pedido con product FK
     # (ventas de tienda física por SKU; las ventas de bot sin SKU no tienen product y quedan fuera).
@@ -352,6 +357,9 @@ def dashboard(request):
     saldo_negocio_pendiente = sum(
         (p.balance_pendiente for p in pedidos_negocio_pendientes), Decimal('0')
     )
+    adelantos_negocio = sum(
+        (pago.monto for p in pedidos_negocio_pendientes for pago in p.pagos.all()), Decimal('0')
+    )
 
     return render(request, 'panel/dashboard.html', {
         'counts':             counts,
@@ -372,8 +380,11 @@ def dashboard(request):
         'balance_mes':        round(balance_mes),
         'descuentos_mes':     round(descuentos_mes),
         'pedidos_sin_pagar':  pedidos_sin_pagar,
+        'adelantos_web':      round(float(adelantos_web)),
+        'saldo_pendiente_web': round(float(saldo_pendiente_web)),
         'pedidos_negocio_pendientes': len(pedidos_negocio_pendientes),
         'saldo_negocio_pendiente':    round(float(saldo_negocio_pendiente)),
+        'adelantos_negocio':          round(float(adelantos_negocio)),
         'chart_labels':       json.dumps(chart_labels),
         'chart_revenue':      json.dumps(chart_revenue),
         'chart_profit':       json.dumps(chart_profit),

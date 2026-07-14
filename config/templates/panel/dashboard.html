@@ -130,9 +130,9 @@ document.addEventListener('DOMContentLoaded', function () {
   </div>
 
   <div class="kpi-sm" style="border-color:{% if pedidos_sin_pagar > 0 %}rgba(232,160,32,.3){% else %}var(--pl){% endif %};">
-    <div class="kpi-lbl">Sin liquidar</div>
+    <div class="kpi-lbl">Sin liquidar (web)</div>
     <div class="kpi-val" style="color:{% if pedidos_sin_pagar > 0 %}#e8a020{% else %}#50c878{% endif %};">{{ pedidos_sin_pagar }}</div>
-    <div class="kpi-sub">pedidos no marcados como pagados</div>
+    <div class="kpi-sub">Adelantado: ${{ adelantos_web|floatformat:0 }} · Saldo pendiente: ${{ saldo_pendiente_web|floatformat:0 }} MXN</div>
   </div>
 
   <div class="kpi-sm">
@@ -142,9 +142,9 @@ document.addEventListener('DOMContentLoaded', function () {
   </div>
 
   <div class="kpi-sm" style="border-color:{% if pedidos_negocio_pendientes > 0 %}rgba(232,160,32,.3){% else %}var(--pl){% endif %};">
-    <div class="kpi-lbl">Adelantos / saldo pendiente</div>
+    <div class="kpi-lbl">Adelantos / saldo pendiente (WhatsApp/tienda)</div>
     <div class="kpi-val" style="color:{% if pedidos_negocio_pendientes > 0 %}#e8a020{% else %}#50c878{% endif %};">{{ pedidos_negocio_pendientes }}</div>
-    <div class="kpi-sub">${{ saldo_negocio_pendiente|floatformat:0 }} MXN por cobrar (WhatsApp/tienda)</div>
+    <div class="kpi-sub">Adelantado: ${{ adelantos_negocio|floatformat:0 }} · Saldo pendiente: ${{ saldo_negocio_pendiente|floatformat:0 }} MXN</div>
   </div>
 
 </div>
