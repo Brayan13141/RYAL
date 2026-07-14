@@ -1,7 +1,7 @@
 import json
 from decimal import Decimal
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from catalog.models import Category, Product, ProductImage, SizeGroup
@@ -288,3 +288,151 @@ class CheckoutConfirmValidacionesTests(TestCase):
         self.assertIn("checkout_warnings", self.client.session)
         self.assertRedirects(res, reverse("orders:checkout"))
         self.assertEqual(Order.objects.count(), 0)
+
+
+@override_settings(RATELIMIT_ENABLE=False)
+class CostoConOverrideSubcategoriaTests(TestCase):
+    """El costo registrado en ventas web debe usar effective_base_price:
+    con base_price_override en la subcategoría, el precio de venta ya sale
+    del override — el costo también, o la ganancia queda mal calculada."""
+
+    def setUp(self):
+        self.root = Category.objects.create(
+            name="Joyeria", slug="joyeria",
+            profit_margin=Decimal("100"), shipping_cost=Decimal("50"),
+        )
+        self.sub = Category.objects.create(
+            name="Chrome Hearts", slug="chrome-hearts", parent=self.root,
+            base_price_override=Decimal("300"),
+        )
+        # base_price individual desactualizado a propósito — el override manda
+        self.product = Product.objects.create(
+            sku="RYL-CH-1", name="Anillo CH", category=self.sub,
+            base_price=Decimal("120"),
+        )
+        self.url = reverse("orders:checkout_confirm")
+
+    def _set_cart(self, qty=1):
+        session = self.client.session
+        session["cart"] = {
+            f"{self.product.pk}_none": {
+                "product_id": self.product.pk, "variant_id": None, "image_pk": None,
+                "variant_name": "", "quantity": qty,
+                "price": float(self.product.final_price),
+            }
+        }
+        session.save()
+
+    def test_cost_snapshot_usa_effective_base_price(self):
+        self._set_cart()
+        res = self.client.post(self.url, {"nombre": "Ana", "telefono": "5512345678"})
+        self.assertEqual(res.status_code, 302)
+        item = Order.objects.get().items.get()
+        # costo real = override subcategoría (300) + envío raíz (50), NO base_price viejo (120)
+        self.assertEqual(item.cost_snapshot, Decimal("350"))
+
+    def test_ganancia_fallback_sin_cost_snapshot_usa_override(self):
+        order = Order.objects.create(
+            order_code="TEST-GAN-1", customer_name="Ana", customer_phone="5512345678",
+        )
+        order.items.create(
+            product=self.product, quantity=2,
+            price_snapshot=self.product.final_price,   # 300 + 50 + 100 = 450
+            cost_snapshot=None,
+            sku_snapshot=self.product.sku, name_snapshot=self.product.name,
+        )
+        # ganancia = (450 − (300 + 50)) × 2 = 200 — con base_price viejo daría 560
+        self.assertEqual(order.ganancia, Decimal("200"))
+
+
+@override_settings(RATELIMIT_ENABLE=False)
+class DescuentoCapCheckoutTests(TestCase):
+    """El descuento aplicado en checkout nunca puede exceder el subtotal del
+    pedido — sin tope, un código mayor al total dejaba Order.total negativo."""
+
+    def setUp(self):
+        from catalog.models import CodigoDescuento
+        self.cat = Category.objects.create(name="Gorras", slug="gorras")
+        self.product = Product.objects.create(
+            sku="RYL-CAP-1", name="Gorra NY", category=self.cat,
+            base_price=Decimal("100"),
+        )
+        # final_price = 100 + 0 + 100 (margen default) = 200
+        self.code = CodigoDescuento.objects.create(
+            codigo="MEGA", descuento=Decimal("10000"), tipo_descuento="fijo",
+        )
+        self.url = reverse("orders:checkout_confirm")
+
+    def _set_cart(self):
+        session = self.client.session
+        session["cart"] = {
+            f"{self.product.pk}_none": {
+                "product_id": self.product.pk, "variant_id": None, "image_pk": None,
+                "variant_name": "", "quantity": 1, "price": 200.0,
+            }
+        }
+        session.save()
+
+    def test_descuento_se_capea_al_subtotal(self):
+        self._set_cart()
+        res = self.client.post(self.url, {
+            "nombre": "Ana", "telefono": "5512345678", "codigo_descuento": "MEGA",
+        })
+        self.assertEqual(res.status_code, 302)
+        order = Order.objects.get()
+        self.assertEqual(order.descuento_aplicado, Decimal("200"))  # no 10000
+        self.assertEqual(order.total, Decimal("0"))                 # nunca negativo
+        self.code.refresh_from_db()
+        self.assertEqual(self.code.usos_actuales, 1)
+
+    def test_codigo_agotado_no_se_aplica(self):
+        self.code.usos_max = 1
+        self.code.usos_actuales = 1
+        self.code.save()
+        self._set_cart()
+        self.client.post(self.url, {
+            "nombre": "Ana", "telefono": "5512345678", "codigo_descuento": "MEGA",
+        })
+        order = Order.objects.get()
+        self.assertEqual(order.descuento_aplicado, Decimal("0"))
+        self.code.refresh_from_db()
+        self.assertEqual(self.code.usos_actuales, 1)  # sin rebasar usos_max
+
+
+class SavedCartRestoreVolumeTierTests(TestCase):
+    """Al restaurar el carrito guardado en el login, el precio debe reaplicar
+    el descuento por volumen — antes se restauraba a precio lleno aunque la
+    cantidad calificara para el tier."""
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+        from catalog.models import VolumeTier
+        self.cat = Category.objects.create(name="Gorras Tier", slug="gorras-tier")
+        # final_price = 100 + 0 + 100 (margen default) = 200
+        self.product = Product.objects.create(
+            sku="RYL-TIER-1", name="Gorra Tier", category=self.cat,
+            base_price=Decimal("100"),
+        )
+        VolumeTier.objects.create(
+            category=self.cat, min_qty=10, discount_amount=Decimal("50"),
+        )
+        self.user = User.objects.create_user(username="cliente1", password="pass")
+
+    def _saved_item(self, qty):
+        from orders.models import SavedCartItem
+        return SavedCartItem.objects.create(
+            user=self.user, cart_key=f"{self.product.pk}_none",
+            product=self.product, quantity=qty,
+        )
+
+    def test_restaura_precio_con_tier_por_cantidad(self):
+        self._saved_item(qty=12)
+        self.client.login(username="cliente1", password="pass")
+        cart = self.client.session["cart"]
+        self.assertEqual(cart[f"{self.product.pk}_none"]["price"], 150.0)  # 200 − 50
+
+    def test_restaura_precio_lleno_si_no_alcanza_el_tier(self):
+        self._saved_item(qty=2)
+        self.client.login(username="cliente1", password="pass")
+        cart = self.client.session["cart"]
+        self.assertEqual(cart[f"{self.product.pk}_none"]["price"], 200.0)

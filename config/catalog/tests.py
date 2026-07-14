@@ -1559,3 +1559,71 @@ class SubcategoryPriceOverrideTests(TestCase):
             base_price=Decimal('200'),
         )
         self.assertEqual(pp.final_price, Decimal('200') + Decimal('50') + Decimal('100'))
+
+
+class ConsumirUsoTests(TestCase):
+    """consumir_uso: chequeo + incremento de usos_actuales en UN solo UPDATE
+    atómico — cierra la carrera de dos checkouts simultáneos que antes podían
+    rebasar usos_max (leer-luego-incrementar en pasos separados)."""
+
+    def _codigo(self, **kwargs):
+        defaults = dict(codigo='PROMO10', descuento=Decimal('10'))
+        defaults.update(kwargs)
+        return CodigoDescuento.objects.create(**defaults)
+
+    def test_incrementa_y_retorna_true(self):
+        from catalog.services import consumir_uso
+        code = self._codigo(usos_max=5, usos_actuales=0)
+        self.assertTrue(consumir_uso('promo10'))   # case-insensitive
+        code.refresh_from_db()
+        self.assertEqual(code.usos_actuales, 1)
+
+    def test_agotado_retorna_false_sin_incrementar(self):
+        from catalog.services import consumir_uso
+        code = self._codigo(usos_max=2, usos_actuales=2)
+        self.assertFalse(consumir_uso('PROMO10'))
+        code.refresh_from_db()
+        self.assertEqual(code.usos_actuales, 2)
+
+    def test_sin_limite_siempre_incrementa(self):
+        from catalog.services import consumir_uso
+        code = self._codigo(usos_max=None, usos_actuales=99)
+        self.assertTrue(consumir_uso('PROMO10'))
+        code.refresh_from_db()
+        self.assertEqual(code.usos_actuales, 100)
+
+    def test_por_pk(self):
+        from catalog.services import consumir_uso
+        code = self._codigo(usos_max=1, usos_actuales=0)
+        self.assertTrue(consumir_uso(pk=code.pk))
+        self.assertFalse(consumir_uso(pk=code.pk))
+        code.refresh_from_db()
+        self.assertEqual(code.usos_actuales, 1)
+
+
+class CategoryOverrideValidationTests(TestCase):
+    """Un override puesto en una categoría RAÍZ con subcategorías no aplica a
+    los productos de las subcategorías (effective_* solo mira la categoría
+    directa) — guardarlo ahí desde el admin era un no-op silencioso. clean()
+    lo rechaza con un mensaje claro."""
+
+    def test_override_en_raiz_con_subcategorias_no_valida(self):
+        from django.core.exceptions import ValidationError
+        root = Category.objects.create(name='Gorras Val', slug='gorras-val')
+        Category.objects.create(name='Sub Val', slug='sub-val', parent=root)
+        root.base_price_override = Decimal('100')
+        with self.assertRaises(ValidationError):
+            root.full_clean()
+
+    def test_override_en_subcategoria_valida(self):
+        root = Category.objects.create(name='Gorras Val2', slug='gorras-val2')
+        sub = Category.objects.create(name='Sub Val2', slug='sub-val2', parent=root)
+        sub.base_price_override = Decimal('100')
+        sub.profit_margin_override = Decimal('50')
+        sub.full_clean()  # no debe lanzar
+
+    def test_override_en_raiz_sin_subcategorias_valida(self):
+        # Raíz sin hijos = los productos cuelgan directo de ella y el override SÍ aplica
+        root = Category.objects.create(name='Gorras Val3', slug='gorras-val3')
+        root.profit_margin_override = Decimal('50')
+        root.full_clean()  # no debe lanzar

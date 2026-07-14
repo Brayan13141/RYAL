@@ -159,6 +159,16 @@ def _generate_order_code():
     return f'RY{date_str}{today_count:04d}'
 
 
+def _price_with_volume_tier(product, qty, base_price):
+    """Precio unitario reaplicando el tier de volumen de la categoría raíz.
+    Sin tier aplicable para esa cantidad, regresa base_price sin tocar."""
+    root = product.category.parent if product.category.parent_id else product.category
+    tier = root.volume_tiers.filter(min_qty__lte=qty).order_by('-min_qty').first()
+    if tier:
+        return max(0.0, float(product.final_price) - float(tier.discount_amount))
+    return base_price
+
+
 def _create_order_safe(**kwargs):
     """Create an Order with a unique code, retrying on collision (race condition guard)."""
     for _ in range(5):
@@ -310,10 +320,7 @@ def cart_add(request):
 
     # Aplicar tier de volumen basado en cantidad total (existente + nueva)
     total_qty = cart.get(key, {}).get('quantity', 0) + qty
-    root = product.category.parent if product.category.parent_id else product.category
-    tier = root.volume_tiers.filter(min_qty__lte=total_qty).order_by('-min_qty').first()
-    if tier:
-        price = max(0.0, float(product.final_price) - float(tier.discount_amount))
+    price = _price_with_volume_tier(product, total_qty, price)
 
     # Nombre descriptivo del ítem en el carrito
     if size_name and color:
@@ -415,11 +422,8 @@ def cart_update(request):
             # Recalcular precio con tier basado en nueva cantidad
             try:
                 product = Product.objects.select_related('category__parent').get(pk=cart[key]['product_id'])
-                root = product.category.parent if product.category.parent_id else product.category
-                tier = root.volume_tiers.filter(min_qty__lte=qty).order_by('-min_qty').first()
-                cart[key]['price'] = (
-                    max(0.0, float(product.final_price) - float(tier.discount_amount))
-                    if tier else float(product.final_price)
+                cart[key]['price'] = _price_with_volume_tier(
+                    product, qty, float(product.final_price)
                 )
             except Product.DoesNotExist:
                 pass
@@ -554,7 +558,7 @@ def checkout_confirm(request):
             if item.get('variant_id'):
                 variant = ProductVariant.objects.filter(pk=item['variant_id']).first()
             try:
-                cost_snapshot = product.base_price + product.effective_shipping
+                cost_snapshot = product.effective_base_price + product.effective_shipping
             except Exception:
                 cost_snapshot = None
 
@@ -590,15 +594,20 @@ def checkout_confirm(request):
             })
         resultado = validar_codigo(codigo_descuento_str, canal='web', items=cart_items_for_validation)
         if resultado['valido']:
-            descuento_decimal = Decimal(str(resultado['descuento']))
-            order.descuento_aplicado = descuento_decimal
-            order.notes = f'Código de descuento: {codigo_descuento_str} (−${resultado["descuento"]:.0f} MXN)'
-            order.save(update_fields=['notes', 'descuento_aplicado'])
-            from django.db.models import F
-            from catalog.models import CodigoDescuento
-            CodigoDescuento.objects.filter(
-                codigo__iexact=codigo_descuento_str
-            ).update(usos_actuales=F('usos_actuales') + 1)
+            from catalog.services import consumir_uso
+            # consumir_uso chequea usos_max e incrementa en un solo UPDATE
+            # atómico — si otro checkout ganó el último uso, no se aplica.
+            if consumir_uso(codigo_descuento_str):
+                subtotal_pedido = sum(
+                    (i.subtotal for i in order.items.all()), Decimal('0')
+                )
+                # El descuento nunca excede el subtotal — total >= 0 siempre
+                descuento_decimal = min(
+                    Decimal(str(resultado['descuento'])), subtotal_pedido
+                )
+                order.descuento_aplicado = descuento_decimal
+                order.notes = f'Código de descuento: {codigo_descuento_str} (−${descuento_decimal:.0f} MXN)'
+                order.save(update_fields=['notes', 'descuento_aplicado'])
 
     _save_cart(request, {})
     if request.user.is_authenticated:

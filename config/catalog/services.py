@@ -2,6 +2,24 @@ import datetime
 from decimal import Decimal
 
 
+def consumir_uso(codigo: str = None, *, pk: int = None) -> bool:
+    """Incrementa usos_actuales respetando usos_max en UN solo UPDATE atómico.
+
+    Retorna False (sin incrementar) si el código ya está agotado. Usar SIEMPRE
+    esto en vez de leer usos_actuales y luego incrementar en pasos separados:
+    dos checkouts simultáneos podían rebasar usos_max con el patrón viejo.
+    """
+    from django.db.models import F, Q
+    from .models import CodigoDescuento
+    if pk is not None:
+        qs = CodigoDescuento.objects.filter(pk=pk)
+    else:
+        qs = CodigoDescuento.objects.filter(codigo__iexact=codigo)
+    return qs.filter(
+        Q(usos_max__isnull=True) | Q(usos_actuales__lt=F('usos_max'))
+    ).update(usos_actuales=F('usos_actuales') + 1) > 0
+
+
 def buscar_tipo_articulo(texto: str):
     """Devuelve el primer TipoArticulo cuyas keywords hagan match con texto, o None."""
     from .models import TipoArticulo

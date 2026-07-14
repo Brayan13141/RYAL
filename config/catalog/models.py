@@ -44,6 +44,25 @@ class Category(models.Model):
         verbose_name_plural = 'Categorías'
         ordering = ['display_order', 'name']
 
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        super().clean()
+        # Los overrides solo los lee la categoría DIRECTA del producto
+        # (Product.effective_base_price / effective_profit_margin). En una raíz
+        # con subcategorías serían un no-op silencioso para los productos de
+        # las subcategorías — rechazar en vez de guardar algo que no aplica.
+        tiene_override = (
+            self.base_price_override is not None
+            or self.profit_margin_override is not None
+        )
+        if (tiene_override and self.parent_id is None and self.pk
+                and self.subcategories.exists()):
+            raise ValidationError({
+                'base_price_override':
+                    'Esta categoría raíz tiene subcategorías: el override no '
+                    'aplicaría a sus productos. Configúralo en cada subcategoría.',
+            })
+
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = slugify(self.name)

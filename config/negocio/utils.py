@@ -9,6 +9,13 @@ _GANANCIA_EXPR = ExpressionWrapper(
     output_field=DecimalField(max_digits=12, decimal_places=2),
 )
 
+# Ingreso NETO de descuentos — mismo criterio que el dashboard (_stats_pedido).
+# Todos los reportes deben sumar esta expresión, nunca precio_venta bruto.
+_VENDIDO_EXPR = ExpressionWrapper(
+    F('precio_venta') - F('descuento_aplicado'),
+    output_field=DecimalField(max_digits=12, decimal_places=2),
+)
+
 
 def _mes_range(year, month):
     """Devuelve (fecha_ini, fecha_fin) para el mes dado."""

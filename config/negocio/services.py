@@ -102,8 +102,8 @@ def crear_venta_tienda(*, lineas, cliente=None, metodo_pago='efectivo'):
     """Crea una venta de tienda física: Pedido PAGADO + PedidoItem + Pago completo.
 
     `lineas`: lista de dicts {sku, cantidad, precio_unitario}. El precio es editable
-    (override del cajero); el COSTO se toma siempre de Product.base_price en el servidor
-    (nunca se confía al cliente) para preservar la integridad de la ganancia.
+    (override del cajero); el COSTO se toma siempre de Product.effective_base_price en el
+    servidor (nunca se confía al cliente) para preservar la integridad de la ganancia.
     Lanza VentaInvalida si algo no valida; la transacción atómica garantiza que no se
     cree nada parcial.
     """
@@ -137,7 +137,7 @@ def crear_venta_tienda(*, lineas, cliente=None, metodo_pago='efectivo'):
 
         cantidad = _parse_cantidad(linea.get('cantidad'))
         precio_unitario = _parse_precio(linea.get('precio_unitario'))
-        costo_unitario = product.base_price  # SIEMPRE del servidor
+        costo_unitario = product.effective_base_price  # SIEMPRE del servidor (respeta override de subcategoría)
 
         PedidoItem.objects.create(
             pedido=pedido, product=product,
@@ -178,6 +178,7 @@ def crear_pedido_bot(*, nombre, telefono, items, envio=Decimal('0'),
     codigo_obj = None
     if codigo_descuento_id:
         from catalog.models import CodigoDescuento
+        from catalog.services import consumir_uso
         import datetime
         try:
             codigo_obj = CodigoDescuento.objects.get(pk=codigo_descuento_id)
@@ -186,7 +187,9 @@ def crear_pedido_bot(*, nombre, telefono, items, envio=Decimal('0'),
                 codigo_obj = None
             elif codigo_obj.valid_hasta and codigo_obj.valid_hasta < datetime.date.today():
                 codigo_obj = None
-            elif codigo_obj.usos_max is not None and codigo_obj.usos_actuales >= codigo_obj.usos_max:
+            # Chequeo de usos_max + incremento en un solo UPDATE atómico.
+            # Si el pedido falla más abajo, transaction.atomic lo revierte.
+            elif not consumir_uso(pk=codigo_obj.pk):
                 codigo_obj = None
         except CodigoDescuento.DoesNotExist:
             codigo_obj = None
@@ -229,11 +232,11 @@ def crear_pedido_bot(*, nombre, telefono, items, envio=Decimal('0'),
     pedido.precio_venta = total_precio
     pedido.costo_producto = total_costo
     pedido.descripcion = f'Bot: {", ".join(partes_desc)}'
-    pedido.save(update_fields=['precio_venta', 'costo_producto', 'descripcion'])
-
-    if codigo_obj:
-        CodigoDescuento.objects.filter(pk=codigo_obj.pk).update(
-            usos_actuales=F('usos_actuales') + 1
-        )
+    # El descuento nunca excede el total a cobrar (precio + envío) — el bot ya
+    # floorea el total mostrado en WhatsApp, esto evita registrarlo negativo.
+    pedido.descuento_aplicado = min(descuento_d, total_precio + envio_d)
+    pedido.save(update_fields=[
+        'precio_venta', 'costo_producto', 'descripcion', 'descuento_aplicado',
+    ])
 
     return pedido

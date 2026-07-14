@@ -85,7 +85,7 @@ class Order(models.Model):
                 total += (item.price_snapshot - item.cost_snapshot) * item.quantity
             elif item.product_id:
                 try:
-                    cost = item.product.base_price + item.product.effective_shipping
+                    cost = item.product.effective_base_price + item.product.effective_shipping
                     total += (item.price_snapshot - cost) * item.quantity
                 except Exception:
                     total += Decimal('100') * item.quantity

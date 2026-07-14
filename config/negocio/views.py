@@ -15,7 +15,7 @@ from django_ratelimit.decorators import ratelimit
 from catalog.models import Category, Product
 from .forms import ClienteForm, PedidoForm, PagoForm, GastoForm, PedidoItemForm
 from .models import Cliente, Pedido, Pago, Gasto, PedidoItem
-from .utils import _mes_range, _MESES_ES, _GANANCIA_EXPR
+from .utils import _mes_range, _MESES_ES, _GANANCIA_EXPR, _VENDIDO_EXPR
 
 
 def _sync_estado_pedido(pedido):
@@ -228,7 +228,7 @@ def resumen(request):
 
     # KPIs principales
     agg_ventas = pedido_base.filter(estado=Pedido.PAGADO).aggregate(
-        vendido=Sum('precio_venta'),
+        vendido=Sum(_VENDIDO_EXPR),
         ganancia=Sum(_GANANCIA_EXPR),
         costo=Sum('costo_producto'),
     )
@@ -278,7 +278,7 @@ def resumen(request):
         trend_labels.append(f"{_MESES_ES[tm-1]} {str(ty)[2:]}")
         agg = Pedido.objects.filter(
             estado=Pedido.PAGADO, fecha__gte=t_ini, fecha__lt=t_fin
-        ).aggregate(v=Sum('precio_venta'), g=Sum(_GANANCIA_EXPR))
+        ).aggregate(v=Sum(_VENDIDO_EXPR), g=Sum(_GANANCIA_EXPR))
         g_val = Gasto.objects.filter(fecha__gte=t_ini, fecha__lt=t_fin).aggregate(t=Sum('monto'))['t'] or Decimal('0')
         trend_vendido.append(float(agg['v'] or 0))
         trend_ganancia_list.append(float(agg['g'] or 0))

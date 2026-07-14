@@ -538,10 +538,15 @@ def order_descuento_apply(request, pk):
     if not resultado['valido']:
         return JsonResponse({'ok': False, 'error': resultado['mensaje']})
 
-    order.descuento_aplicado = Decimal(str(resultado['descuento']))
+    from catalog.services import consumir_uso
+    # Chequeo de usos_max + incremento en un solo UPDATE atómico
+    if not consumir_uso(codigo):
+        return JsonResponse({'ok': False, 'error': 'Código agotado.'})
+
+    subtotal = sum((i.subtotal for i in order.items.all()), Decimal('0'))
+    # El descuento nunca excede el subtotal — total >= 0 siempre
+    order.descuento_aplicado = min(Decimal(str(resultado['descuento'])), subtotal)
     order.save(update_fields=['descuento_aplicado', 'updated_at'])
-    from catalog.models import CodigoDescuento
-    CodigoDescuento.objects.filter(codigo__iexact=codigo).update(usos_actuales=F('usos_actuales') + 1)
     return JsonResponse({'ok': True, 'descuento': float(order.descuento_aplicado), 'total': float(order.total), 'balance_due': float(order.balance_due)})
 
 
@@ -727,14 +732,24 @@ def _save_product(data, product=None):
         return None, [f'Error al guardar: {e}']
 
 
+def _redirect_products_list(return_qs):
+    """Vuelve a products_list preservando los filtros (q/cat/active/no_image/page)
+    que traiga return_qs, en vez de siempre mandar a la lista sin filtrar."""
+    url = reverse('panel:products_list')
+    if return_qs:
+        url = f'{url}?{return_qs}'
+    return redirect(url)
+
+
 @_staff
 def product_create(request):
     from types import SimpleNamespace
     errors = []
+    return_qs = request.POST.get('_return_qs', '') if request.method == 'POST' else request.GET.urlencode()
     if request.method == 'POST':
         obj, errors = _save_product(request.POST)
         if not errors:
-            return redirect('panel:products_list')
+            return _redirect_products_list(return_qs)
 
     return render(request, 'panel/product_form.html', {
         'categories':     Category.objects.filter(is_active=True),
@@ -742,6 +757,7 @@ def product_create(request):
         'status_choices': Product.STATUS_CHOICES,
         'errors':         errors,
         'is_edit':        False,
+        'return_qs':      return_qs,
         'product':        SimpleNamespace(
             name='', description='', supplier_url='',
             base_price='', shipping_override='', min_order_qty=1,
@@ -756,10 +772,11 @@ def product_create(request):
 def product_edit(request, pk):
     product = get_object_or_404(Product, pk=pk)
     errors  = []
+    return_qs = request.POST.get('_return_qs', '') if request.method == 'POST' else request.GET.urlencode()
     if request.method == 'POST':
         _, errors = _save_product(request.POST, product=product)
         if not errors:
-            return redirect('panel:products_list')
+            return _redirect_products_list(return_qs)
 
     return render(request, 'panel/product_form.html', {
         'product':        product,
@@ -768,6 +785,7 @@ def product_edit(request, pk):
         'status_choices': Product.STATUS_CHOICES,
         'errors':         errors,
         'is_edit':        True,
+        'return_qs':      return_qs,
         'data':           request.POST if request.method == 'POST' else {},
     })
 
@@ -776,7 +794,7 @@ def product_edit(request, pk):
 @require_POST
 def product_delete(request, pk):
     get_object_or_404(Product, pk=pk).delete()
-    return redirect('panel:products_list')
+    return _redirect_products_list(request.GET.urlencode())
 
 
 # ─── Product images ───────────────────────────────────────────────────────────
@@ -1874,7 +1892,7 @@ def pendientes_approve_all(request):
 @_staff
 def resumen_global(request):
     from negocio.models import Pedido
-    from negocio.utils import _mes_range, _MESES_ES, _GANANCIA_EXPR
+    from negocio.utils import _mes_range, _MESES_ES, _GANANCIA_EXPR, _VENDIDO_EXPR
 
     hoy = timezone.now().date()
     mes = request.GET.get('mes', f"{hoy.year}-{hoy.month:02d}")
@@ -1913,7 +1931,7 @@ def resumen_global(request):
     rev_tienda, gan_tienda = _stats(orders_qs)
 
     agg_negocio = pedidos_qs.aggregate(
-        vendido=Sum('precio_venta'),
+        vendido=Sum(_VENDIDO_EXPR),
         ganancia=Sum(_GANANCIA_EXPR),
     )
     vendido_negocio = float(agg_negocio['vendido'] or 0)

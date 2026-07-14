@@ -304,6 +304,23 @@ class ResumenViewTest(TestCase):
         self.assertContains(res, '100')  # ganancia bruta
         self.assertContains(res, '50')   # ganancia neta (100 - 50 gastos)
 
+    def test_vendido_neto_de_descuentos(self):
+        """'Vendido' debe restar descuento_aplicado — mismo criterio que el
+        dashboard (_stats_pedido). Antes reportaba el bruto y las dos vistas
+        no cuadraban entre sí."""
+        import json as _json
+        cliente = Cliente.objects.create(nombre='Y', telefono='5550008888')
+        Pedido.objects.create(
+            cliente=cliente, descripcion='Con descuento',
+            costo_producto=Decimal('400'), precio_venta=Decimal('1000'),
+            descuento_aplicado=Decimal('100'), estado=Pedido.PAGADO,
+        )
+        res = self.client.get('/panel/negocio/')
+        self.assertEqual(res.context['total_vendido'], Decimal('900'))
+        self.assertEqual(res.context['total_ganancia'], Decimal('500'))
+        # La tendencia de 6 meses usa el mismo criterio neto
+        self.assertEqual(_json.loads(res.context['trend_vendido'])[-1], 900.0)
+
 
 class PagoMetodoTest(TestCase):
     def setUp(self):
@@ -432,6 +449,22 @@ class CrearVentaTiendaTest(TestCase):
                    'costo_unitario': '0'}]
         pedido = crear_venta_tienda(lineas=lineas, cliente=None, metodo_pago='efectivo')
         self.assertEqual(pedido.items.get().costo_unitario, Decimal('150'))
+
+    def test_costo_respeta_base_price_override_de_subcategoria(self):
+        """Con base_price_override en la subcategoría, ese ES el costo real del
+        proveedor — el base_price individual del producto queda desactualizado."""
+        sub = Category.objects.create(
+            name='Gorras Premium', parent=self.cat,
+            base_price_override=Decimal('220'),
+        )
+        Product.objects.create(
+            sku='CAP-PRM-1', name='Gorra Premium', category=sub,
+            base_price=Decimal('150'),   # viejo — el override manda
+        )
+        lineas = [{'sku': 'CAP-PRM-1', 'cantidad': 1, 'precio_unitario': '400'}]
+        pedido = crear_venta_tienda(lineas=lineas, cliente=None, metodo_pago='efectivo')
+        self.assertEqual(pedido.items.get().costo_unitario, Decimal('220'))
+        self.assertEqual(pedido.costo_producto, Decimal('220'))
 
     def test_descripcion_autogenerada(self):
         lineas = [{'sku': 'CAP-001', 'cantidad': 2, 'precio_unitario': '250'}]
@@ -1507,3 +1540,20 @@ class CrearPedidoBotConCostoTest(TestCase):
         from negocio.models import PedidoItem
         item = PedidoItem.objects.get(nombre_snapshot='Artículo')
         self.assertEqual(item.costo_unitario, Decimal('0'))
+
+
+class CrearPedidoBotDescuentoCapTest(TestCase):
+    """El descuento del bot se capea al total (precio + envío) — sin tope,
+    total_a_cobrar y ganancia quedaban negativos en Django aunque el bot
+    mostrara $0 en WhatsApp (computeTotal ya floorea del lado JS)."""
+
+    def test_descuento_mayor_al_total_se_capea(self):
+        from negocio.services import crear_pedido_bot
+        pedido = crear_pedido_bot(
+            nombre='Ana', telefono='5512345678',
+            items=[{'description': 'Tenis', 'price': '500', 'qty': 1, 'costo': '400'}],
+            envio=Decimal('50'),
+            descuento_aplicado=Decimal('10000'),
+        )
+        self.assertEqual(pedido.descuento_aplicado, Decimal('550'))
+        self.assertEqual(pedido.total_a_cobrar, Decimal('0'))

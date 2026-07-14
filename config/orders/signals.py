@@ -5,7 +5,10 @@ from django.dispatch import receiver
 @receiver(user_logged_in)
 def load_saved_cart(sender, request, user, **kwargs):
     from .models import SavedCartItem
-    saved = SavedCartItem.objects.filter(user=user).select_related('product', 'variant')
+    from .views import _price_with_volume_tier
+    saved = SavedCartItem.objects.filter(user=user).select_related(
+        'product__category__parent', 'variant'
+    )
     if not saved.exists():
         return
 
@@ -17,6 +20,9 @@ def load_saved_cart(sender, request, user, **kwargs):
             price = float(
                 item.variant.final_price if item.variant else item.product.final_price
             )
+            # Reaplicar el descuento por volumen según la cantidad guardada —
+            # cart_add/cart_update lo aplican, la restauración también debe.
+            price = _price_with_volume_tier(item.product, item.quantity, price)
         except Exception:
             continue
         cart[item.cart_key] = {

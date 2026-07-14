@@ -25,6 +25,20 @@ class ResumenGlobalViewTest(TestCase):
         res = self.client.get('/panel/resumen-global/')
         self.assertEqual(res.status_code, 302)
 
+    def test_vendido_negocio_neto_de_descuentos(self):
+        """vendido_negocio resta descuento_aplicado — mismo criterio neto que
+        el dashboard. Antes reportaba bruto y las cifras no cuadraban."""
+        cliente = Cliente.objects.create(nombre='Z', telefono='5550007777')
+        Pedido.objects.create(
+            cliente=cliente, descripcion='Con descuento',
+            costo_producto=Decimal('400'), precio_venta=Decimal('1000'),
+            descuento_aplicado=Decimal('100'), estado=Pedido.PAGADO,
+        )
+        res = self.client.get('/panel/resumen-global/')
+        self.assertEqual(res.context['vendido_negocio'], 900)
+        self.assertEqual(res.context['ganancia_negocio'], 500)
+        self.assertEqual(res.context['ingresos_total'], 900)
+
     def test_periodo_default_es_mes_actual(self):
         hoy = date.today()
         res = self.client.get('/panel/resumen-global/')
@@ -212,3 +226,115 @@ class DashboardAdelantosSaldoPendienteTests(TestCase):
         self.assertEqual(res.context['saldo_pendiente_web'], 500)
         self.assertEqual(res.context['adelantos_negocio'], 300)
         self.assertEqual(res.context['saldo_negocio_pendiente'], 500)
+
+
+class ProductsListFilterPersistenceTests(TestCase):
+    """Al editar/crear/eliminar un producto desde una lista filtrada debe
+    volver a la misma vista filtrada, en vez de a la lista sin filtros."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            username='staff_prod_filter', password='pass', is_staff=True
+        )
+        self.client.login(username='staff_prod_filter', password='pass')
+        self.cat = Category.objects.create(name='Gorras Filter', slug='gorras-filter-test')
+        self.product = Product.objects.create(
+            name='Gorra Filter', sku='GF-FILTER-1', category=self.cat,
+            base_price=Decimal('100'), is_active=True,
+        )
+        self.qs = 'q=gorra&cat=gorras-filter-test'
+
+    def test_form_de_edicion_incluye_filtros_en_campo_oculto(self):
+        res = self.client.get(f'/panel/productos/{self.product.pk}/editar/?{self.qs}')
+        self.assertContains(res, 'name="_return_qs" value="q=gorra&amp;cat=gorras-filter-test"')
+
+    def test_editar_producto_preserva_filtros_al_guardar(self):
+        res = self.client.post(
+            f'/panel/productos/{self.product.pk}/editar/?{self.qs}', {
+                '_return_qs': self.qs,
+                'sku': self.product.sku,
+                'name': self.product.name,
+                'base_price': '150',
+                'category': self.cat.pk,
+                'status': 'available',
+                'min_order_qty': '1',
+                'is_active': 'on',
+            },
+        )
+        self.assertEqual(res.status_code, 302)
+        self.assertEqual(res.url, f'/panel/productos/?{self.qs}')
+
+    def test_crear_producto_preserva_filtros(self):
+        res = self.client.post(
+            f'/panel/productos/nuevo/?{self.qs}', {
+                '_return_qs': self.qs,
+                'sku': 'GF-NEW-1',
+                'name': 'Nueva Gorra',
+                'base_price': '120',
+                'category': self.cat.pk,
+                'status': 'available',
+                'min_order_qty': '1',
+                'is_active': 'on',
+            },
+        )
+        self.assertEqual(res.status_code, 302)
+        self.assertEqual(res.url, f'/panel/productos/?{self.qs}')
+
+    def test_eliminar_producto_preserva_filtros(self):
+        res = self.client.post(f'/panel/productos/{self.product.pk}/eliminar/?{self.qs}')
+        self.assertEqual(res.status_code, 302)
+        self.assertEqual(res.url, f'/panel/productos/?{self.qs}')
+
+    def test_sin_filtros_redirige_a_lista_plana(self):
+        res = self.client.post(f'/panel/productos/{self.product.pk}/eliminar/')
+        self.assertEqual(res.status_code, 302)
+        self.assertEqual(res.url, '/panel/productos/')
+
+
+class OrderDescuentoApplyCapTest(TestCase):
+    """El descuento aplicado desde el panel se capea al subtotal del pedido."""
+
+    def setUp(self):
+        from catalog.models import CodigoDescuento
+        self.staff = User.objects.create_user(
+            username='staff_desc', password='pass', is_staff=True
+        )
+        self.client.login(username='staff_desc', password='pass')
+        cat = Category.objects.create(name='Gorras Panel', slug='gorras-panel')
+        product = Product.objects.create(
+            sku='RYL-PNL-1', name='Gorra Panel', category=cat,
+            base_price=Decimal('100'),
+        )
+        self.order = Order.objects.create(
+            order_code='TEST-DESC-1', customer_name='Ana', customer_phone='5512345678',
+        )
+        self.order.items.create(
+            product=product, quantity=1, price_snapshot=Decimal('300'),
+            sku_snapshot=product.sku, name_snapshot=product.name,
+        )
+        self.code = CodigoDescuento.objects.create(
+            codigo='MEGAPANEL', descuento=Decimal('10000'), tipo_descuento='fijo',
+        )
+
+    def test_descuento_se_capea_al_subtotal(self):
+        res = self.client.post(f'/panel/pedidos/{self.order.pk}/descuento/',
+                               {'codigo': 'MEGAPANEL'})
+        data = res.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['descuento'], 300.0)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.descuento_aplicado, Decimal('300'))
+        self.assertEqual(self.order.total, Decimal('0'))
+
+    def test_codigo_agotado_devuelve_error(self):
+        self.code.usos_max = 1
+        self.code.usos_actuales = 1
+        self.code.save()
+        res = self.client.post(f'/panel/pedidos/{self.order.pk}/descuento/',
+                               {'codigo': 'MEGAPANEL'})
+        data = res.json()
+        self.assertFalse(data['ok'])
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.descuento_aplicado, Decimal('0'))
+        self.code.refresh_from_db()
+        self.assertEqual(self.code.usos_actuales, 1)
