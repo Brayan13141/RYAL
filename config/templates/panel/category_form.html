@@ -95,6 +95,26 @@
                    placeholder="100.00">
           </div>
 
+          {% if cat.parent_id %}
+          <div>
+            <label>Precio base override (MXN)
+              <span style="color:#555;font-size:11px;text-transform:none;letter-spacing:0;">opcional — vacío usa el precio individual de cada producto</span>
+            </label>
+            <input type="number" name="base_price_override" step="0.01" min="0"
+                   value="{% if data.base_price_override %}{{ data.base_price_override }}{% elif cat.base_price_override %}{{ cat.base_price_override }}{% endif %}"
+                   placeholder="Vacío = precio individual de cada producto">
+          </div>
+
+          <div>
+            <label>Margen de ganancia override (MXN)
+              <span style="color:#555;font-size:11px;text-transform:none;letter-spacing:0;">opcional — vacío hereda de la categoría raíz</span>
+            </label>
+            <input type="number" name="profit_margin_override" step="0.01" min="0"
+                   value="{% if data.profit_margin_override %}{{ data.profit_margin_override }}{% elif cat.profit_margin_override %}{{ cat.profit_margin_override }}{% endif %}"
+                   placeholder="Vacío = ganancia de la raíz">
+          </div>
+          {% endif %}
+
           <div>
             <label>Mínimo total (piezas)
               <span style="color:#555;font-size:11px;text-transform:none;letter-spacing:0;">total de la categoría por pedido</span>
