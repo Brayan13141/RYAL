@@ -568,6 +568,18 @@ class TipoArticulo(models.Model):
     def __str__(self):
         return self.nombre
 
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        super().clean()
+        # matches() parte las keywords SOLO por coma: un bloque con saltos de
+        # línea se vuelve una sola keyword gigante que nunca matchea → la
+        # venta se registra con costo $0 sin que nadie lo note.
+        if '\n' in self.keywords or '\r' in self.keywords:
+            raise ValidationError({
+                'keywords': 'Separa las keywords con COMAS, no con saltos de '
+                            'línea. Ej: sudadera G5, Sud G5, s G5',
+            })
+
     def matches(self, texto: str) -> bool:
         """True si alguna keyword aparece en texto (case-insensitive)."""
         texto = ' '.join(texto.lower().split())

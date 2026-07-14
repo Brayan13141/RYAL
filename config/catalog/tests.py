@@ -1601,6 +1601,42 @@ class ConsumirUsoTests(TestCase):
         self.assertEqual(code.usos_actuales, 1)
 
 
+class TipoArticuloKeywordsValidationTests(TestCase):
+    """Las keywords DEBEN ir separadas por comas: matches() parte solo por
+    coma, así que un bloque con saltos de línea se vuelve una sola keyword
+    gigante que nunca matchea → costo $0 silencioso en ventas (caso real
+    2026-07-14: tipo 'SUDADERA G5' → ítem 's G5' con ganancia inflada $420)."""
+
+    def test_keywords_con_saltos_de_linea_no_validan(self):
+        from django.core.exceptions import ValidationError
+        tipo = TipoArticulo(
+            nombre='Sudadera G5',
+            keywords='sudadera G5\r\nSud G5\r\ns G5',
+            costo=Decimal('420'),
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            tipo.full_clean()
+        self.assertIn('keywords', ctx.exception.message_dict)
+
+    def test_keywords_separadas_por_comas_validan(self):
+        tipo = TipoArticulo(
+            nombre='Sudadera G5',
+            keywords='sudadera G5, Sud G5, s G5',
+            costo=Decimal('420'),
+        )
+        tipo.full_clean()  # no debe lanzar
+
+    def test_form_del_panel_muestra_el_mensaje(self):
+        from negocio.forms import TipoArticuloForm
+        form = TipoArticuloForm(data={
+            'nombre': 'Sudadera G5',
+            'keywords': 'sudadera G5\ns G5',
+            'costo': '420',
+        })
+        self.assertFalse(form.is_valid())
+        self.assertIn('keywords', form.errors)
+
+
 class CategoryOverrideValidationTests(TestCase):
     """Un override puesto en una categoría RAÍZ con subcategorías no aplica a
     los productos de las subcategorías (effective_* solo mira la categoría
