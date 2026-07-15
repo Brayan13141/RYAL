@@ -701,4 +701,10 @@
   background: rgba(212,175,55,0.1);
 }
 </style>
+{% if META_PIXEL_ID and q %}
+<script>
+  /* Evento Search del pixel de Meta cuando el catalogo se filtro por busqueda */
+  fbq('track', 'Search', { search_string: '{{ q|escapejs }}' });
+</script>
+{% endif %}
 {% endblock %}

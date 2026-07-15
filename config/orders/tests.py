@@ -399,6 +399,75 @@ class DescuentoCapCheckoutTests(TestCase):
         self.assertEqual(self.code.usos_actuales, 1)  # sin rebasar usos_max
 
 
+@override_settings(META_PIXEL_ID='TESTPIXEL', RATELIMIT_ENABLE=False)
+class MetaPixelEventosTests(TestCase):
+    """Eventos estándar del píxel de Meta en el funnel de compra
+    (especificaciones: facebook.com/business/help/402791146561655).
+    PageView/ViewContent/Contact ya existían — esto cubre el funnel medio."""
+
+    def setUp(self):
+        self.cat = Category.objects.create(name="Gorras Px", slug="gorras-px")
+        # final_price = 100 + 0 + 100 (margen default) = 200
+        self.product = Product.objects.create(
+            sku="RYL-PX-1", name="Gorra Pixel", category=self.cat,
+            base_price=Decimal("100"),
+        )
+
+    def _set_cart(self, qty=2):
+        session = self.client.session
+        session["cart"] = {
+            f"{self.product.pk}_none": {
+                "product_id": self.product.pk, "variant_id": None, "image_pk": None,
+                "variant_name": "", "quantity": qty, "price": 200.0,
+            }
+        }
+        session.save()
+
+    def test_cart_add_devuelve_fb_event_para_addtocart(self):
+        res = self.client.post(
+            reverse("orders:cart_add"),
+            data=json.dumps({"product_id": self.product.pk, "qty": 1}),
+            content_type="application/json",
+        )
+        data = res.json()
+        self.assertTrue(data["ok"])
+        ev = data["fb_event"]
+        self.assertEqual(ev["content_ids"], ["RYL-PX-1"])
+        self.assertEqual(ev["content_type"], "product")
+        self.assertEqual(ev["value"], 200.0)   # precio unitario × qty 1
+        self.assertEqual(ev["currency"], "MXN")
+
+    def test_checkout_dispara_initiate_checkout(self):
+        self._set_cart(qty=2)
+        res = self.client.get(reverse("orders:checkout"))
+        self.assertContains(res, "InitiateCheckout")
+        # escapejs renderiza los guiones del SKU como - (igual que ViewContent)
+        self.assertContains(res, "'RYL\\u002DPX\\u002D1'")   # content_ids
+        self.assertContains(res, "num_items: 2")
+
+    def test_confirmation_dispara_purchase_con_total(self):
+        order = Order.objects.create(
+            order_code="TEST-PX-1", customer_name="Ana", customer_phone="5512345678",
+        )
+        order.items.create(
+            product=self.product, quantity=2, price_snapshot=Decimal("200"),
+            sku_snapshot=self.product.sku, name_snapshot=self.product.name,
+        )
+        res = self.client.get(
+            reverse("orders:confirmation", kwargs={"token": order.tracking_token})
+        )
+        self.assertContains(res, "Purchase")
+        self.assertContains(res, "value: 400")     # order.total = 200 × 2
+        self.assertContains(res, "'RYL\\u002DPX\\u002D1'")
+        self.assertContains(res, "MXN")
+
+    def test_sin_pixel_id_no_se_renderizan_eventos(self):
+        with override_settings(META_PIXEL_ID=""):
+            self._set_cart()
+            res = self.client.get(reverse("orders:checkout"))
+            self.assertNotContains(res, "InitiateCheckout")
+
+
 class SavedCartRestoreVolumeTierTests(TestCase):
     """Al restaurar el carrito guardado en el login, el precio debe reaplicar
     el descuento por volumen — antes se restauraba a precio lleno aunque la

@@ -94,4 +94,24 @@ function copyCode() {
   });
 }
 </script>
+{% if META_PIXEL_ID %}
+<script>
+  /* Evento Purchase del pixel de Meta: la pagina de confirmacion equivale al
+     recibo del pedido (el pago se cierra por WhatsApp). Guard en localStorage
+     para no duplicar el evento si el cliente recarga o vuelve a la URL. */
+  (function () {
+    var key = 'ryal_purchase_{{ order.tracking_token }}';
+    if (window.fbq && !localStorage.getItem(key)) {
+      fbq('track', 'Purchase', {
+        content_ids: [{% for it in order.items.all %}'{{ it.sku_snapshot|escapejs }}'{% if not forloop.last %}, {% endif %}{% endfor %}],
+        content_type: 'product',
+        value: {{ order.total }},
+        currency: 'MXN',
+        num_items: {{ order.total_items }}
+      });
+      localStorage.setItem(key, '1');
+    }
+  })();
+</script>
+{% endif %}
 {% endblock %}

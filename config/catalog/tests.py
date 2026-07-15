@@ -1601,6 +1601,20 @@ class ConsumirUsoTests(TestCase):
         self.assertEqual(code.usos_actuales, 1)
 
 
+@override_settings(META_PIXEL_ID='TESTPIXEL')
+class MetaPixelSearchTests(TestCase):
+    """Evento estándar Search del píxel de Meta en los resultados de búsqueda."""
+
+    def test_busqueda_con_q_dispara_search(self):
+        res = self.client.get(reverse('catalog:search'), {'q': 'gorra new era'})
+        self.assertContains(res, "fbq('track', 'Search'")
+        self.assertContains(res, 'gorra new era')
+
+    def test_busqueda_sin_q_no_dispara_search(self):
+        res = self.client.get(reverse('catalog:search'))
+        self.assertNotContains(res, "fbq('track', 'Search'")
+
+
 class TipoArticuloKeywordsValidationTests(TestCase):
     """Las keywords DEBEN ir separadas por comas: matches() parte solo por
     coma, así que un bloque con saltos de línea se vuelve una sola keyword

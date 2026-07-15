@@ -350,4 +350,16 @@
 }
 .btn-gold:hover { opacity: .85; color: #080808; }
 </style>
+{% if META_PIXEL_ID and cart_items %}
+<script>
+  /* Evento InitiateCheckout del pixel de Meta al cargar la pagina de checkout */
+  fbq('track', 'InitiateCheckout', {
+    content_ids: [{% for i in cart_items %}'{{ i.sku|escapejs }}'{% if not forloop.last %}, {% endif %}{% endfor %}],
+    content_type: 'product',
+    value: {{ subtotal }},
+    currency: 'MXN',
+    num_items: {{ total_qty }}
+  });
+</script>
+{% endif %}
 {% endblock %}

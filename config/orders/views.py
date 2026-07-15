@@ -377,6 +377,15 @@ def cart_add(request):
         'ok':         True,
         'message':    f'{product.name} agregado al carrito',
         'cart_count': cart_count,
+        # Datos para el evento estándar AddToCart del píxel de Meta — el
+        # frontend (cart.js) lo dispara solo si window.fbq está cargado.
+        'fb_event': {
+            'content_ids':  [product.sku],
+            'content_name': product.name,
+            'content_type': 'product',
+            'value':        round(price * qty, 2),
+            'currency':     'MXN',
+        },
     })
 
 
@@ -454,6 +463,7 @@ def _build_cart_items(cart):
             i                  = _Item()
             i.key              = key
             i.cover_image      = cover
+            i.sku              = product.sku
             i.name_snapshot    = product.name
             i.variant_snapshot = item.get('variant_name', '')
             if product.category_id:
@@ -495,6 +505,7 @@ def checkout(request):
         'cart_items':         items,
         'subtotal':           subtotal,
         'total':              subtotal,
+        'total_qty':          sum(i.quantity for i in items),
         'total_savings':      total_savings,
         'category_warnings':  category_warnings,
         'profile':            profile,

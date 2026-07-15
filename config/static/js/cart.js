@@ -156,6 +156,8 @@ async function addToCart(productId, variantId, qty = 1, imagePk = null, color = 
     if (data.ok) {
       updateBadge(data.cart_count);
       showToast(data.message || 'Producto agregado');
+      // Evento estándar AddToCart del píxel de Meta (payload armado por el servidor)
+      if (window.fbq && data.fb_event) fbq('track', 'AddToCart', data.fb_event);
       openCart();
     } else {
       showToast(data.error || 'Error al agregar', 'error');
