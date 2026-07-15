@@ -148,6 +148,11 @@ async function handleSupplierMessage(sock, msg) {
 
 
 async function handleClientMessage(sock, msg) {
+    // La instancia de reenvío proveedor→Ryal (FORWARD_TO_RYAL=true, 4439728793) no
+    // atiende chats privados en absoluto: su único trabajo es reenviar imágenes
+    // del Grupo Proveedor al Grupo Ryal (handleSupplierMessage).
+    if (FORWARD_TO_RYAL) return
+
     const jid = msg.key.remoteJid
 
     // Bienvenida + menú para clientes nuevos (primer chat privado con este número)
