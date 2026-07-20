@@ -21,12 +21,27 @@ def consumir_uso(codigo: str = None, *, pk: int = None) -> bool:
 
 
 def buscar_tipo_articulo(texto: str):
-    """Devuelve el primer TipoArticulo cuyas keywords hagan match con texto, o None."""
+    """Devuelve el TipoArticulo cuya keyword coincidente más larga (más
+    específica) aparezca en texto, o None si ninguna coincide.
+
+    Varios tipos pueden compartir una keyword genérica (ej. "gorras"); si el
+    texto también contiene una keyword más específica de otro tipo (ej. "new
+    era"), esa debe ganar en vez del primero por orden alfabético de nombre.
+    """
     from .models import TipoArticulo
+    texto_norm = ' '.join((texto or '').lower().split())
+    if not texto_norm:
+        return None
+
+    mejor_tipo = None
+    mejor_len = -1
     for tipo in TipoArticulo.objects.all():
-        if tipo.matches(texto):
-            return tipo
-    return None
+        for kw in tipo.keywords_list:
+            kw_norm = ' '.join(kw.split()).lower()
+            if kw_norm in texto_norm and len(kw_norm) > mejor_len:
+                mejor_tipo = tipo
+                mejor_len = len(kw_norm)
+    return mejor_tipo
 
 
 def validar_codigo(

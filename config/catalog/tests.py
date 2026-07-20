@@ -1303,6 +1303,27 @@ class BuscarTipoArticuloTest(TestCase):
         self.assertEqual(result, self.gorras)
 
 
+class BuscarTipoArticuloEspecificidadTest(TestCase):
+    """'gorras' es keyword genérica de dos tipos a la vez; debe ganar el match
+    más específico (keyword más larga), no el primero por orden alfabético."""
+
+    def setUp(self):
+        self.barbas = TipoArticulo.objects.create(
+            nombre='Gorra Barbas y Dandy', keywords='gorras,barbas,dandy', costo=Decimal('240')
+        )
+        self.new_era = TipoArticulo.objects.create(
+            nombre='Gorras New Era', keywords='gorras,new era', costo=Decimal('150')
+        )
+
+    def test_keyword_especifica_gana_sobre_generica(self):
+        result = buscar_tipo_articulo('Gorras New Era negra')
+        self.assertEqual(result, self.new_era)
+
+    def test_solo_keyword_generica_usa_orden_alfabetico(self):
+        result = buscar_tipo_articulo('gorras')
+        self.assertEqual(result, self.barbas)
+
+
 class ValidarCodigoTest(TestCase):
     def setUp(self):
         self.gorras = TipoArticulo.objects.create(
