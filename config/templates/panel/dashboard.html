@@ -5,22 +5,23 @@
 {% block extra_css %}
 <style>
 .dash-grid-4 { display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px; }
+.dash-grid-5 { display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:20px; }
 .dash-grid-3 { display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px; }
 .dash-grid-2 { display:grid;grid-template-columns:1fr 320px;gap:14px;margin-bottom:20px;align-items:start; }
-@media(max-width:1024px){.dash-grid-4{grid-template-columns:repeat(2,1fr);}.dash-grid-2{grid-template-columns:1fr;}}
-@media(max-width:600px){.dash-grid-4{grid-template-columns:1fr;}.dash-grid-3{grid-template-columns:1fr;}}
+@media(max-width:1024px){.dash-grid-4{grid-template-columns:repeat(2,1fr);}.dash-grid-5{grid-template-columns:repeat(2,1fr);}.dash-grid-2{grid-template-columns:1fr;}}
+@media(max-width:600px){.dash-grid-4{grid-template-columns:1fr;}.dash-grid-5{grid-template-columns:1fr;}.dash-grid-3{grid-template-columns:1fr;}}
 
 .kpi { background:var(--ps);border:1px solid var(--pl);border-radius:8px;padding:16px 18px;position:relative;overflow:hidden; }
-.kpi-lbl { font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:#555;font-weight:600;margin-bottom:6px; }
+.kpi-lbl { font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:#9a9a9a;font-weight:600;margin-bottom:6px; }
 .kpi-val { font-size:26px;font-weight:700;line-height:1;font-family:var(--f-mono);margin-bottom:4px; }
-.kpi-sub { font-size:11px;color:#555;font-family:var(--f-mono); }
+.kpi-sub { font-size:11px;color:#9a9a9a;font-family:var(--f-mono); }
 
 .kpi-sm { background:var(--ps);border:1px solid var(--pl);border-radius:8px;padding:12px 16px; }
-.kpi-sm .kpi-lbl { font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:4px; }
+.kpi-sm .kpi-lbl { font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#9a9a9a;margin-bottom:4px; }
 .kpi-sm .kpi-val { font-size:18px;font-weight:700;font-family:var(--f-mono); }
-.kpi-sm .kpi-sub { font-size:10px;color:#555;font-family:var(--f-mono);margin-top:2px; }
+.kpi-sm .kpi-sub { font-size:10px;color:#9a9a9a;font-family:var(--f-mono);margin-top:2px; }
 
-.section-lbl { font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:#444;font-weight:600;margin-bottom:10px;margin-top:4px; }
+.section-lbl { font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:#a0a0a0;font-weight:600;margin-bottom:10px;margin-top:4px; }
 </style>
 {% endblock %}
 
@@ -67,10 +68,10 @@ document.addEventListener('DOMContentLoaded', function () {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: '#888', boxWidth: 10, font:{size:11} } } },
+      plugins: { legend: { labels: { color: '#b0b0b0', boxWidth: 10, font:{size:11} } } },
       scales: {
-        x: { ticks: { color:'#555',font:{size:11} }, grid: { color:'#1a1a1a' } },
-        y: { ticks: { color:'#555',font:{size:11} }, grid: { color:'#1a1a1a' }, beginAtZero:true },
+        x: { ticks: { color:'#9a9a9a',font:{size:11} }, grid: { color:'#1a1a1a' } },
+        y: { ticks: { color:'#9a9a9a',font:{size:11} }, grid: { color:'#1a1a1a' }, beginAtZero:true },
       },
     },
   });
@@ -82,7 +83,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
 <!-- ── Sección: KPIs del mes ──────────────────────────────────────────── -->
 <div class="section-lbl">Este mes</div>
-<div class="dash-grid-4">
+<div class="dash-grid-5">
 
   <div class="kpi" style="border-color:rgba(80,200,120,.25);">
     <div class="kpi-lbl">Ganancia</div>
@@ -96,6 +97,14 @@ document.addEventListener('DOMContentLoaded', function () {
       {% if balance_mes >= 0 %}+{% endif %}${{ balance_mes|floatformat:0 }}
     </div>
     <div class="kpi-sub">Gastos: ${{ gastos_mes|floatformat:0 }} MXN</div>
+  </div>
+
+  <div class="kpi" style="border-color:{% if flujo_mes >= 0 %}rgba(80,200,120,.2){% else %}rgba(224,85,96,.2){% endif %};">
+    <div class="kpi-lbl">Ingresos − Gastos</div>
+    <div class="kpi-val" style="color:{% if flujo_mes >= 0 %}#50c878{% else %}#e05560{% endif %};">
+      {% if flujo_mes >= 0 %}+{% endif %}${{ flujo_mes|floatformat:0 }}
+    </div>
+    <div class="kpi-sub">MXN facturados menos gastos operativos (antes de costo de mercancía)</div>
   </div>
 
   <div class="kpi">
@@ -192,13 +201,13 @@ document.addEventListener('DOMContentLoaded', function () {
       <tbody>
         {% for p in top_productos %}
         <tr>
-          <td style="text-align:center;color:#444;font-size:12px;font-weight:600;">{{ forloop.counter }}</td>
+          <td style="text-align:center;color:#a0a0a0;font-size:12px;font-weight:600;">{{ forloop.counter }}</td>
           <td>
             <div style="color:#ddd;font-size:13px;font-weight:500;max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ p.name_snapshot }}</div>
           </td>
           <td style="text-align:center;">
             <span style="font-size:15px;font-weight:700;color:var(--pg);">{{ p.units }}</span>
-            <span style="font-size:10px;color:#555;"> pzs</span>
+            <span style="font-size:10px;color:#9a9a9a;"> pzs</span>
           </td>
           <td style="text-align:right;font-family:var(--f-mono);color:#bbb;">${{ p.revenue|floatformat:0 }}</td>
           <td style="text-align:right;font-family:var(--f-mono);color:#50c878;">${{ p.profit|floatformat:0 }}</td>
@@ -276,7 +285,7 @@ document.addEventListener('DOMContentLoaded', function () {
           <th style="text-align:center;">Items</th>
           <th style="text-align:right;">Total</th>
           <th>Estado</th>
-          <th style="color:#555;">Fecha</th>
+          <th style="color:#9a9a9a;">Fecha</th>
           <th></th>
         </tr>
       </thead>
@@ -289,11 +298,11 @@ document.addEventListener('DOMContentLoaded', function () {
           <td style="text-align:center;color:#888;">{{ o.total_items }}</td>
           <td style="text-align:right;font-family:monospace;color:#bbb;">${{ o.total|floatformat:0 }}</td>
           <td><span class="bs bs-{{ o.status }}">{{ o.get_status_display }}</span></td>
-          <td style="color:#555;font-size:12px;white-space:nowrap;">{{ o.created_at|date:"d/m/y H:i" }}</td>
+          <td style="color:#9a9a9a;font-size:12px;white-space:nowrap;">{{ o.created_at|date:"d/m/y H:i" }}</td>
           <td><a href="{% url 'panel:order_detail' o.pk %}" class="btn-o btn-sm"><i class="bi bi-eye"></i></a></td>
         </tr>
         {% empty %}
-        <tr><td colspan="8" style="text-align:center;color:#444;padding:24px;">Sin pedidos aún</td></tr>
+        <tr><td colspan="8" style="text-align:center;color:#a0a0a0;padding:24px;">Sin pedidos aún</td></tr>
         {% endfor %}
       </tbody>
     </table>

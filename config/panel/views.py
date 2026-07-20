@@ -245,6 +245,10 @@ def dashboard(request):
     gastos_mes = float(Gasto.objects.filter(fecha__gte=mes_date).aggregate(t=Sum('monto'))['t'] or 0)
     balance_mes = gan_mes - gastos_mes
 
+    # Flujo de caja bruto: lo facturado menos gastos operativos, sin restar el
+    # costo de mercancía. Complementa a balance_mes, que sí lo resta.
+    flujo_mes = rev_mes - gastos_mes
+
     # Descuentos del mes (Order + Pedido)
     descuentos_mes_o = float(
         base.filter(created_at__gte=mes).aggregate(d=Sum('descuento_aplicado'))['d'] or 0
@@ -378,6 +382,7 @@ def dashboard(request):
         'gan_mes':            round(gan_mes),
         'gastos_mes':         round(gastos_mes),
         'balance_mes':        round(balance_mes),
+        'flujo_mes':          round(flujo_mes),
         'descuentos_mes':     round(descuentos_mes),
         'pedidos_sin_pagar':  pedidos_sin_pagar,
         'adelantos_web':      round(float(adelantos_web)),

@@ -1,11 +1,12 @@
 from datetime import date
 from decimal import Decimal
+from uuid import uuid4
 
 from django.contrib.auth.models import User
 from django.test import TestCase
 
 from catalog.models import Product, Category
-from negocio.models import Cliente, Pedido, Pago
+from negocio.models import Cliente, Pedido, Pago, Gasto
 from orders.models import Order, OrderItem
 
 
@@ -338,3 +339,76 @@ class OrderDescuentoApplyCapTest(TestCase):
         self.assertEqual(self.order.descuento_aplicado, Decimal('0'))
         self.code.refresh_from_db()
         self.assertEqual(self.code.usos_actuales, 1)
+
+
+class DashboardFlujoMesTests(TestCase):
+    """El card 'Ingresos − Gastos' muestra flujo de caja bruto: lo facturado
+    menos los gastos operativos, SIN restar el costo de la mercancía (eso es
+    lo que hace el card 'Balance (gan − gastos)', que es otra métrica)."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            username='staff_flujo', password='pass', is_staff=True
+        )
+        self.client.login(username='staff_flujo', password='pass')
+
+    def _order(self, precio, cantidad=1, status='in_preparation'):
+        # order_code no tiene default a nivel de modelo (se genera en
+        # orders/views.py al crear desde el checkout); aquí hay que asignarlo
+        # explícito y único o dos Order.objects.create() en el mismo test
+        # chocan contra el UNIQUE constraint (ambos caen en '').
+        order = Order.objects.create(
+            order_code=f'FLUJO-{uuid4().hex[:10]}',
+            customer_name='Flujo', customer_phone='5550002222',
+            status=status, is_paid=True,
+        )
+        OrderItem.objects.create(
+            order=order, product=None, quantity=cantidad,
+            price_snapshot=Decimal(precio), cost_snapshot=Decimal('100'),
+            sku_snapshot='F', name_snapshot='F',
+        )
+        return order
+
+    def test_flujo_mes_es_ingresos_menos_gastos(self):
+        self._order('800')
+        Gasto.objects.create(
+            fecha=date.today(), descripcion='Renta', monto=Decimal('500'),
+        )
+        res = self.client.get('/panel/')
+        self.assertEqual(res.status_code, 200)
+        # ingresos 800 - gastos 500 = 300
+        self.assertEqual(res.context['flujo_mes'], 300)
+        self.assertEqual(
+            res.context['flujo_mes'],
+            res.context['rev_mes'] - res.context['gastos_mes'],
+        )
+
+    def test_flujo_mes_negativo_cuando_gastos_superan_ingresos(self):
+        self._order('800')
+        Gasto.objects.create(
+            fecha=date.today(), descripcion='Compra proveedor',
+            monto=Decimal('2000'), categoria=Gasto.COMPRA_PROVEEDOR,
+        )
+        res = self.client.get('/panel/')
+        # 800 - 2000 = -1200
+        self.assertEqual(res.context['flujo_mes'], -1200)
+
+    def test_flujo_mes_ignora_ordenes_canceladas(self):
+        self._order('800')
+        self._order('5000', status='cancelled')
+        Gasto.objects.create(
+            fecha=date.today(), descripcion='Envío', monto=Decimal('500'),
+        )
+        res = self.client.get('/panel/')
+        # la orden cancelada no suma: sigue siendo 800 - 500 = 300
+        self.assertEqual(res.context['flujo_mes'], 300)
+
+    def test_flujo_mes_difiere_de_balance_mes(self):
+        """flujo_mes NO resta costo de mercancía; balance_mes sí. Si este test
+        empieza a fallar por igualdad, alguien colapsó las dos métricas."""
+        self._order('800')
+        Gasto.objects.create(
+            fecha=date.today(), descripcion='Renta', monto=Decimal('500'),
+        )
+        res = self.client.get('/panel/')
+        self.assertNotEqual(res.context['flujo_mes'], res.context['balance_mes'])
