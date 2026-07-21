@@ -29,10 +29,27 @@ def backfill(apps, schema_editor):
 
 
 def reverse(apps, schema_editor):
+    Order = apps.get_model('orders', 'Order')
     OrderPayment = apps.get_model('orders', 'OrderPayment')
-    OrderPayment.objects.filter(
+    # Se identifican los pagos migrados por su texto de notas — no hay marcador
+    # de procedencia, así que un pago manual con estas notas exactas también se
+    # borraría (riesgo bajo: son etiquetas autogeneradas por el forward).
+    migrated = OrderPayment.objects.filter(
         notas__in=['Adelanto migrado', 'Liquidación migrada']
-    ).delete()
+    )
+    affected_order_ids = set(migrated.values_list('order_id', flat=True))
+    migrated.delete()
+    # Restaurar el invariante is_paid = (saldo <= 0) según los pagos restantes.
+    for order in Order.objects.filter(pk__in=affected_order_ids).prefetch_related('items', 'payments'):
+        total = sum(
+            (i.price_snapshot * i.quantity for i in order.items.all()),
+            Decimal('0'),
+        ) - order.descuento_aplicado
+        pagado = sum((pp.monto for pp in order.payments.all()), Decimal('0'))
+        paid = (total - pagado) <= 0
+        if order.is_paid != paid:
+            order.is_paid = paid
+            order.save(update_fields=['is_paid'])
 
 
 class Migration(migrations.Migration):
