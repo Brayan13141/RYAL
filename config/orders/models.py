@@ -57,7 +57,7 @@ class Order(models.Model):
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='pending')
     notes = models.TextField(blank=True)
 
-    deposit             = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    deposit             = models.DecimalField(max_digits=8, decimal_places=2, default=0)  # deprecado: reemplazado por OrderPayment
     descuento_aplicado  = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     is_paid  = models.BooleanField(default=False)
 
@@ -95,12 +95,19 @@ class Order(models.Model):
         return total - self.descuento_aplicado
 
     @property
+    def total_pagado(self):
+        return sum((p.monto for p in self.payments.all()), Decimal('0'))
+
+    @property
     def balance_due(self):
-        # Liquidado manda: si el pedido está marcado como pagado, no hay saldo
-        # aunque el adelanto registrado sea menor al total.
-        if self.is_paid:
-            return Decimal('0')
-        return self.total - self.deposit
+        return self.total - self.total_pagado
+
+    def recalc_paid(self):
+        """Sincroniza is_paid con el saldo real (una sola fuente de verdad)."""
+        paid = self.balance_due <= 0
+        if self.is_paid != paid:
+            self.is_paid = paid
+            self.save(update_fields=['is_paid', 'updated_at'])
 
     def __str__(self):
         return f'{self.order_code or f"#{self.pk}"} — {self.customer_name} ({self.get_status_display()})'
@@ -163,3 +170,31 @@ class SupplierOrderItem(models.Model):
 
     def __str__(self):
         return f'{self.order_item.sku_snapshot} → {self.get_status_display()}'
+
+
+class OrderPayment(models.Model):
+    EFECTIVO = 'efectivo'
+    TRANSFERENCIA = 'transferencia'
+    TARJETA = 'tarjeta'
+    OTRO = 'otro'
+    METODO_CHOICES = [
+        (EFECTIVO, 'Efectivo'),
+        (TRANSFERENCIA, 'Transferencia'),
+        (TARJETA, 'Tarjeta'),
+        (OTRO, 'Otro'),
+    ]
+
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='payments')
+    fecha = models.DateField()
+    monto = models.DecimalField(max_digits=8, decimal_places=2)
+    metodo_pago = models.CharField(max_length=20, choices=METODO_CHOICES, default=EFECTIVO)
+    notas = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['fecha', 'id']
+        verbose_name = 'Pago de pedido'
+        verbose_name_plural = 'Pagos de pedido'
+
+    def __str__(self):
+        return f'Pago ${self.monto} — Pedido #{self.order_id}'

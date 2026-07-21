@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from catalog.models import Category, Product, ProductImage, SizeGroup
 from orders.models import Order
@@ -507,36 +508,53 @@ class SavedCartRestoreVolumeTierTests(TestCase):
         self.assertEqual(cart[f"{self.product.pk}_none"]["price"], 200.0)
 
 
-class BalanceDueLiquidadoTests(TestCase):
-    """Marcar un pedido como liquidado (is_paid=True) debe dejar el saldo
-    pendiente en 0, aunque el adelanto registrado sea menor al total. Antes
-    balance_due = total − deposit ignoraba is_paid y seguía mostrando saldo."""
+class OrderPaymentModelTests(TestCase):
+    """El saldo de un pedido web se calcula sobre el historial de pagos, e
+    is_paid se deriva del saldo (no es un flag manual)."""
 
     def setUp(self):
-        self.cat = Category.objects.create(name="Gorras Bal", slug="gorras-bal")
+        self.cat = Category.objects.create(name="Gorras Pay", slug="gorras-pay")
         self.product = Product.objects.create(
-            sku="RYL-BAL-1", name="Gorra Bal", category=self.cat,
+            sku="RYL-PAY-1", name="Gorra Pay", category=self.cat,
             base_price=Decimal("100"),
         )
-
-    def _order(self, deposit, is_paid):
-        order = Order.objects.create(
-            order_code="TEST-BAL-1", customer_name="Ana", customer_phone="5512345678",
-            deposit=Decimal(deposit), is_paid=is_paid,
+        self.order = Order.objects.create(
+            order_code="TEST-PAY-1", customer_name="Ana", customer_phone="5512345678",
         )
         # total = 450 × 2 = 900
-        order.items.create(
-            product=self.product, quantity=2,
-            price_snapshot=Decimal("450"),
+        self.order.items.create(
+            product=self.product, quantity=2, price_snapshot=Decimal("450"),
             sku_snapshot=self.product.sku, name_snapshot=self.product.name,
         )
-        return order
 
-    def test_liquidado_con_adelanto_parcial_deja_saldo_cero(self):
-        order = self._order(deposit="100", is_paid=True)
-        self.assertEqual(order.total, Decimal("900"))
-        self.assertEqual(order.balance_due, Decimal("0"))
+    def _pago(self, monto):
+        from orders.models import OrderPayment
+        return OrderPayment.objects.create(
+            order=self.order, fecha=timezone.localdate(), monto=Decimal(monto),
+            metodo_pago="efectivo",
+        )
 
-    def test_no_liquidado_conserva_saldo_por_adelanto(self):
-        order = self._order(deposit="100", is_paid=False)
-        self.assertEqual(order.balance_due, Decimal("800"))
+    def test_sin_pagos_saldo_es_total(self):
+        self.assertEqual(self.order.total, Decimal("900"))
+        self.assertEqual(self.order.total_pagado, Decimal("0"))
+        self.assertEqual(self.order.balance_due, Decimal("900"))
+
+    def test_abono_parcial_deja_saldo(self):
+        self._pago("100")
+        self.assertEqual(self.order.total_pagado, Decimal("100"))
+        self.assertEqual(self.order.balance_due, Decimal("800"))
+
+    def test_recalc_paid_deriva_is_paid(self):
+        self._pago("900")
+        self.order.recalc_paid()
+        self.order.refresh_from_db()
+        self.assertTrue(self.order.is_paid)
+        self.assertEqual(self.order.balance_due, Decimal("0"))
+
+    def test_recalc_paid_reabre_si_falta_saldo(self):
+        self.order.is_paid = True
+        self.order.save(update_fields=["is_paid"])
+        self._pago("100")
+        self.order.recalc_paid()
+        self.order.refresh_from_db()
+        self.assertFalse(self.order.is_paid)
