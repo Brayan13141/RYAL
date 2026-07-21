@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from django.contrib.auth.models import User
 from django.test import TestCase
+from django.urls import reverse
 
 from catalog.models import Product, Category
 from negocio.models import Cliente, Pedido, Pago, Gasto
@@ -412,3 +413,80 @@ class DashboardFlujoMesTests(TestCase):
         )
         res = self.client.get('/panel/')
         self.assertNotEqual(res.context['flujo_mes'], res.context['balance_mes'])
+
+
+class OrderPaymentEndpointTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth.models import User
+        from catalog.models import Category, Product
+        from orders.models import Order
+        self.staff = User.objects.create_user(
+            username='staff_pay', password='pass', is_staff=True,
+        )
+        self.client.login(username='staff_pay', password='pass')
+        cat = Category.objects.create(name="Gorras EP", slug="gorras-ep")
+        product = Product.objects.create(
+            sku="RYL-EP-1", name="Gorra EP", category=cat, base_price=Decimal("100"),
+        )
+        self.order = Order.objects.create(
+            order_code="TEST-EP-1", customer_name="Ana", customer_phone="5512345678",
+        )
+        self.order.items.create(
+            product=product, quantity=2, price_snapshot=Decimal("450"),
+            sku_snapshot=product.sku, name_snapshot=product.name,
+        )  # total = 900
+
+    def test_add_parcial_no_liquida(self):
+        url = reverse('panel:order_payment_add', args=[self.order.pk])
+        res = self.client.post(url, {'monto': '300', 'metodo_pago': 'efectivo',
+                                     'fecha': '2026-07-21', 'notas': ''})
+        self.assertEqual(res.status_code, 200)
+        d = res.json()
+        self.assertTrue(d['ok'])
+        self.assertEqual(d['balance_due'], 600.0)
+        self.assertFalse(d['is_paid'])
+        self.order.refresh_from_db()
+        self.assertFalse(self.order.is_paid)
+
+    def test_add_completo_liquida(self):
+        url = reverse('panel:order_payment_add', args=[self.order.pk])
+        res = self.client.post(url, {'monto': '900', 'metodo_pago': 'transferencia',
+                                     'fecha': '2026-07-21', 'notas': 'pago total'})
+        d = res.json()
+        self.assertEqual(d['balance_due'], 0.0)
+        self.assertTrue(d['is_paid'])
+
+    def test_add_monto_invalido_400(self):
+        url = reverse('panel:order_payment_add', args=[self.order.pk])
+        res = self.client.post(url, {'monto': '0', 'metodo_pago': 'efectivo',
+                                     'fecha': '2026-07-21'})
+        self.assertEqual(res.status_code, 400)
+        self.assertFalse(res.json()['ok'])
+
+    def test_liquidar_crea_pago_del_saldo(self):
+        from orders.models import OrderPayment
+        OrderPayment.objects.create(order=self.order, fecha='2026-07-21',
+                                    monto=Decimal('200'), metodo_pago='efectivo')
+        url = reverse('panel:order_liquidar', args=[self.order.pk])
+        res = self.client.post(url)
+        d = res.json()
+        self.assertTrue(d['ok'])
+        self.assertEqual(d['balance_due'], 0.0)
+        self.assertTrue(d['is_paid'])
+        self.assertEqual(Decimal(str(d['payment']['monto'])), Decimal('700'))
+        self.order.refresh_from_db()
+        self.assertTrue(self.order.is_paid)
+
+    def test_delete_reabre_pedido(self):
+        from orders.models import OrderPayment
+        pago = OrderPayment.objects.create(order=self.order, fecha='2026-07-21',
+                                           monto=Decimal('900'), metodo_pago='efectivo')
+        self.order.recalc_paid()
+        self.order.refresh_from_db()
+        self.assertTrue(self.order.is_paid)
+        url = reverse('panel:order_payment_delete', args=[pago.pk])
+        res = self.client.post(url)
+        d = res.json()
+        self.assertTrue(d['ok'])
+        self.assertEqual(d['balance_due'], 900.0)
+        self.assertFalse(d['is_paid'])

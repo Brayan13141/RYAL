@@ -22,7 +22,8 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from catalog.models import Category, HeroSlide, PendingProduct, Product, ProductImage, Section, SiteConfig, SizeGroup, SubcategorySection, VolumeTier
-from orders.models import Order, OrderItem, SupplierOrder, SupplierOrderItem
+from orders.models import Order, OrderItem, OrderPayment, SupplierOrder, SupplierOrderItem
+from orders.forms import OrderPaymentForm
 
 _LOGIN = '/accounts/login/'
 _UNSET = object()
@@ -500,18 +501,75 @@ def order_status_update(request, pk):
 
 @_staff
 @require_POST
-def order_payment_update(request, pk):
+def order_payment_add(request, pk):
     order = get_object_or_404(Order, pk=pk)
-    try:
-        deposit = Decimal(request.POST.get('deposit', '0') or '0')
-        if deposit < 0:
-            deposit = Decimal('0')
-    except (InvalidOperation, TypeError):
-        deposit = Decimal('0')
-    order.deposit = deposit
-    order.is_paid = request.POST.get('is_paid') == '1'
-    order.save(update_fields=['deposit', 'is_paid', 'updated_at'])
-    return JsonResponse({'ok': True})
+    form = OrderPaymentForm(request.POST)
+    if not form.is_valid():
+        return JsonResponse({'ok': False, 'errors': form.errors}, status=400)
+    pago = form.save(commit=False)
+    pago.order = order
+    pago.save()
+    order.recalc_paid()
+    return JsonResponse({
+        'ok': True,
+        'balance_due': float(order.balance_due),
+        'total_pagado': float(order.total_pagado),
+        'is_paid': order.is_paid,
+        'payment': {
+            'id': pago.pk,
+            'fecha': pago.fecha.isoformat(),
+            'monto': float(pago.monto),
+            'metodo_display': pago.get_metodo_pago_display(),
+            'notas': pago.notas,
+        },
+    })
+
+
+@_staff
+@require_POST
+def order_payment_delete(request, payment_pk):
+    pago = get_object_or_404(OrderPayment.objects.select_related('order'), pk=payment_pk)
+    order = pago.order
+    pago.delete()
+    order.recalc_paid()
+    return JsonResponse({
+        'ok': True,
+        'balance_due': float(order.balance_due),
+        'total_pagado': float(order.total_pagado),
+        'is_paid': order.is_paid,
+    })
+
+
+@_staff
+@require_POST
+def order_liquidar(request, pk):
+    order = get_object_or_404(Order, pk=pk)
+    saldo = order.balance_due
+    if saldo <= 0:
+        return JsonResponse({
+            'ok': True, 'noop': True,
+            'balance_due': float(order.balance_due),
+            'total_pagado': float(order.total_pagado),
+            'is_paid': order.is_paid,
+        })
+    pago = OrderPayment.objects.create(
+        order=order, fecha=timezone.localdate(), monto=saldo,
+        metodo_pago=OrderPayment.EFECTIVO, notas='Liquidación',
+    )
+    order.recalc_paid()
+    return JsonResponse({
+        'ok': True,
+        'balance_due': float(order.balance_due),
+        'total_pagado': float(order.total_pagado),
+        'is_paid': order.is_paid,
+        'payment': {
+            'id': pago.pk,
+            'fecha': pago.fecha.isoformat(),
+            'monto': float(pago.monto),
+            'metodo_display': pago.get_metodo_pago_display(),
+            'notas': pago.notas,
+        },
+    })
 
 
 @_staff
