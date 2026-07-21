@@ -505,3 +505,38 @@ class SavedCartRestoreVolumeTierTests(TestCase):
         self.client.login(username="cliente1", password="pass")
         cart = self.client.session["cart"]
         self.assertEqual(cart[f"{self.product.pk}_none"]["price"], 200.0)
+
+
+class BalanceDueLiquidadoTests(TestCase):
+    """Marcar un pedido como liquidado (is_paid=True) debe dejar el saldo
+    pendiente en 0, aunque el adelanto registrado sea menor al total. Antes
+    balance_due = total − deposit ignoraba is_paid y seguía mostrando saldo."""
+
+    def setUp(self):
+        self.cat = Category.objects.create(name="Gorras Bal", slug="gorras-bal")
+        self.product = Product.objects.create(
+            sku="RYL-BAL-1", name="Gorra Bal", category=self.cat,
+            base_price=Decimal("100"),
+        )
+
+    def _order(self, deposit, is_paid):
+        order = Order.objects.create(
+            order_code="TEST-BAL-1", customer_name="Ana", customer_phone="5512345678",
+            deposit=Decimal(deposit), is_paid=is_paid,
+        )
+        # total = 450 × 2 = 900
+        order.items.create(
+            product=self.product, quantity=2,
+            price_snapshot=Decimal("450"),
+            sku_snapshot=self.product.sku, name_snapshot=self.product.name,
+        )
+        return order
+
+    def test_liquidado_con_adelanto_parcial_deja_saldo_cero(self):
+        order = self._order(deposit="100", is_paid=True)
+        self.assertEqual(order.total, Decimal("900"))
+        self.assertEqual(order.balance_due, Decimal("0"))
+
+    def test_no_liquidado_conserva_saldo_por_adelanto(self):
+        order = self._order(deposit="100", is_paid=False)
+        self.assertEqual(order.balance_due, Decimal("800"))

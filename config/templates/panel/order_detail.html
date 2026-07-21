@@ -406,8 +406,10 @@ let ORDER_TOTAL = {{ order.total }};
 const depositInput = document.getElementById('depositInput');
 
 function updateBalance() {
+  // Liquidado manda: si está marcado como pagado, el saldo es 0.
+  const paid = document.getElementById('isPaidCheck').checked;
   const deposit = parseFloat(depositInput.value) || 0;
-  const balance = ORDER_TOTAL - deposit;
+  const balance = paid ? 0 : ORDER_TOTAL - deposit;
   const el = document.getElementById('balanceDue');
   el.textContent = `$${Math.round(balance)} MXN`;
   el.style.color = balance <= 0 ? '#50c878' : '#e8a020';
@@ -419,6 +421,7 @@ function syncPaidState() {
   depositInput.disabled      = paid;
   depositInput.style.opacity = paid ? '0.35' : '1';
   depositInput.style.cursor  = paid ? 'not-allowed' : '';
+  updateBalance();
 }
 document.getElementById('isPaidCheck').addEventListener('change', syncPaidState);
 syncPaidState();

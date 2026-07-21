@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 
 from django.db import models
 from django.contrib.auth.models import User
@@ -95,6 +96,10 @@ class Order(models.Model):
 
     @property
     def balance_due(self):
+        # Liquidado manda: si el pedido está marcado como pagado, no hay saldo
+        # aunque el adelanto registrado sea menor al total.
+        if self.is_paid:
+            return Decimal('0')
         return self.total - self.deposit
 
     def __str__(self):
