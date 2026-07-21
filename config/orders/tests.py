@@ -558,3 +558,39 @@ class OrderPaymentModelTests(TestCase):
         self.order.recalc_paid()
         self.order.refresh_from_db()
         self.assertFalse(self.order.is_paid)
+
+
+class PlanBackfillPaymentsTests(TestCase):
+    """La lógica pura que decide qué pagos crear al migrar un pedido legacy."""
+
+    def _plan(self, total, deposit, is_paid):
+        from orders.payment_utils import plan_backfill_payments
+        return plan_backfill_payments(Decimal(total), Decimal(deposit), is_paid)
+
+    def test_liquidado_con_adelanto(self):
+        self.assertEqual(
+            self._plan("900", "100", True),
+            [{"monto": Decimal("100"), "notas": "Adelanto migrado"},
+             {"monto": Decimal("800"), "notas": "Liquidación migrada"}],
+        )
+
+    def test_no_liquidado_con_adelanto(self):
+        self.assertEqual(
+            self._plan("900", "100", False),
+            [{"monto": Decimal("100"), "notas": "Adelanto migrado"}],
+        )
+
+    def test_liquidado_sin_adelanto(self):
+        self.assertEqual(
+            self._plan("900", "0", True),
+            [{"monto": Decimal("900"), "notas": "Liquidación migrada"}],
+        )
+
+    def test_sin_adelanto_no_liquidado(self):
+        self.assertEqual(self._plan("900", "0", False), [])
+
+    def test_adelanto_igual_al_total_no_duplica(self):
+        self.assertEqual(
+            self._plan("500", "500", True),
+            [{"monto": Decimal("500"), "notas": "Adelanto migrado"}],
+        )
