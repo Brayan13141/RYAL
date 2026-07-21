@@ -262,10 +262,10 @@ def dashboard(request):
     # Pedidos sin liquidar (checkout web) — el saldo pendiente de negocio.Pedido
     # ya se cubre aparte con pedidos_negocio_pendientes / saldo_negocio_pendiente.
     ordenes_sin_pagar = list(
-        Order.objects.exclude(status='cancelled').filter(is_paid=False).prefetch_related('items')
+        Order.objects.exclude(status='cancelled').filter(is_paid=False).prefetch_related('items', 'payments')
     )
     pedidos_sin_pagar = len(ordenes_sin_pagar)
-    adelantos_web = sum((o.deposit for o in ordenes_sin_pagar), Decimal('0'))
+    adelantos_web = sum((o.total_pagado for o in ordenes_sin_pagar), Decimal('0'))
     saldo_pendiente_web = sum((o.balance_due for o in ordenes_sin_pagar), Decimal('0'))
 
     # Top productos del mes — combinado Order (checkout web) + Pedido con product FK
@@ -402,7 +402,7 @@ def dashboard(request):
 
 @_staff
 def orders_list(request):
-    qs = Order.objects.select_related('user').prefetch_related('items')
+    qs = Order.objects.select_related('user').prefetch_related('items', 'payments')
 
     status = request.GET.get('status', '')
     if status:

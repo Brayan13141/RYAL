@@ -8,7 +8,7 @@ from django.urls import reverse
 
 from catalog.models import Product, Category
 from negocio.models import Cliente, Pedido, Pago, Gasto
-from orders.models import Order, OrderItem
+from orders.models import Order, OrderItem, OrderPayment
 
 
 class ResumenGlobalViewTest(TestCase):
@@ -191,7 +191,7 @@ class CategoryOverridePricingFormTests(TestCase):
 
 class DashboardAdelantosSaldoPendienteTests(TestCase):
     """El dashboard debe mostrar adelantos y saldo pendiente por separado,
-    para checkout web (Order.deposit) y para WhatsApp/tienda (Pago parcial)."""
+    para checkout web (OrderPayment) y para WhatsApp/tienda (Pago parcial)."""
 
     def setUp(self):
         self.staff = User.objects.create_user(
@@ -201,13 +201,17 @@ class DashboardAdelantosSaldoPendienteTests(TestCase):
 
         order = Order.objects.create(
             customer_name='Victor', customer_phone='5550001111',
-            status='in_preparation', is_paid=False, deposit=Decimal('300'),
+            status='in_preparation', is_paid=False,
         )
         OrderItem.objects.create(
             order=order, product=None, quantity=1,
             price_snapshot=Decimal('800'), sku_snapshot='X', name_snapshot='X',
         )
-        # total = 800, deposit = 300 -> balance_due = 500
+        OrderPayment.objects.create(
+            order=order, fecha=date.today(), monto=Decimal('300'),
+            metodo_pago='efectivo',
+        )
+        # total = 800, pagado = 300 -> balance_due = 500
 
         cliente = Cliente.objects.create(nombre='Cliente WA', telefono='5559998888')
         pedido = Pedido.objects.create(
@@ -228,6 +232,48 @@ class DashboardAdelantosSaldoPendienteTests(TestCase):
         self.assertEqual(res.context['saldo_pendiente_web'], 500)
         self.assertEqual(res.context['adelantos_negocio'], 300)
         self.assertEqual(res.context['saldo_negocio_pendiente'], 500)
+
+
+class OrdersListAdelantoBadgeTests(TestCase):
+    """La lista de pedidos debe mostrar 'Adelanto' cuando hay un pago parcial
+    registrado en OrderPayment, y '—' cuando el pedido no tiene ningún pago."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            username='staff_orders_list', password='pass', is_staff=True
+        )
+        self.client.login(username='staff_orders_list', password='pass')
+
+        self.order_con_adelanto = Order.objects.create(
+            order_code=f'BADGE-A-{uuid4().hex[:10]}',
+            customer_name='Con Adelanto', customer_phone='5550002222',
+            status='in_preparation', is_paid=False,
+        )
+        OrderItem.objects.create(
+            order=self.order_con_adelanto, product=None, quantity=1,
+            price_snapshot=Decimal('800'), sku_snapshot='Y', name_snapshot='Y',
+        )
+        OrderPayment.objects.create(
+            order=self.order_con_adelanto, fecha=date.today(), monto=Decimal('200'),
+            metodo_pago='efectivo',
+        )
+
+        self.order_sin_pago = Order.objects.create(
+            order_code=f'BADGE-B-{uuid4().hex[:10]}',
+            customer_name='Sin Pago', customer_phone='5550003333',
+            status='in_preparation', is_paid=False,
+        )
+        OrderItem.objects.create(
+            order=self.order_sin_pago, product=None, quantity=1,
+            price_snapshot=Decimal('800'), sku_snapshot='Z', name_snapshot='Z',
+        )
+
+    def test_badge_adelanto_y_sin_pago_en_lista(self):
+        res = self.client.get(reverse('panel:orders_list'))
+        self.assertEqual(res.status_code, 200)
+        content = res.content.decode()
+        self.assertIn('Adelanto', content)
+        self.assertIn('—', content)
 
 
 class ProductsListFilterPersistenceTests(TestCase):
