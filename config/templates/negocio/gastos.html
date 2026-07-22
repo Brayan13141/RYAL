@@ -2,6 +2,16 @@
 {% block title %}Gastos — RYAL{% endblock %}
 {% block page_title %}Gastos{% endblock %}
 {% block content %}
+<form method="get" class="fbar" style="margin-bottom:18px;">
+  <input type="date" name="desde" value="{{ desde }}" style="max-width:160px;">
+  <input type="date" name="hasta" value="{{ hasta }}" style="max-width:160px;">
+  <button type="submit" class="btn-g btn-sm"><i class="bi bi-search"></i> Filtrar</button>
+  {% if desde or hasta %}
+  <a href="{% url 'negocio:gastos_list' %}" class="btn-o btn-sm">
+    <i class="bi bi-x"></i> Limpiar
+  </a>
+  {% endif %}
+</form>
 <div style="display:flex;gap:18px;flex-wrap:wrap;">
   <div class="p-card" style="flex:2;min-width:300px;">
     <div class="p-card-head"><h2>Historial de gastos</h2></div>

@@ -1,0 +1,61 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Pagos — RYAL{% endblock %}
+{% block page_title %}Pagos{% endblock %}
+{% block content %}
+<h1 style="font-size:20px;font-weight:700;color:#ddd;margin-bottom:18px;">Pagos</h1>
+<form method="get" class="fbar" style="margin-bottom:18px;">
+  <input type="date" name="desde" value="{{ desde }}" style="max-width:160px;">
+  <input type="date" name="hasta" value="{{ hasta }}" style="max-width:160px;">
+  <button type="submit" class="btn-g btn-sm"><i class="bi bi-search"></i> Filtrar</button>
+  {% if desde or hasta %}
+  <a href="{% url 'negocio:pagos_list' %}" class="btn-o btn-sm">
+    <i class="bi bi-x"></i> Limpiar
+  </a>
+  {% endif %}
+</form>
+
+<div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:18px;">
+  <div class="p-card p-card-body" style="flex:0 0 auto;min-width:160px;">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:4px;">Total cobrado</div>
+    <div style="font-size:26px;font-weight:700;color:#4ade80;">${{ total }}</div>
+  </div>
+  <div class="p-card p-card-body" style="flex:1;min-width:220px;">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:8px;">Por método</div>
+    {% if por_metodo %}
+    <div style="display:flex;gap:24px;flex-wrap:wrap;">
+      {% for row in por_metodo %}
+      <div style="display:flex;justify-content:space-between;gap:10px;min-width:140px;">
+        <span style="font-size:13px;color:#aaa;">{{ row.label }}</span>
+        <span style="font-size:14px;font-weight:600;color:#60a5fa;">${{ row.total }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p style="color:#444;font-size:13px;margin:0;">Sin pagos en este período.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="p-card">
+  <div style="overflow-x:auto;">
+    <table class="p-table">
+      <thead>
+        <tr><th>Fecha</th><th>Pedido</th><th>Cliente</th><th>Método</th><th>Monto</th></tr>
+      </thead>
+      <tbody>
+        {% for p in pagos %}
+        <tr>
+          <td style="color:#888;">{{ p.fecha }}</td>
+          <td><a href="{% url 'negocio:pedido_detail' p.pedido_id %}" style="color:#D4AF37;">#{{ p.pedido_id }}</a></td>
+          <td>{% if p.pedido.cliente %}{{ p.pedido.cliente.nombre }}{% else %}Mostrador{% endif %}</td>
+          <td style="color:#888;">{{ p.get_metodo_pago_display }}</td>
+          <td style="color:#4ade80;">${{ p.monto }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" style="text-align:center;color:#555;padding:32px;">No hay pagos</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

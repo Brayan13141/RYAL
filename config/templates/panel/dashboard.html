@@ -156,6 +156,12 @@ document.addEventListener('DOMContentLoaded', function () {
     <div class="kpi-sub">Adelantado: ${{ adelantos_negocio|floatformat:0 }} · Saldo pendiente: ${{ saldo_negocio_pendiente|floatformat:0 }} MXN</div>
   </div>
 
+  <div class="kpi-sm">
+    <div class="kpi-lbl">Total en caja</div>
+    <div class="kpi-val" style="color:var(--pg);">${{ caja_saldo|floatformat:0 }}</div>
+    <div class="kpi-sub">Cobrado: ${{ caja_cobrado|floatformat:0 }} · Gastos: ${{ caja_gastos|floatformat:0 }}</div>
+  </div>
+
 </div>
 
 <!-- ── Sección: Chart + Estado de pedidos ─────────────────────────────── -->

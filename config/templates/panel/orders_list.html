@@ -13,8 +13,10 @@
     <option value="{{ s }}" {% if status_filter == s %}selected{% endif %}>{{ lbl }}</option>
     {% endfor %}
   </select>
+  <input type="date" name="desde" value="{{ desde }}" style="max-width:150px;">
+  <input type="date" name="hasta" value="{{ hasta }}" style="max-width:150px;">
   <button type="submit" class="btn-g btn-sm"><i class="bi bi-search"></i> Filtrar</button>
-  {% if status_filter or q %}
+  {% if status_filter or q or desde or hasta %}
   <a href="{% url 'panel:orders_list' %}" class="btn-o btn-sm">
     <i class="bi bi-x"></i> Limpiar
   </a>
@@ -89,7 +91,7 @@
 {% if page_obj.has_other_pages %}
 <div class="p-pages">
   {% if page_obj.has_previous %}
-    <a href="?page={{ page_obj.previous_page_number }}&status={{ status_filter }}&q={{ q }}">
+    <a href="?page={{ page_obj.previous_page_number }}&status={{ status_filter }}&q={{ q }}&desde={{ desde }}&hasta={{ hasta }}">
       <i class="bi bi-chevron-left"></i>
     </a>
   {% endif %}
@@ -97,11 +99,11 @@
     {% if page_obj.number == num %}
       <span class="cur">{{ num }}</span>
     {% elif num > page_obj.number|add:"-3" and num < page_obj.number|add:"3" %}
-      <a href="?page={{ num }}&status={{ status_filter }}&q={{ q }}">{{ num }}</a>
+      <a href="?page={{ num }}&status={{ status_filter }}&q={{ q }}&desde={{ desde }}&hasta={{ hasta }}">{{ num }}</a>
     {% endif %}
   {% endfor %}
   {% if page_obj.has_next %}
-    <a href="?page={{ page_obj.next_page_number }}&status={{ status_filter }}&q={{ q }}">
+    <a href="?page={{ page_obj.next_page_number }}&status={{ status_filter }}&q={{ q }}&desde={{ desde }}&hasta={{ hasta }}">
       <i class="bi bi-chevron-right"></i>
     </a>
   {% endif %}

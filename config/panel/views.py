@@ -200,6 +200,18 @@ def _stats(order_qs):
     return revenue - total_discount, profit
 
 
+def _caja_saldo():
+    """Saldo real de caja: TODO lo cobrado histórico (OrderPayment web + Pago
+    negocio) menos TODOS los gastos. El efectivo se acumula mes a mes, así que
+    NO se filtra por fecha — refleja el dinero disponible hoy, arrastrando lo de
+    meses anteriores. Devuelve (cobrado, gastos, saldo)."""
+    from negocio.models import Pago, Gasto
+    cobrado = ((OrderPayment.objects.aggregate(t=Sum('monto'))['t'] or Decimal('0'))
+               + (Pago.objects.aggregate(t=Sum('monto'))['t'] or Decimal('0')))
+    gastos = Gasto.objects.aggregate(t=Sum('monto'))['t'] or Decimal('0')
+    return cobrado, gastos, cobrado - gastos
+
+
 def _stats_pedido(pedido_qs):
     """Net revenue + net profit for a queryset of Pedido (negocio: WhatsApp/tienda).
 
@@ -223,10 +235,15 @@ def dashboard(request):
     hoy    = now.replace(hour=0, minute=0, second=0, microsecond=0)
     semana = hoy - timedelta(days=6)
     mes    = hoy.replace(day=1)
-    mes_date = hoy.date().replace(day=1)
+    mes_date    = hoy.date().replace(day=1)
+    hoy_date    = hoy.date()
+    semana_date = semana.date()
 
-    base        = Order.objects.exclude(status='cancelled')
-    base_pedido = Pedido.objects.exclude(estado=Pedido.CANCELADO)
+    # Reconocimiento unificado: solo cuentan las ventas PAGADAS (ver Global
+    # Constraints del plan de ganancias). Negocio (WhatsApp/tienda) se atribuye
+    # por `fecha` (cuándo se levantó el pedido), no por created_at.
+    base        = Order.objects.filter(is_paid=True).exclude(status='cancelled')
+    base_pedido = Pedido.objects.filter(estado=Pedido.PAGADO)
 
     # Cifras combinadas: checkout web (Order) + ventas WhatsApp/tienda (negocio.Pedido).
     # Antes el dashboard solo veía Order y era ciego al canal principal del negocio.
@@ -234,9 +251,9 @@ def dashboard(request):
     rev_semana_o, gan_semana_o = _stats(base.filter(created_at__gte=semana))
     rev_mes_o,    gan_mes_o    = _stats(base.filter(created_at__gte=mes))
 
-    rev_hoy_p,    gan_hoy_p    = _stats_pedido(base_pedido.filter(created_at__gte=hoy))
-    rev_semana_p, gan_semana_p = _stats_pedido(base_pedido.filter(created_at__gte=semana))
-    rev_mes_p,    gan_mes_p    = _stats_pedido(base_pedido.filter(created_at__gte=mes))
+    rev_hoy_p,    gan_hoy_p    = _stats_pedido(base_pedido.filter(fecha__gte=hoy_date))
+    rev_semana_p, gan_semana_p = _stats_pedido(base_pedido.filter(fecha__gte=semana_date))
+    rev_mes_p,    gan_mes_p    = _stats_pedido(base_pedido.filter(fecha__gte=mes_date))
 
     rev_hoy,    gan_hoy    = rev_hoy_o + rev_hoy_p,       gan_hoy_o + gan_hoy_p
     rev_semana, gan_semana = rev_semana_o + rev_semana_p, gan_semana_o + gan_semana_p
@@ -255,7 +272,7 @@ def dashboard(request):
         base.filter(created_at__gte=mes).aggregate(d=Sum('descuento_aplicado'))['d'] or 0
     )
     descuentos_mes_p = float(
-        base_pedido.filter(created_at__gte=mes).aggregate(d=Sum('descuento_aplicado'))['d'] or 0
+        base_pedido.filter(fecha__gte=mes_date).aggregate(d=Sum('descuento_aplicado'))['d'] or 0
     )
     descuentos_mes = descuentos_mes_o + descuentos_mes_p
 
@@ -286,7 +303,7 @@ def dashboard(request):
         }
     for row in (
         PedidoItem.objects
-        .filter(pedido__in=base_pedido.filter(created_at__gte=mes), product__isnull=False)
+        .filter(pedido__in=base_pedido.filter(fecha__gte=mes_date), product__isnull=False)
         .values('product_id', 'nombre_snapshot')
         .annotate(units=Sum('cantidad'), revenue=Sum(_PEDIDO_ITEM_REVENUE), profit=Sum(_PEDIDO_ITEM_PROFIT))
     ):
@@ -320,13 +337,16 @@ def dashboard(request):
         .values('fecha').annotate(g=Sum('monto'))
         .values_list('fecha', 'g')
     )
+    # `fecha` ya es un DateField (sin componente de hora) -- agrupar directo por
+    # ese campo en vez de envolverlo en TruncDate, que en sqlite intenta una
+    # conversión de zona horaria y revienta contra un DateField (mismo patrón
+    # que `day_gastos` arriba, que agrupa por Gasto.fecha sin TruncDate).
     pedido_chart_raw = (
-        base_pedido.filter(created_at__gte=semana)
-        .annotate(day=TruncDate('created_at'))
-        .values('day')
+        base_pedido.filter(fecha__gte=semana_date)
+        .values('fecha')
         .annotate(precio=Sum('precio_venta'), costo=Sum('costo_producto'), descuento=Sum('descuento_aplicado'))
     )
-    pedido_chart_by_day = {row['day']: row for row in pedido_chart_raw}
+    pedido_chart_by_day = {row['fecha']: row for row in pedido_chart_raw}
 
     chart_labels, chart_revenue, chart_profit, chart_gastos = [], [], [], []
     for i in range(6, -1, -1):
@@ -366,6 +386,10 @@ def dashboard(request):
         (pago.monto for p in pedidos_negocio_pendientes for pago in p.pagos.all()), Decimal('0')
     )
 
+    # Saldo real de caja: acumulado histórico (todo lo cobrado − todos los gastos).
+    # El dinero se arrastra mes a mes; no se resetea por período.
+    caja_cobrado, caja_gastos, caja_saldo = _caja_saldo()
+
     return render(request, 'panel/dashboard.html', {
         'counts':             counts,
         'recent':             recent,
@@ -391,6 +415,9 @@ def dashboard(request):
         'pedidos_negocio_pendientes': len(pedidos_negocio_pendientes),
         'saldo_negocio_pendiente':    round(float(saldo_negocio_pendiente)),
         'adelantos_negocio':          round(float(adelantos_negocio)),
+        'caja_cobrado':       caja_cobrado,
+        'caja_gastos':        caja_gastos,
+        'caja_saldo':         caja_saldo,
         'chart_labels':       json.dumps(chart_labels),
         'chart_revenue':      json.dumps(chart_revenue),
         'chart_profit':       json.dumps(chart_profit),
@@ -417,6 +444,13 @@ def orders_list(request):
             Q(customer_email__icontains=q)
         )
 
+    desde = (request.GET.get('desde') or '').strip()
+    hasta = (request.GET.get('hasta') or '').strip()
+    if desde:
+        qs = qs.filter(created_at__date__gte=desde)
+    if hasta:
+        qs = qs.filter(created_at__date__lte=hasta)
+
     paginator = Paginator(qs, 25)
     page_obj  = paginator.get_page(request.GET.get('page'))
 
@@ -424,6 +458,8 @@ def orders_list(request):
         'page_obj':       page_obj,
         'status_filter':  status,
         'q':              q,
+        'desde':          desde,
+        'hasta':          hasta,
         'status_choices': Order.STATUS_CHOICES,
     })
 

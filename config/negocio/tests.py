@@ -1557,3 +1557,67 @@ class CrearPedidoBotDescuentoCapTest(TestCase):
         )
         self.assertEqual(pedido.descuento_aplicado, Decimal('550'))
         self.assertEqual(pedido.total_a_cobrar, Decimal('0'))
+
+
+@override_settings(RATELIMIT_ENABLE=False)
+class PedidosListFiltroFechaTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user('s', password='x', is_staff=True)
+        self.client.force_login(self.staff)
+        self.cli = Cliente.objects.create(nombre='N', telefono='9')
+
+    def _ped(self, f):
+        return Pedido.objects.create(cliente=self.cli, costo_producto=Decimal('0'),
+                                     precio_venta=Decimal('100'), estado=Pedido.PAGADO, fecha=f)
+
+    def test_filtra_por_rango_inclusivo(self):
+        self._ped(datetime.date(2026, 1, 10))
+        self._ped(datetime.date(2026, 2, 15))
+        self._ped(datetime.date(2026, 3, 20))
+        res = self.client.get('/panel/negocio/pedidos/?desde=2026-02-01&hasta=2026-02-28')
+        self.assertEqual(len(res.context['pedidos']), 1)
+
+    def test_sin_filtro_muestra_todos(self):
+        self._ped(datetime.date(2026, 1, 10)); self._ped(datetime.date(2026, 2, 15))
+        res = self.client.get('/panel/negocio/pedidos/')
+        self.assertEqual(len(res.context['pedidos']), 2)
+
+
+@override_settings(RATELIMIT_ENABLE=False)
+class GastosListFiltroFechaTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user('s5', password='x', is_staff=True)
+        self.client.force_login(self.staff)
+
+    def _gasto(self, f):
+        return Gasto.objects.create(fecha=f, descripcion='x', monto=Decimal('50'))
+
+    def test_filtra_gastos_por_rango(self):
+        self._gasto(datetime.date(2026, 1, 5)); self._gasto(datetime.date(2026, 2, 5))
+        res = self.client.get('/panel/negocio/gastos/?desde=2026-02-01&hasta=2026-02-28')
+        self.assertEqual(len(res.context['gastos']), 1)
+
+
+@override_settings(RATELIMIT_ENABLE=False)
+class PagosListTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user('s4', password='x', is_staff=True)
+        self.client.force_login(self.staff)
+        self.cli = Cliente.objects.create(nombre='N', telefono='9')
+        self.ped = Pedido.objects.create(cliente=self.cli, costo_producto=Decimal('0'),
+                                         precio_venta=Decimal('1000'), estado=Pedido.PAGADO,
+                                         fecha=datetime.date(2026, 2, 10))
+
+    def _pago(self, f, monto, metodo='efectivo'):
+        return Pago.objects.create(pedido=self.ped, fecha=f, monto=Decimal(monto), metodo_pago=metodo)
+
+    def test_lista_total_y_por_metodo_en_rango(self):
+        self._pago(datetime.date(2026, 1, 5), '100', 'efectivo')          # fuera
+        self._pago(datetime.date(2026, 2, 5), '300', 'efectivo')          # dentro
+        self._pago(datetime.date(2026, 2, 6), '200', 'transferencia')     # dentro
+        res = self.client.get('/panel/negocio/pagos/?desde=2026-02-01&hasta=2026-02-28')
+        self.assertEqual(res.context['total'], Decimal('500'))
+        self.assertEqual(len(res.context['pagos']), 2)
+        metodos = {r['metodo']: r['total'] for r in res.context['por_metodo']}
+        self.assertEqual(metodos['efectivo'], Decimal('300'))
+        self.assertEqual(metodos['transferencia'], Decimal('200'))

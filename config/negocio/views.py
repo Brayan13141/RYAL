@@ -88,7 +88,14 @@ def cliente_detail(request, pk):
 @staff_member_required
 def pedidos_list(request):
     pedidos = Pedido.objects.select_related('cliente').prefetch_related('pagos').all()
-    return render(request, 'negocio/pedidos.html', {'pedidos': pedidos})
+    desde = (request.GET.get('desde') or '').strip()
+    hasta = (request.GET.get('hasta') or '').strip()
+    if desde:
+        pedidos = pedidos.filter(fecha__gte=desde)
+    if hasta:
+        pedidos = pedidos.filter(fecha__lte=hasta)
+    return render(request, 'negocio/pedidos.html',
+                  {'pedidos': pedidos, 'desde': desde, 'hasta': hasta})
 
 
 @staff_member_required
@@ -189,12 +196,41 @@ def pedido_gasto_add(request, pk):
 
 @staff_member_required
 def gastos_list(request):
-    gastos = Gasto.objects.all()
     form = GastoForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
         form.save()
         return redirect('negocio:gastos_list')
-    return render(request, 'negocio/gastos.html', {'gastos': gastos, 'form': form})
+    gastos = Gasto.objects.all()
+    desde = (request.GET.get('desde') or '').strip()
+    hasta = (request.GET.get('hasta') or '').strip()
+    if desde:
+        gastos = gastos.filter(fecha__gte=desde)
+    if hasta:
+        gastos = gastos.filter(fecha__lte=hasta)
+    return render(request, 'negocio/gastos.html',
+                  {'gastos': gastos, 'form': form, 'desde': desde, 'hasta': hasta})
+
+
+@staff_member_required
+def pagos_list(request):
+    pagos = Pago.objects.select_related('pedido', 'pedido__cliente').all()
+    desde = (request.GET.get('desde') or '').strip()
+    hasta = (request.GET.get('hasta') or '').strip()
+    if desde:
+        pagos = pagos.filter(fecha__gte=desde)
+    if hasta:
+        pagos = pagos.filter(fecha__lte=hasta)
+    total = pagos.aggregate(t=Sum('monto'))['t'] or Decimal('0')
+    metodo_labels = dict(Pago.METODO_CHOICES)
+    por_metodo = [
+        {'metodo': r['metodo_pago'], 'label': metodo_labels.get(r['metodo_pago'], r['metodo_pago'].title()),
+         'total': r['t']}
+        for r in pagos.values('metodo_pago').annotate(t=Sum('monto')).order_by('-t')
+    ]
+    return render(request, 'negocio/pagos.html', {
+        'pagos': pagos.order_by('-fecha', '-id'), 'total': total,
+        'por_metodo': por_metodo, 'desde': desde, 'hasta': hasta,
+    })
 
 
 # ── Resumen ───────────────────────────────────────────────

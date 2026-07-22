@@ -76,7 +76,10 @@
 
   <!-- Cobros por método -->
   <div class="p-card">
-    <div class="p-card-head"><h2>Ingresos por método</h2></div>
+    <div class="p-card-head">
+      <h2>Ingresos por método</h2>
+      <a href="{% url 'negocio:pagos_list' %}" style="font-size:11px;color:#D4AF37;">Ver todos →</a>
+    </div>
     <div class="p-card-body" style="padding-top:6px;">
       {% if cobros_metodo %}
       {% for row in cobros_metodo %}

@@ -3,7 +3,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from catalog.models import Product, Category
@@ -564,3 +564,112 @@ class OrderDetailRenderTests(TestCase):
         self.assertIn('Registrar pago', html)
         self.assertIn('id="pagosBody"', html)
         self.assertIn('id="btnLiquidar"', html)
+
+
+@override_settings(RATELIMIT_ENABLE=False)
+class DashboardReconocimientoTests(TestCase):
+    """Reconocimiento unificado: el dashboard solo cuenta ventas PAGADAS,
+    y las de negocio (WhatsApp/tienda) se atribuyen al mes por su `fecha`
+    (cuándo se levantó el pedido), no por `created_at`."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user('boss', password='x', is_staff=True)
+        self.client.force_login(self.staff)
+        self.cat = Category.objects.create(name='Gorras', shipping_cost=Decimal('280'),
+                                            profit_margin=Decimal('100'))
+        self.prod = Product.objects.create(sku='RYL-D-1', name='Gorra D',
+                                            category=self.cat, base_price=Decimal('500'),
+                                            is_active=True)
+
+    def _web_order(self, *, paid, precio='880', costo='780'):
+        o = Order.objects.create(order_code=f'D-{Order.objects.count()+1}',
+                                 customer_name='C', customer_phone='1',
+                                 status='confirmed', is_paid=paid)
+        OrderItem.objects.create(order=o, product=self.prod, quantity=1,
+                                 price_snapshot=Decimal(precio), cost_snapshot=Decimal(costo),
+                                 sku_snapshot='RYL-D-1', name_snapshot='Gorra D')
+        return o
+
+    def test_web_no_pagado_no_cuenta_para_ganancia(self):
+        self._web_order(paid=False)          # no pagado -> no cuenta
+        res = self.client.get('/panel/')
+        self.assertEqual(res.context['gan_mes'], 0)
+        self.assertEqual(res.context['rev_mes'], 0)
+
+    def test_web_pagado_si_cuenta(self):
+        self._web_order(paid=True)           # 880 - 780 = 100 ganancia
+        res = self.client.get('/panel/')
+        self.assertEqual(res.context['gan_mes'], 100)
+        self.assertEqual(res.context['rev_mes'], 880)
+
+    def test_negocio_pendiente_no_cuenta(self):
+        cli = Cliente.objects.create(nombre='N', telefono='9')
+        Pedido.objects.create(cliente=cli, costo_producto=Decimal('780'),
+                              precio_venta=Decimal('900'), estado=Pedido.PENDIENTE,
+                              fecha=date.today())
+        res = self.client.get('/panel/')
+        self.assertEqual(res.context['gan_mes'], 0)
+
+    def test_negocio_pagado_cuenta_por_fecha_del_pedido(self):
+        cli = Cliente.objects.create(nombre='N', telefono='9')
+        Pedido.objects.create(cliente=cli, costo_producto=Decimal('780'),
+                              precio_venta=Decimal('900'), estado=Pedido.PAGADO,
+                              fecha=date.today())
+        res = self.client.get('/panel/')
+        self.assertEqual(res.context['gan_mes'], 120)   # 900 - 780
+        self.assertEqual(res.context['rev_mes'], 900)
+
+
+@override_settings(RATELIMIT_ENABLE=False)
+class DashboardCajaTests(TestCase):
+    """'Total en caja' = saldo real acumulado: TODO lo cobrado histórico
+    (OrderPayment web + Pago negocio, sin filtro de fecha) − TODOS los gastos.
+    El dinero se arrastra mes a mes; incluye adelantos de pedidos no liquidados."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user('boss2', password='x', is_staff=True)
+        self.client.force_login(self.staff)
+
+    def test_caja_es_cobrado_acumulado_menos_gastos(self):
+        from datetime import timedelta
+        from negocio.models import Gasto
+        mes_pasado = date.today().replace(day=1) - timedelta(days=5)
+
+        o = Order.objects.create(order_code='K-1', customer_name='C', customer_phone='1',
+                                 status='pending', is_paid=False)
+        # Adelanto del MES PASADO (pedido NO liquidado): debe seguir contando.
+        OrderPayment.objects.create(order=o, fecha=mes_pasado, monto=Decimal('300'),
+                                    metodo_pago='efectivo')
+        cli = Cliente.objects.create(nombre='N', telefono='9')
+        ped = Pedido.objects.create(cliente=cli, costo_producto=Decimal('0'),
+                                    precio_venta=Decimal('500'), estado=Pedido.PENDIENTE,
+                                    fecha=date.today())
+        Pago.objects.create(pedido=ped, fecha=date.today(), monto=Decimal('200'),
+                            metodo_pago='transferencia')
+        Gasto.objects.create(fecha=date.today(), descripcion='Renta', monto=Decimal('100'))
+
+        res = self.client.get('/panel/')
+        self.assertEqual(res.context['caja_cobrado'], Decimal('500'))  # 300 (mes pasado) + 200
+        self.assertEqual(res.context['caja_gastos'], Decimal('100'))
+        self.assertEqual(res.context['caja_saldo'], Decimal('400'))    # 500 − 100
+
+
+@override_settings(RATELIMIT_ENABLE=False)
+class OrdersListFiltroFechaTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user('s3', password='x', is_staff=True)
+        self.client.force_login(self.staff)
+
+    def _order(self):
+        return Order.objects.create(order_code=f'F-{Order.objects.count()+1}',
+                                    customer_name='C', customer_phone='1', status='pending')
+
+    def test_filtra_por_created_at(self):
+        from django.utils import timezone
+        o_viejo = self._order()
+        Order.objects.filter(pk=o_viejo.pk).update(
+            created_at=timezone.now() - timezone.timedelta(days=40))
+        self._order()  # hoy
+        hoy = timezone.now().date().isoformat()
+        res = self.client.get(reverse('panel:orders_list') + f'?desde={hoy}')
+        self.assertEqual(len(res.context['page_obj'].object_list), 1)
