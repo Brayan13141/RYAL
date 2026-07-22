@@ -1,5 +1,5 @@
 import json
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from urllib.parse import quote
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.paginator import Paginator
@@ -14,7 +14,7 @@ from django_ratelimit.decorators import ratelimit
 
 from catalog.models import Category, Product
 from .forms import ClienteForm, PedidoForm, PagoForm, GastoForm, PedidoItemForm
-from .models import Cliente, Pedido, Pago, Gasto, PedidoItem
+from .models import Cliente, Pedido, Pago, Gasto, PedidoItem, AjusteCaja
 from .utils import _mes_range, _MESES_ES, _GANANCIA_EXPR, _VENDIDO_EXPR
 
 
@@ -230,6 +230,43 @@ def pagos_list(request):
     return render(request, 'negocio/pagos.html', {
         'pagos': pagos.order_by('-fecha', '-id'), 'total': total,
         'por_metodo': por_metodo, 'desde': desde, 'hasta': hasta,
+    })
+
+
+# ── Caja (saldo real + ajustes/arqueo) ────────────────────
+
+@staff_member_required
+def caja(request):
+    """Saldo real de caja + registro de ajustes (arqueo). Opción A: el usuario
+    escribe el TOTAL REAL contado + un motivo; el sistema guarda el ajuste
+    (real − calculado) en el historial con quién y cuándo. El saldo inicial
+    (efectivo previo a registrar ventas) es simplemente el primer ajuste."""
+    from .caja import caja_totales
+    error = None
+    if request.method == 'POST':
+        total_raw = (request.POST.get('total_real') or '').strip()
+        motivo = (request.POST.get('motivo') or '').strip()
+        try:
+            total_real = Decimal(total_raw)
+        except (InvalidOperation, TypeError, ValueError):
+            total_real = None
+            error = 'Ingresa un total válido.'
+        if total_real is not None and not motivo:
+            error = 'El motivo es obligatorio.'
+        if error is None:
+            saldo_actual = caja_totales()['saldo']
+            ajuste = total_real - saldo_actual
+            AjusteCaja.objects.create(
+                fecha=datetime.date.today(), monto=ajuste,
+                saldo_resultante=total_real, motivo=motivo,
+                usuario=request.user if request.user.is_authenticated else None,
+            )
+            return redirect('negocio:caja')
+
+    totales = caja_totales()
+    ajustes = AjusteCaja.objects.select_related('usuario').all()
+    return render(request, 'negocio/caja.html', {
+        'totales': totales, 'ajustes': ajustes, 'error': error,
     })
 
 

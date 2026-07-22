@@ -201,15 +201,12 @@ def _stats(order_qs):
 
 
 def _caja_saldo():
-    """Saldo real de caja: TODO lo cobrado histórico (OrderPayment web + Pago
-    negocio) menos TODOS los gastos. El efectivo se acumula mes a mes, así que
-    NO se filtra por fecha — refleja el dinero disponible hoy, arrastrando lo de
-    meses anteriores. Devuelve (cobrado, gastos, saldo)."""
-    from negocio.models import Pago, Gasto
-    cobrado = ((OrderPayment.objects.aggregate(t=Sum('monto'))['t'] or Decimal('0'))
-               + (Pago.objects.aggregate(t=Sum('monto'))['t'] or Decimal('0')))
-    gastos = Gasto.objects.aggregate(t=Sum('monto'))['t'] or Decimal('0')
-    return cobrado, gastos, cobrado - gastos
+    """Saldo real de caja. Delega en negocio.caja (única fuente de verdad):
+    cobrado histórico − gastos + ajustes manuales (arqueo/saldo inicial).
+    Devuelve (cobrado, gastos, ajustes, saldo)."""
+    from negocio.caja import caja_totales
+    t = caja_totales()
+    return t['cobrado'], t['gastos'], t['ajustes'], t['saldo']
 
 
 def _stats_pedido(pedido_qs):
@@ -386,9 +383,9 @@ def dashboard(request):
         (pago.monto for p in pedidos_negocio_pendientes for pago in p.pagos.all()), Decimal('0')
     )
 
-    # Saldo real de caja: acumulado histórico (todo lo cobrado − todos los gastos).
+    # Saldo real de caja: acumulado histórico (cobrado − gastos + ajustes).
     # El dinero se arrastra mes a mes; no se resetea por período.
-    caja_cobrado, caja_gastos, caja_saldo = _caja_saldo()
+    caja_cobrado, caja_gastos, caja_ajustes, caja_saldo = _caja_saldo()
 
     return render(request, 'panel/dashboard.html', {
         'counts':             counts,
@@ -417,6 +414,7 @@ def dashboard(request):
         'adelantos_negocio':          round(float(adelantos_negocio)),
         'caja_cobrado':       caja_cobrado,
         'caja_gastos':        caja_gastos,
+        'caja_ajustes':       caja_ajustes,
         'caja_saldo':         caja_saldo,
         'chart_labels':       json.dumps(chart_labels),
         'chart_revenue':      json.dumps(chart_revenue),

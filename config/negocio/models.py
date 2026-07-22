@@ -1,6 +1,7 @@
 import datetime
 from decimal import Decimal
 from django.db import models
+from django.conf import settings
 
 
 class Cliente(models.Model):
@@ -151,3 +152,34 @@ class PedidoItem(models.Model):
     @property
     def costo_total(self):
         return self.costo_unitario * self.cantidad
+
+
+class AjusteCaja(models.Model):
+    """Ajuste manual del saldo de caja (arqueo). El saldo real de caja =
+    cobrado − gastos + Σ(ajustes). El primer ajuste suele ser el 'Saldo inicial'
+    (el efectivo que había antes de empezar a registrar ventas). Cada ajuste
+    queda en el historial con su motivo y quién lo hizo (auditoría)."""
+    fecha = models.DateField(default=datetime.date.today)
+    monto = models.DecimalField(
+        max_digits=12, decimal_places=2,
+        help_text='Con signo: + suma a la caja, − resta.',
+    )
+    saldo_resultante = models.DecimalField(
+        max_digits=12, decimal_places=2,
+        help_text='Saldo de caja que quedó tras aplicar este ajuste.',
+    )
+    motivo = models.CharField(max_length=200)
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='ajustes_caja',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Ajuste de caja'
+        verbose_name_plural = 'Ajustes de caja'
+
+    def __str__(self):
+        signo = '+' if self.monto >= 0 else ''
+        return f'Ajuste {signo}{self.monto} — {self.motivo}'

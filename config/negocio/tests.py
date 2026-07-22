@@ -1621,3 +1621,71 @@ class PagosListTests(TestCase):
         metodos = {r['metodo']: r['total'] for r in res.context['por_metodo']}
         self.assertEqual(metodos['efectivo'], Decimal('300'))
         self.assertEqual(metodos['transferencia'], Decimal('200'))
+
+
+@override_settings(RATELIMIT_ENABLE=False)
+class CajaAjusteTests(TestCase):
+    """Saldo real de caja = cobrado - gastos + ajustes. Opcion A: el usuario
+    escribe el total real contado y el sistema guarda la diferencia como ajuste
+    con motivo, usuario y saldo resultante (auditoria)."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user('cajero', password='x', is_staff=True)
+        self.client.force_login(self.staff)
+        self.cli = Cliente.objects.create(nombre='N', telefono='9')
+
+    def _pago(self, monto):
+        ped = Pedido.objects.create(cliente=self.cli, costo_producto=Decimal('0'),
+                                    precio_venta=Decimal(monto), estado=Pedido.PAGADO,
+                                    fecha=datetime.date.today())
+        Pago.objects.create(pedido=ped, fecha=datetime.date.today(),
+                            monto=Decimal(monto), metodo_pago='efectivo')
+
+    def test_caja_totales_incluye_ajustes(self):
+        from negocio.caja import caja_totales
+        from negocio.models import AjusteCaja
+        self._pago('200')
+        Gasto.objects.create(fecha=datetime.date.today(), descripcion='x', monto=Decimal('50'))
+        AjusteCaja.objects.create(fecha=datetime.date.today(), monto=Decimal('5000'),
+                                  saldo_resultante=Decimal('5150'), motivo='Saldo inicial')
+        t = caja_totales()
+        self.assertEqual(t['cobrado'], Decimal('200'))
+        self.assertEqual(t['gastos'], Decimal('50'))
+        self.assertEqual(t['ajustes'], Decimal('5000'))
+        self.assertEqual(t['saldo'], Decimal('5150'))   # 200 - 50 + 5000
+
+    def test_arqueo_crea_ajuste_por_diferencia(self):
+        from negocio.caja import caja_totales
+        from negocio.models import AjusteCaja
+        self._pago('300')   # saldo calculado = 300
+        res = self.client.post('/panel/negocio/caja/',
+                               {'total_real': '8000', 'motivo': 'Saldo inicial'})
+        self.assertEqual(res.status_code, 302)
+        aj = AjusteCaja.objects.get()
+        self.assertEqual(aj.monto, Decimal('7700'))            # 8000 - 300
+        self.assertEqual(aj.saldo_resultante, Decimal('8000'))
+        self.assertEqual(aj.motivo, 'Saldo inicial')
+        self.assertEqual(aj.usuario, self.staff)
+        self.assertEqual(caja_totales()['saldo'], Decimal('8000'))
+
+    def test_arqueo_exige_motivo(self):
+        from negocio.models import AjusteCaja
+        res = self.client.post('/panel/negocio/caja/',
+                               {'total_real': '5000', 'motivo': ''})
+        self.assertEqual(res.status_code, 200)                 # re-render con error
+        self.assertEqual(AjusteCaja.objects.count(), 0)
+
+    def test_arqueo_total_invalido_no_crea(self):
+        from negocio.models import AjusteCaja
+        res = self.client.post('/panel/negocio/caja/',
+                               {'total_real': 'abc', 'motivo': 'x'})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(AjusteCaja.objects.count(), 0)
+
+    def test_caja_page_lista_ajustes(self):
+        from negocio.models import AjusteCaja
+        AjusteCaja.objects.create(fecha=datetime.date.today(), monto=Decimal('5000'),
+                                  saldo_resultante=Decimal('5000'), motivo='Saldo inicial')
+        res = self.client.get('/panel/negocio/caja/')
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, 'Saldo inicial')
