@@ -471,13 +471,14 @@ def orders_export(request):
 @_staff
 def order_detail(request, pk):
     order = get_object_or_404(
-        Order.objects.prefetch_related('items__product__images', 'items__variant'),
+        Order.objects.prefetch_related('items__product__images', 'items__variant', 'payments'),
         pk=pk,
     )
     return render(request, 'panel/order_detail.html', {
         'order':           order,
         'status_choices':  Order.STATUS_CHOICES,
         'items_subtotal':  order.total + order.descuento_aplicado,
+        'today_iso':       timezone.localdate().isoformat(),
     })
 
 

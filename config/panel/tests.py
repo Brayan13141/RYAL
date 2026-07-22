@@ -536,3 +536,31 @@ class OrderPaymentEndpointTests(TestCase):
         self.assertTrue(d['ok'])
         self.assertEqual(d['balance_due'], 900.0)
         self.assertFalse(d['is_paid'])
+
+
+class OrderDetailRenderTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth.models import User
+        from catalog.models import Category, Product
+        from orders.models import Order
+        User.objects.create_user(username='staff_rp', password='pass', is_staff=True)
+        self.client.login(username='staff_rp', password='pass')
+        cat = Category.objects.create(name="Gorras RP", slug="gorras-rp")
+        product = Product.objects.create(
+            sku="RYL-RP-1", name="Gorra RP", category=cat, base_price=Decimal("100"),
+        )
+        self.order = Order.objects.create(
+            order_code="TEST-RP-1", customer_name="Ana", customer_phone="5512345678",
+        )
+        self.order.items.create(
+            product=product, quantity=1, price_snapshot=Decimal("450"),
+            sku_snapshot=product.sku, name_snapshot=product.name,
+        )
+
+    def test_detalle_muestra_pagos_y_liquidar(self):
+        res = self.client.get(reverse('panel:order_detail', args=[self.order.pk]))
+        self.assertEqual(res.status_code, 200)
+        html = res.content.decode()
+        self.assertIn('Registrar pago', html)
+        self.assertIn('id="pagosBody"', html)
+        self.assertIn('id="btnLiquidar"', html)

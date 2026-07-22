@@ -213,16 +213,15 @@
       </div>
     </div>
 
-    <!-- Pago -->
+    <!-- Pagos -->
     <div class="p-card" style="margin-bottom:16px;">
-      <div class="p-card-head"><h2>Pago</h2></div>
+      <div class="p-card-head"><h2>Pagos</h2></div>
       <div class="p-card-body" style="display:flex;flex-direction:column;gap:11px;">
 
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <span style="font-size:12px;color:#666;">Total del pedido</span>
           <span id="orderTotalDisplay" style="font-weight:700;color:#ddd;">${{ order.total|floatformat:0 }} MXN</span>
         </div>
-
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <span style="font-size:12px;color:#666;">Ganancia estimada</span>
           <span style="font-weight:600;color:#50c878;">${{ order.ganancia }} MXN</span>
@@ -230,35 +229,67 @@
 
         <hr style="border:none;border-top:1px solid #1a1a1a;margin:2px 0;">
 
-        <div>
-          <label style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:5px;">Adelanto recibido</label>
-          <div style="display:flex;align-items:center;gap:6px;">
-            <span style="color:#555;font-size:14px;">$</span>
-            <input type="number" id="depositInput" value="{{ order.deposit|floatformat:0 }}" min="0" step="1"
-                   style="flex:1;background:#0d0d0d;border:1px solid #1a1a1a;color:#ddd;padding:7px 10px;border-radius:4px;font-size:14px;font-family:monospace;outline:none;">
-            <span style="font-size:11px;color:#555;">MXN</span>
-          </div>
+        <div style="overflow-x:auto;">
+          <table class="p-table" style="width:100%;">
+            <thead><tr><th>Fecha</th><th>Monto</th><th>Método</th><th>Notas</th><th></th></tr></thead>
+            <tbody id="pagosBody">
+              {% for pago in order.payments.all %}
+              <tr data-pago="{{ pago.pk }}">
+                <td>{{ pago.fecha }}</td>
+                <td style="color:#50c878;">${{ pago.monto|floatformat:0 }}</td>
+                <td style="color:#888;font-size:12px;">{{ pago.get_metodo_pago_display }}</td>
+                <td style="color:#888;">{{ pago.notas|default:"—" }}</td>
+                <td style="white-space:nowrap;">
+                  <button type="button" class="btn-r btnDelPago" data-url="{% url 'panel:order_payment_delete' pago.pk %}"
+                          style="padding:4px 9px;font-size:11px;" title="Eliminar pago">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </td>
+              </tr>
+              {% empty %}
+              <tr id="pagosEmpty"><td colspan="5" style="text-align:center;color:#555;padding:14px;">Sin pagos</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
 
         <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:12px;color:#666;">Pagado</span>
+          <span id="totalPagado" style="font-weight:600;color:#888;">${{ order.total_pagado|floatformat:0 }} MXN</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;">
           <span style="font-size:12px;color:#666;">Saldo pendiente</span>
-          <span id="balanceDue" style="font-weight:600;color:{% if order.balance_due <= 0 %}#50c878{% else %}#e8a020{% endif %};">
+          <span id="balanceDue" style="font-weight:700;color:{% if order.balance_due <= 0 %}#50c878{% else %}#e8a020{% endif %};">
             ${{ order.balance_due|floatformat:0 }} MXN
           </span>
+        </div>
+        <div id="liquidadoBadge" style="text-align:center;font-size:12px;color:#50c878;display:{% if order.balance_due <= 0 %}block{% else %}none{% endif %};">
+          <i class="bi bi-check-circle"></i> Liquidado
         </div>
 
         <hr style="border:none;border-top:1px solid #1a1a1a;margin:2px 0;">
 
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:12px;color:#888;">Liquidado</span>
-          <label class="tog" title="{% if order.is_paid %}Marcar como pendiente{% else %}Marcar como liquidado{% endif %}">
-            <input type="checkbox" id="isPaidCheck" class="tog-input-plain" {% if order.is_paid %}checked{% endif %}>
-            <span class="tog-sl"></span>
-          </label>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <label style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.08em;">Registrar pago</label>
+          <input type="number" id="pagoMonto" placeholder="Monto" min="1" step="1"
+                 style="background:#0d0d0d;border:1px solid #1a1a1a;color:#ddd;padding:7px 10px;border-radius:4px;font-size:14px;font-family:monospace;outline:none;">
+          <select id="pagoMetodo" style="background:#0d0d0d;border:1px solid #1a1a1a;color:#ddd;padding:7px 10px;border-radius:4px;font-size:14px;outline:none;">
+            <option value="efectivo">Efectivo</option>
+            <option value="transferencia">Transferencia</option>
+            <option value="tarjeta">Tarjeta</option>
+            <option value="otro">Otro</option>
+          </select>
+          <input type="date" id="pagoFecha" value="{{ today_iso }}"
+                 style="background:#0d0d0d;border:1px solid #1a1a1a;color:#ddd;padding:7px 10px;border-radius:4px;font-size:14px;outline:none;">
+          <input type="text" id="pagoNotas" placeholder="Notas (opcional)"
+                 style="background:#0d0d0d;border:1px solid #1a1a1a;color:#ddd;padding:7px 10px;border-radius:4px;font-size:14px;outline:none;">
+          <button type="button" id="btnAddPago" class="btn-g" style="width:100%;">
+            <i class="bi bi-plus-lg"></i> Registrar pago
+          </button>
         </div>
 
-        <button type="button" id="btnSavePago" class="btn-g" style="width:100%;margin-top:2px;">
-          <i class="bi bi-check-lg"></i> Guardar pago
+        <button type="button" id="btnLiquidar" class="btn-g" style="width:100%;background:#1e4620;display:{% if order.balance_due <= 0 %}none{% else %}block{% endif %};">
+          <i class="bi bi-cash-stack"></i> Liquidar (saldo restante)
         </button>
         <div id="pagoMsg" style="display:none;font-size:12px;text-align:center;"></div>
 
@@ -355,7 +386,7 @@ async function applyCodigoDescuento(codigo) {
 
   if (data.ok) {
     ORDER_TOTAL = data.total;
-    updateBalance();
+    setBalanceUI(data.balance_due);
     document.getElementById('orderTotalDisplay').textContent = `$${Math.round(data.total)} MXN`;
 
     const descRow     = document.getElementById('descuentoRow');
@@ -400,47 +431,108 @@ document.getElementById('btnQuitarCodigo').addEventListener('click', () => {
   applyCodigoDescuento('');
 });
 
-// ── Pago ─────────────────────────────────────────────────────────────────────
-const URL_PAGO = '{% url "panel:order_payment_update" order.pk %}';
+// ── Pagos ────────────────────────────────────────────────────────────────────
 let ORDER_TOTAL = {{ order.total }};
-const depositInput = document.getElementById('depositInput');
+const URL_ADD_PAGO = '{% url "panel:order_payment_add" order.pk %}';
+const URL_LIQUIDAR = '{% url "panel:order_liquidar" order.pk %}';
 
-function updateBalance() {
-  // Liquidado manda: si está marcado como pagado, el saldo es 0.
-  const paid = document.getElementById('isPaidCheck').checked;
-  const deposit = parseFloat(depositInput.value) || 0;
-  const balance = paid ? 0 : ORDER_TOTAL - deposit;
-  const el = document.getElementById('balanceDue');
-  el.textContent = `$${Math.round(balance)} MXN`;
-  el.style.color = balance <= 0 ? '#50c878' : '#e8a020';
+function fmtMoney(n){ return '$' + Math.round(n) + ' MXN'; }
+
+function setBalanceUI(balanceDue){
+  const bal = document.getElementById('balanceDue');
+  bal.textContent = fmtMoney(balanceDue);
+  bal.style.color = balanceDue <= 0 ? '#50c878' : '#e8a020';
+  document.getElementById('liquidadoBadge').style.display = balanceDue <= 0 ? 'block' : 'none';
+  document.getElementById('btnLiquidar').style.display = balanceDue > 0 ? 'block' : 'none';
 }
-depositInput.addEventListener('input', updateBalance);
 
-function syncPaidState() {
-  const paid = document.getElementById('isPaidCheck').checked;
-  depositInput.disabled      = paid;
-  depositInput.style.opacity = paid ? '0.35' : '1';
-  depositInput.style.cursor  = paid ? 'not-allowed' : '';
-  updateBalance();
+function applyState(d){
+  document.getElementById('totalPagado').textContent = fmtMoney(d.total_pagado);
+  setBalanceUI(d.balance_due);
 }
-document.getElementById('isPaidCheck').addEventListener('change', syncPaidState);
-syncPaidState();
 
-document.getElementById('btnSavePago').addEventListener('click', async () => {
-  const msg    = document.getElementById('pagoMsg');
-  const isPaid = document.getElementById('isPaidCheck').checked ? '1' : '0';
-  const fd     = new FormData();
+function showPagoMsg(text, ok){
+  const m = document.getElementById('pagoMsg');
+  m.style.display = 'block';
+  m.style.color = ok ? '#50c878' : '#e05560';
+  m.textContent = text;
+  setTimeout(() => { m.style.display = 'none'; }, 2500);
+}
+
+function bindDelete(btn){
+  btn.addEventListener('click', async () => {
+    if (!confirm('¿Eliminar este pago?')) return;
+    const res = await fetch(btn.dataset.url, { method: 'POST', headers: { 'X-CSRFToken': CSRF } });
+    const d = await res.json();
+    if (d.ok) {
+      btn.closest('tr').remove();
+      applyState(d);
+      if (!document.querySelector('#pagosBody tr')) {
+        document.getElementById('pagosBody').innerHTML =
+          '<tr id="pagosEmpty"><td colspan="5" style="text-align:center;color:#555;padding:14px;">Sin pagos</td></tr>';
+      }
+      showPagoMsg('Pago eliminado.', true);
+    } else {
+      showPagoMsg('Error al eliminar.', false);
+    }
+  });
+}
+
+function addPagoRow(p){
+  const empty = document.getElementById('pagosEmpty');
+  if (empty) empty.remove();
+  const tr = document.createElement('tr');
+  tr.dataset.pago = p.id;
+  tr.innerHTML =
+    `<td>${p.fecha}</td>` +
+    `<td style="color:#50c878;">$${Math.round(p.monto)}</td>` +
+    `<td style="color:#888;font-size:12px;">${p.metodo_display}</td>` +
+    `<td style="color:#888;">${p.notas || '—'}</td>` +
+    `<td style="white-space:nowrap;"><button type="button" class="btn-r btnDelPago" ` +
+    `data-url="/panel/pagos/${p.id}/eliminar/" style="padding:4px 9px;font-size:11px;" title="Eliminar pago">` +
+    `<i class="bi bi-trash"></i></button></td>`;
+  document.getElementById('pagosBody').appendChild(tr);
+  bindDelete(tr.querySelector('.btnDelPago'));
+}
+
+document.getElementById('btnAddPago').addEventListener('click', async () => {
+  const monto = document.getElementById('pagoMonto').value;
+  if (!monto || parseFloat(monto) <= 0) { showPagoMsg('Monto inválido.', false); return; }
+  const fd = new FormData();
   fd.append('csrfmiddlewaretoken', CSRF);
-  fd.append('deposit', depositInput.value || '0');
-  fd.append('is_paid', isPaid);
-
-  const res  = await fetch(URL_PAGO, { method: 'POST', body: fd });
-  const data = await res.json();
-  msg.style.color   = data.ok ? '#50c878' : '#e05560';
-  msg.textContent   = data.ok ? 'Guardado.' : 'Error al guardar.';
-  msg.style.display = 'block';
-  setTimeout(() => { msg.style.display = 'none'; }, 2500);
+  fd.append('monto', monto);
+  fd.append('metodo_pago', document.getElementById('pagoMetodo').value);
+  fd.append('fecha', document.getElementById('pagoFecha').value);
+  fd.append('notas', document.getElementById('pagoNotas').value);
+  const res = await fetch(URL_ADD_PAGO, { method: 'POST', body: fd });
+  const d = await res.json();
+  if (d.ok) {
+    addPagoRow(d.payment);
+    applyState(d);
+    document.getElementById('pagoMonto').value = '';
+    document.getElementById('pagoNotas').value = '';
+    showPagoMsg('Pago registrado ✓', true);
+  } else {
+    showPagoMsg('Error al registrar.', false);
+  }
 });
+
+document.getElementById('btnLiquidar').addEventListener('click', async () => {
+  if (!confirm('¿Registrar un pago por el saldo restante y liquidar el pedido?')) return;
+  const fd = new FormData();
+  fd.append('csrfmiddlewaretoken', CSRF);
+  const res = await fetch(URL_LIQUIDAR, { method: 'POST', body: fd });
+  const d = await res.json();
+  if (d.ok) {
+    if (d.payment) addPagoRow(d.payment);
+    applyState(d);
+    showPagoMsg('Pedido liquidado ✓', true);
+  } else {
+    showPagoMsg('Error al liquidar.', false);
+  }
+});
+
+document.querySelectorAll('.btnDelPago').forEach(bindDelete);
 
 // ── Estado ───────────────────────────────────────────────────────────────────
 document.getElementById('btnStatus').addEventListener('click', async () => {
