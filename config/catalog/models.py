@@ -579,6 +579,20 @@ class TipoArticulo(models.Model):
                 'keywords': 'Separa las keywords con COMAS, no con saltos de '
                             'línea. Ej: sudadera G5, Sud G5, s G5',
             })
+        # Dos tipos con la misma keyword exacta compiten en el matching por
+        # orden alfabético del tipo, no por especificidad — una keyword
+        # duplicada asigna el costo del tipo equivocado sin avisar (caso
+        # real: pedido #39, 'new' en dos tipos a la vez).
+        mis_keywords = {' '.join(kw.split()).lower() for kw in self.keywords_list}
+        for otro in TipoArticulo.objects.exclude(pk=self.pk):
+            for kw in otro.keywords_list:
+                kw_norm = ' '.join(kw.split()).lower()
+                if kw_norm in mis_keywords:
+                    raise ValidationError({
+                        'keywords': f'La keyword "{kw_norm}" ya está en uso por '
+                                    f'"{otro.nombre}" — dos tipos no pueden compartir '
+                                    'la misma keyword exacta (usa una más específica).',
+                    })
 
     def matches(self, texto: str) -> bool:
         """True si alguna keyword aparece en texto (case-insensitive)."""

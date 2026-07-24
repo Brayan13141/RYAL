@@ -1672,6 +1672,57 @@ class TipoArticuloKeywordsValidationTests(TestCase):
         self.assertIn('keywords', form.errors)
 
 
+class TipoArticuloKeywordDuplicadaValidationTests(TestCase):
+    """Dos tipos NO pueden compartir la misma keyword exacta: crear_pedido_tienda_bot
+    hace match por 'la primera keyword que aparece' sin resolver especificidad, así
+    que una keyword duplicada entre tipos asigna el costo del tipo equivocado sin
+    avisar (caso real 2026-07-24: 'new' en 'Gorras New Era' y 'New balance' a la vez
+    → pedido #39 registró una gorra de $150 con el costo de un tenis de $680)."""
+
+    def setUp(self):
+        self.new_balance = TipoArticulo.objects.create(
+            nombre='New balance', keywords='NB,new balance,new', costo=Decimal('680'),
+        )
+
+    def test_keyword_duplicada_en_otro_tipo_no_valida(self):
+        from django.core.exceptions import ValidationError
+        tipo = TipoArticulo(
+            nombre='Gorras New Era', keywords='new era, new', costo=Decimal('150'),
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            tipo.full_clean()
+        self.assertIn('keywords', ctx.exception.message_dict)
+        self.assertIn('New balance', ctx.exception.message_dict['keywords'][0])
+
+    def test_keyword_duplicada_case_insensitive_y_con_espacios(self):
+        from django.core.exceptions import ValidationError
+        tipo = TipoArticulo(
+            nombre='Gorras New Era', keywords='New  Balance', costo=Decimal('150'),
+        )
+        with self.assertRaises(ValidationError):
+            tipo.full_clean()
+
+    def test_keywords_sin_duplicar_valida(self):
+        tipo = TipoArticulo(
+            nombre='Gorras New Era', keywords='new era, gorra new', costo=Decimal('150'),
+        )
+        tipo.full_clean()  # no debe lanzar
+
+    def test_editar_mismo_tipo_no_duplica_consigo_mismo(self):
+        self.new_balance.costo = Decimal('700')
+        self.new_balance.full_clean()  # no debe lanzar contra sí mismo
+
+    def test_form_del_panel_muestra_el_mensaje_de_duplicado(self):
+        from negocio.forms import TipoArticuloForm
+        form = TipoArticuloForm(data={
+            'nombre': 'Gorras New Era',
+            'keywords': 'new era, new',
+            'costo': '150',
+        })
+        self.assertFalse(form.is_valid())
+        self.assertIn('keywords', form.errors)
+
+
 class CategoryOverrideValidationTests(TestCase):
     """Un override puesto en una categoría RAÍZ con subcategorías no aplica a
     los productos de las subcategorías (effective_* solo mira la categoría
