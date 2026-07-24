@@ -90,12 +90,31 @@ def pedidos_list(request):
     pedidos = Pedido.objects.select_related('cliente').prefetch_related('pagos').all()
     desde = (request.GET.get('desde') or '').strip()
     hasta = (request.GET.get('hasta') or '').strip()
+    estado = (request.GET.get('estado') or '').strip()
     if desde:
         pedidos = pedidos.filter(fecha__gte=desde)
     if hasta:
         pedidos = pedidos.filter(fecha__lte=hasta)
-    return render(request, 'negocio/pedidos.html',
-                  {'pedidos': pedidos, 'desde': desde, 'hasta': hasta})
+    if estado:
+        pedidos = pedidos.filter(estado=estado)
+
+    pendientes_global = Pedido.objects.filter(
+        estado=Pedido.PENDIENTE
+    ).prefetch_related('pagos')
+    n_pendientes_global = pendientes_global.count()
+    total_por_cobrar_global = sum(
+        (p.balance_pendiente for p in pendientes_global), Decimal('0')
+    )
+
+    return render(request, 'negocio/pedidos.html', {
+        'pedidos': pedidos,
+        'desde': desde,
+        'hasta': hasta,
+        'estado': estado,
+        'estado_choices': Pedido.ESTADO_CHOICES,
+        'n_pendientes_global': n_pendientes_global,
+        'total_por_cobrar_global': total_por_cobrar_global,
+    })
 
 
 @staff_member_required

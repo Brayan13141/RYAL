@@ -1583,6 +1583,65 @@ class PedidosListFiltroFechaTests(TestCase):
         self.assertEqual(len(res.context['pedidos']), 2)
 
 
+class PedidosListFiltroEstadoYCardsTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user('s6', password='x', is_staff=True)
+        self.client.force_login(self.staff)
+        self.cli = Cliente.objects.create(nombre='N', telefono='9')
+
+    def _ped(self, estado, precio='100', fecha=None, pagado=None):
+        ped = Pedido.objects.create(
+            cliente=self.cli, costo_producto=Decimal('0'),
+            precio_venta=Decimal(precio), estado=estado,
+            fecha=fecha or datetime.date(2026, 7, 1),
+        )
+        if pagado is not None:
+            Pago.objects.create(pedido=ped, fecha=ped.fecha, monto=Decimal(pagado))
+        return ped
+
+    def test_filtro_estado_pendiente_solo_muestra_pendientes(self):
+        self._ped(Pedido.PENDIENTE)
+        self._ped(Pedido.PAGADO)
+        res = self.client.get('/panel/negocio/pedidos/?estado=pendiente')
+        self.assertEqual(len(res.context['pedidos']), 1)
+        self.assertEqual(res.context['pedidos'][0].estado, Pedido.PENDIENTE)
+
+    def test_filtro_estado_pagado_solo_muestra_pagados(self):
+        self._ped(Pedido.PENDIENTE)
+        self._ped(Pedido.PAGADO)
+        res = self.client.get('/panel/negocio/pedidos/?estado=pagado')
+        self.assertEqual(len(res.context['pedidos']), 1)
+        self.assertEqual(res.context['pedidos'][0].estado, Pedido.PAGADO)
+
+    def test_sin_filtro_estado_muestra_todos(self):
+        self._ped(Pedido.PENDIENTE)
+        self._ped(Pedido.PAGADO)
+        self._ped(Pedido.CANCELADO)
+        res = self.client.get('/panel/negocio/pedidos/')
+        self.assertEqual(len(res.context['pedidos']), 3)
+
+    def test_cards_globales_no_cambian_con_filtro_fecha(self):
+        # Pedido pendiente FUERA del rango desde/hasta que se va a pedir.
+        self._ped(Pedido.PENDIENTE, precio='500', fecha=datetime.date(2026, 1, 1))
+        res = self.client.get('/panel/negocio/pedidos/?desde=2026-07-01&hasta=2026-07-31')
+        self.assertEqual(len(res.context['pedidos']), 0)  # el filtro de fecha sí lo excluye de la tabla
+        self.assertEqual(res.context['n_pendientes_global'], 1)  # pero la card lo sigue contando
+        self.assertEqual(res.context['total_por_cobrar_global'], Decimal('500'))
+
+    def test_cards_cuentan_pagos_parciales(self):
+        self._ped(Pedido.PENDIENTE, precio='1000', pagado='300')
+        self._ped(Pedido.PENDIENTE, precio='200')
+        self._ped(Pedido.PAGADO, precio='999')  # no debe contar, está pagado
+        res = self.client.get('/panel/negocio/pedidos/')
+        self.assertEqual(res.context['n_pendientes_global'], 2)
+        self.assertEqual(res.context['total_por_cobrar_global'], Decimal('900'))  # (1000-300) + 200
+
+    def test_estado_choices_en_contexto(self):
+        res = self.client.get('/panel/negocio/pedidos/')
+        valores = [v for v, _ in res.context['estado_choices']]
+        self.assertEqual(valores, ['pendiente', 'pagado', 'cancelado'])
+
+
 @override_settings(RATELIMIT_ENABLE=False)
 class GastosListFiltroFechaTests(TestCase):
     def setUp(self):
