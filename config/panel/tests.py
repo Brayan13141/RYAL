@@ -763,3 +763,25 @@ class WhatsappQrListViewTests(TestCase):
         self.client.login(username='staff_wa_list', password='pass')
         res = self.client.get('/panel/')
         self.assertContains(res, 'WhatsApp QR')
+
+
+class WhatsappQrDetailViewTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            username='staff_wa_detail', password='pass', is_staff=True
+        )
+        self.client.login(username='staff_wa_detail', password='pass')
+
+    def test_accesible_staff_key_valida(self):
+        res = self.client.get('/panel/whatsapp/persona1/')
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, 'Persona 1')
+
+    def test_404_key_desconocida(self):
+        res = self.client.get('/panel/whatsapp/no-existe/')
+        self.assertEqual(res.status_code, 404)
+
+    def test_redirige_anonimo(self):
+        self.client.logout()
+        res = self.client.get('/panel/whatsapp/persona1/')
+        self.assertEqual(res.status_code, 302)

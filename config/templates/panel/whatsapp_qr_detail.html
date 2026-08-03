@@ -1,0 +1,72 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}{{ inst.label }} — WhatsApp QR — Panel RYAL{% endblock %}
+{% block page_title %}WhatsApp — {{ inst.label }}{% endblock %}
+
+{% block content %}
+<p class="mb-3"><a href="{% url 'panel:whatsapp_qr_list' %}" class="btn-o btn-sm"><i class="bi bi-arrow-left"></i> Volver</a></p>
+
+<h1 class="h4 mb-1">{{ inst.label }}</h1>
+<p class="text-muted">{{ inst.phone }}</p>
+
+<div id="wa-banner" class="alert alert-secondary">Cargando estado...</div>
+<div id="qr-box" style="width:280px;height:280px;"></div>
+<p class="text-muted small" id="wa-updated"></p>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"
+        integrity="sha384-3zSEDfvllQohrq0PHL1fOXJuC/jSOO34H46t6UQfobFOmxE5BpjjaIJY5F2/bMnU"
+        crossorigin="anonymous"></script>
+<script>
+(function () {
+    // Task 6 aun no existe cuando se escribio esta plantilla, asi que se usa
+    // la ruta hardcodeada en vez del tag de url de Django para whatsapp_qr_status.
+    // Al cerrar Task 6, se puede reemplazar por ese tag si se desea.
+    var statusUrl = '/panel/whatsapp/{{ inst.key }}/status/'
+    var box = document.getElementById('qr-box')
+    var banner = document.getElementById('wa-banner')
+    var updatedEl = document.getElementById('wa-updated')
+    var lastQr = null
+    var pollMs = 3000
+
+    var BANNERS = {
+        qr: ['alert-warning', 'Escanea con WhatsApp → Dispositivos vinculados → Vincular dispositivo'],
+        open: ['alert-success', 'Conectado ✓'],
+        close: ['alert-secondary', 'Desconectado, reconectando...'],
+        logged_out: ['alert-danger', 'Sesión cerrada — inicia "node bot.js" por SSH para generar un QR nuevo'],
+        connecting: ['alert-secondary', 'Conectando...'],
+        no_data: ['alert-light', 'Sin datos — ¿el proceso del bot está corriendo?'],
+    }
+
+    function render(data) {
+        var cfg = BANNERS[data.status] || BANNERS.no_data
+        banner.className = 'alert ' + cfg[0]
+        banner.textContent = cfg[1]
+
+        if (data.status === 'qr' && data.qr) {
+            if (data.qr !== lastQr) {
+                box.innerHTML = ''
+                new QRCode(box, { text: data.qr, width: 280, height: 280 })
+                lastQr = data.qr
+            }
+        } else {
+            box.innerHTML = ''
+            lastQr = null
+        }
+
+        updatedEl.textContent = data.updated_at ? ('Actualizado: ' + data.updated_at) : ''
+    }
+
+    function poll() {
+        fetch(statusUrl)
+            .then(function (r) { return r.json() })
+            .then(render)
+            .catch(function () {
+                banner.className = 'alert alert-danger'
+                banner.textContent = 'Error consultando el estado'
+            })
+    }
+
+    poll()
+    setInterval(poll, pollMs)
+})()
+</script>
+{% endblock %}

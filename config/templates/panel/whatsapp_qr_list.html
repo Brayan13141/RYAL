@@ -6,6 +6,7 @@
 <div class="row g-3">
   {% for inst in instances %}
   <div class="col-md-4">
+    <a href="{% url 'panel:whatsapp_qr_detail' inst.key %}" class="text-decoration-none">
     <div class="card h-100">
       <div class="card-body">
         <h5 class="card-title">{{ inst.label }}</h5>
@@ -23,6 +24,7 @@
         {% endif %}
       </div>
     </div>
+    </a>
   </div>
   {% endfor %}
 </div>
