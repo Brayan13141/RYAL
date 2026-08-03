@@ -24,6 +24,7 @@ from django.views.decorators.http import require_POST
 from catalog.models import Category, HeroSlide, PendingProduct, Product, ProductImage, Section, SiteConfig, SizeGroup, SubcategorySection, VolumeTier
 from orders.models import Order, OrderItem, OrderPayment, SupplierOrder, SupplierOrderItem
 from orders.forms import OrderPaymentForm
+from panel.whatsapp import WHATSAPP_INSTANCES, read_qr_state
 
 _LOGIN = '/accounts/login/'
 _UNSET = object()
@@ -2049,3 +2050,12 @@ def resumen_global(request):
         'ingresos_total':    round(ingresos_total),
         'ganancia_total':    round(ganancia_total),
     })
+
+
+@_staff
+def whatsapp_qr_list(request):
+    instances = [
+        {**inst, 'state': read_qr_state(inst['state_path'])}
+        for inst in WHATSAPP_INSTANCES
+    ]
+    return render(request, 'panel/whatsapp_qr_list.html', {'instances': instances})

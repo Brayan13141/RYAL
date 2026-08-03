@@ -735,3 +735,31 @@ class WhatsappStateReadingTests(TestCase):
             data = read_qr_state(p)
             self.assertEqual(data['status'], 'no_data')
             self.assertIsNone(data['qr'])
+
+
+class WhatsappQrListViewTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            username='staff_wa_list', password='pass', is_staff=True
+        )
+
+    def test_redirige_anonimo(self):
+        res = self.client.get('/panel/whatsapp/')
+        self.assertEqual(res.status_code, 302)
+
+    def test_accesible_staff(self):
+        self.client.login(username='staff_wa_list', password='pass')
+        res = self.client.get('/panel/whatsapp/')
+        self.assertEqual(res.status_code, 200)
+
+    def test_muestra_las_tres_instancias(self):
+        self.client.login(username='staff_wa_list', password='pass')
+        res = self.client.get('/panel/whatsapp/')
+        self.assertContains(res, 'Persona 1')
+        self.assertContains(res, 'Persona 2')
+        self.assertContains(res, '4451076015')
+
+    def test_nav_link_presente_en_dashboard(self):
+        self.client.login(username='staff_wa_list', password='pass')
+        res = self.client.get('/panel/')
+        self.assertContains(res, 'WhatsApp QR')

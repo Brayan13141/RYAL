@@ -80,4 +80,5 @@ urlpatterns = [
     path('pendientes/<int:pk>/aprobar/',      views.pendiente_approve,      name='pendiente_approve'),
     path('pendientes/<int:pk>/rechazar/',     views.pendiente_reject,       name='pendiente_reject'),
     path('pendientes/aprobar-todos/',         views.pendientes_approve_all, name='pendientes_approve_all'),
+    path('whatsapp/',                         views.whatsapp_qr_list,       name='whatsapp_qr_list'),
 ]

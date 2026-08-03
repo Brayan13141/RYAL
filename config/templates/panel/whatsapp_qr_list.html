@@ -1,0 +1,29 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}WhatsApp QR — Panel RYAL{% endblock %}
+{% block page_title %}WhatsApp — Reconexión{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  {% for inst in instances %}
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title">{{ inst.label }}</h5>
+        <p class="card-text text-muted mb-2">{{ inst.phone }}</p>
+        {% if inst.state.status == 'open' %}
+          <span class="badge bg-success">Conectado</span>
+        {% elif inst.state.status == 'qr' %}
+          <span class="badge bg-warning text-dark">Esperando escaneo</span>
+        {% elif inst.state.status == 'logged_out' %}
+          <span class="badge bg-danger">Sesión cerrada</span>
+        {% elif inst.state.status == 'close' %}
+          <span class="badge bg-secondary">Reconectando</span>
+        {% else %}
+          <span class="badge bg-light text-dark">Sin datos</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
