@@ -673,3 +673,48 @@ class OrdersListFiltroFechaTests(TestCase):
         hoy = timezone.now().date().isoformat()
         res = self.client.get(reverse('panel:orders_list') + f'?desde={hoy}')
         self.assertEqual(len(res.context['page_obj'].object_list), 1)
+
+
+import json
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
+
+from panel.whatsapp import read_qr_state, get_instance, WHATSAPP_INSTANCES
+
+
+class WhatsappStateReadingTests(TestCase):
+    def test_read_qr_state_archivo_valido(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / '.qr_state.json'
+            p.write_text(json.dumps({
+                'status': 'qr', 'qr': 'abc123', 'updated_at': '2026-08-03T10:00:00'
+            }))
+            data = read_qr_state(p)
+            self.assertEqual(data['status'], 'qr')
+            self.assertEqual(data['qr'], 'abc123')
+
+    def test_read_qr_state_archivo_ausente(self):
+        p = Path(tempfile.gettempdir()) / 'no_existe_este_archivo_qr.json'
+        data = read_qr_state(p)
+        self.assertEqual(data['status'], 'no_data')
+        self.assertIsNone(data['qr'])
+
+    def test_read_qr_state_json_corrupto(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / '.qr_state.json'
+            p.write_text('{esto no es json valido')
+            data = read_qr_state(p)
+            self.assertEqual(data['status'], 'no_data')
+
+    def test_get_instance_conocida(self):
+        inst = get_instance(WHATSAPP_INSTANCES[0]['key'])
+        self.assertIsNotNone(inst)
+        self.assertEqual(inst['key'], WHATSAPP_INSTANCES[0]['key'])
+
+    def test_get_instance_desconocida(self):
+        self.assertIsNone(get_instance('no-existe'))
+
+    def test_tres_instancias_configuradas(self):
+        keys = {i['key'] for i in WHATSAPP_INSTANCES}
+        self.assertEqual(keys, {'persona1', 'persona2', 'bot-4451076015'})
