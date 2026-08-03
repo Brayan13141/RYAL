@@ -678,7 +678,6 @@ class OrdersListFiltroFechaTests(TestCase):
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
 from panel.whatsapp import read_qr_state, get_instance, WHATSAPP_INSTANCES
 
@@ -718,3 +717,21 @@ class WhatsappStateReadingTests(TestCase):
     def test_tres_instancias_configuradas(self):
         keys = {i['key'] for i in WHATSAPP_INSTANCES}
         self.assertEqual(keys, {'persona1', 'persona2', 'bot-4451076015'})
+
+    def test_read_qr_state_json_null(self):
+        """JSON null is valid JSON pero no es un dict — debe retornar no_data sin lanzar."""
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / '.qr_state.json'
+            p.write_text('null')
+            data = read_qr_state(p)
+            self.assertEqual(data['status'], 'no_data')
+            self.assertIsNone(data['qr'])
+
+    def test_read_qr_state_json_array(self):
+        """JSON array es válido pero no es un dict — debe retornar no_data sin lanzar."""
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / '.qr_state.json'
+            p.write_text('[1, 2, 3]')
+            data = read_qr_state(p)
+            self.assertEqual(data['status'], 'no_data')
+            self.assertIsNone(data['qr'])

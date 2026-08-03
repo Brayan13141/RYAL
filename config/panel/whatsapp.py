@@ -37,5 +37,5 @@ def read_qr_state(path):
             'qr': data.get('qr'),
             'updated_at': data.get('updated_at'),
         }
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+    except (FileNotFoundError, json.JSONDecodeError, OSError, AttributeError, TypeError):
         return {'status': 'no_data', 'qr': None, 'updated_at': None}
