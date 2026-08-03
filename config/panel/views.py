@@ -2067,3 +2067,11 @@ def whatsapp_qr_detail(request, key):
     if inst is None:
         raise Http404(f'Instancia WhatsApp desconocida: {key}')
     return render(request, 'panel/whatsapp_qr_detail.html', {'inst': inst})
+
+
+@_staff
+def whatsapp_qr_status(request, key):
+    inst = get_instance(key)
+    if inst is None:
+        raise Http404(f'Instancia WhatsApp desconocida: {key}')
+    return JsonResponse(read_qr_state(inst['state_path']))
