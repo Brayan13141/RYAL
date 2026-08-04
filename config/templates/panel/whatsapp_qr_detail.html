@@ -12,7 +12,7 @@
 <div id="qr-box" style="width:280px;height:280px;"></div>
 <p class="text-muted small" id="wa-updated"></p>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"
         integrity="sha384-3zSEDfvllQohrq0PHL1fOXJuC/jSOO34H46t6UQfobFOmxE5BpjjaIJY5F2/bMnU"
         crossorigin="anonymous"></script>
 <script>
@@ -58,7 +58,14 @@
     function poll() {
         fetch(statusUrl)
             .then(function (r) { return r.json() })
-            .then(render)
+            .then(function (data) {
+                try {
+                    render(data)
+                } catch (err) {
+                    banner.className = 'alert alert-danger'
+                    banner.textContent = 'Error dibujando el QR: ' + err.message
+                }
+            })
             .catch(function () {
                 banner.className = 'alert alert-danger'
                 banner.textContent = 'Error consultando el estado'
