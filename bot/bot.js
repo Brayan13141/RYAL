@@ -1,7 +1,15 @@
 const axios = require('axios')
 const pino = require('pino')
 const qrcode = require('qrcode-terminal')
+const http = require('http')
 require('dotenv').config()
+
+// Endpoint local (solo 127.0.0.1) para que el watchdog de otros bots pida
+// mandar un aviso de WhatsApp reusando esta conexión ya viva, sin abrir una
+// sesión nueva (evita repetir el mismo desajuste de sesión que se está avisando).
+const NOTIFY_PORT = parseInt(process.env.NOTIFY_PORT || '8952')
+const ALERT_JID = process.env.ALERT_JID || '5214451129186@s.whatsapp.net'
+let currentSock = null
 
 const { extractPrice, buildRyalForward, buildImageCaption, markupCaption, cleanCaption, computeTotal, parseModaArgs } = require('./utils')
 const { createBatchBuffer, MAX_PER_GROUP } = require('./batchBuffer')
@@ -735,6 +743,7 @@ async function connect() {
         // quedaba incompleto y clientes viejos recibían la bienvenida de nuevo.
         syncFullHistory: true,
     })
+    currentSock = sock
 
     sock.ev.on('creds.update', saveCreds)
 
@@ -815,10 +824,50 @@ process.on('unhandledRejection', (err) => {
     logger.error({ err: err?.message || String(err) }, 'unhandledRejection')
 })
 
+function startNotifyServer() {
+    const server = http.createServer((req, res) => {
+        if (req.method !== 'POST' || req.url !== '/notify') {
+            res.writeHead(404).end()
+            return
+        }
+        let body = ''
+        req.on('data', (chunk) => { body += chunk })
+        req.on('end', async () => {
+            let message
+            try {
+                message = JSON.parse(body || '{}').message
+            } catch (e) {
+                res.writeHead(400).end('JSON inválido')
+                return
+            }
+            if (!message) {
+                res.writeHead(400).end('Falta "message"')
+                return
+            }
+            if (!currentSock) {
+                res.writeHead(503).end('Bot aún no conectado')
+                return
+            }
+            try {
+                await currentSock.sendMessage(ALERT_JID, { text: message })
+                res.writeHead(200).end('ok')
+            } catch (err) {
+                logger.error({ err: err.message }, 'Error enviando aviso de watchdog')
+                res.writeHead(500).end('Error al enviar')
+            }
+        })
+    })
+    server.listen(NOTIFY_PORT, '127.0.0.1', () => {
+        logger.info({ port: NOTIFY_PORT }, 'Servidor de avisos (watchdog) escuchando en localhost')
+    })
+}
+
 async function main() {
     // Toma el lock de la sesion ANTES de conectar: si otro proceso ya usa este
     // .baileys_auth (p.ej. el servicio systemd), aborta en vez de invalidar el login.
     acquireAuthLock(AUTH_DIR)
+
+    startNotifyServer()
 
     // Descarta lotes que nunca recibieron precio (TTL 5 min).
     const sweeper = setInterval(() => {
