@@ -1085,6 +1085,13 @@
 
         {% endwith %}
 
+        <div class="p-nav-sec">Operación</div>
+        <a href="{% url 'panel:whatsapp_qr_list' %}" title="WhatsApp QR"
+          class="{% if 'whatsapp_qr' in request.resolver_match.url_name %}on{% endif %}">
+          <i class="bi bi-whatsapp"></i>
+          <span class="nav-label">WhatsApp QR</span>
+        </a>
+
         <div class="p-nav-sec">Sistema</div>
         <a href="/admin/" title="Django Admin" target="_blank">
           <i class="bi bi-gear"></i>

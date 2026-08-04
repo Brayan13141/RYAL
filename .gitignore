@@ -17,3 +17,5 @@ config/.agents/
 config/.claude/
 config/.continue/
 docs/superpowers/
+
+graphify-out/

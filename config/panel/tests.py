@@ -673,3 +673,156 @@ class OrdersListFiltroFechaTests(TestCase):
         hoy = timezone.now().date().isoformat()
         res = self.client.get(reverse('panel:orders_list') + f'?desde={hoy}')
         self.assertEqual(len(res.context['page_obj'].object_list), 1)
+
+
+import json
+import tempfile
+from pathlib import Path
+
+from panel.whatsapp import read_qr_state, get_instance, WHATSAPP_INSTANCES
+
+
+class WhatsappStateReadingTests(TestCase):
+    def test_read_qr_state_archivo_valido(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / '.qr_state.json'
+            p.write_text(json.dumps({
+                'status': 'qr', 'qr': 'abc123', 'updated_at': '2026-08-03T10:00:00'
+            }))
+            data = read_qr_state(p)
+            self.assertEqual(data['status'], 'qr')
+            self.assertEqual(data['qr'], 'abc123')
+
+    def test_read_qr_state_archivo_ausente(self):
+        p = Path(tempfile.gettempdir()) / 'no_existe_este_archivo_qr.json'
+        data = read_qr_state(p)
+        self.assertEqual(data['status'], 'no_data')
+        self.assertIsNone(data['qr'])
+
+    def test_read_qr_state_json_corrupto(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / '.qr_state.json'
+            p.write_text('{esto no es json valido')
+            data = read_qr_state(p)
+            self.assertEqual(data['status'], 'no_data')
+
+    def test_get_instance_conocida(self):
+        inst = get_instance(WHATSAPP_INSTANCES[0]['key'])
+        self.assertIsNotNone(inst)
+        self.assertEqual(inst['key'], WHATSAPP_INSTANCES[0]['key'])
+
+    def test_get_instance_desconocida(self):
+        self.assertIsNone(get_instance('no-existe'))
+
+    def test_tres_instancias_configuradas(self):
+        keys = {i['key'] for i in WHATSAPP_INSTANCES}
+        self.assertEqual(keys, {'persona1', 'persona2', 'bot-4451076015'})
+
+    def test_read_qr_state_json_null(self):
+        """JSON null is valid JSON pero no es un dict — debe retornar no_data sin lanzar."""
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / '.qr_state.json'
+            p.write_text('null')
+            data = read_qr_state(p)
+            self.assertEqual(data['status'], 'no_data')
+            self.assertIsNone(data['qr'])
+
+    def test_read_qr_state_json_array(self):
+        """JSON array es válido pero no es un dict — debe retornar no_data sin lanzar."""
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / '.qr_state.json'
+            p.write_text('[1, 2, 3]')
+            data = read_qr_state(p)
+            self.assertEqual(data['status'], 'no_data')
+            self.assertIsNone(data['qr'])
+
+
+class WhatsappQrListViewTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            username='staff_wa_list', password='pass', is_staff=True
+        )
+
+    def test_redirige_anonimo(self):
+        res = self.client.get('/panel/whatsapp/')
+        self.assertEqual(res.status_code, 302)
+
+    def test_accesible_staff(self):
+        self.client.login(username='staff_wa_list', password='pass')
+        res = self.client.get('/panel/whatsapp/')
+        self.assertEqual(res.status_code, 200)
+
+    def test_muestra_las_tres_instancias(self):
+        self.client.login(username='staff_wa_list', password='pass')
+        res = self.client.get('/panel/whatsapp/')
+        self.assertContains(res, 'Persona 1')
+        self.assertContains(res, 'Persona 2')
+        self.assertContains(res, '4451076015')
+
+    def test_nav_link_presente_en_dashboard(self):
+        self.client.login(username='staff_wa_list', password='pass')
+        res = self.client.get('/panel/')
+        self.assertContains(res, 'WhatsApp QR')
+
+
+class WhatsappQrDetailViewTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            username='staff_wa_detail', password='pass', is_staff=True
+        )
+        self.client.login(username='staff_wa_detail', password='pass')
+
+    def test_accesible_staff_key_valida(self):
+        res = self.client.get('/panel/whatsapp/persona1/')
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, 'Persona 1')
+
+    def test_404_key_desconocida(self):
+        res = self.client.get('/panel/whatsapp/no-existe/')
+        self.assertEqual(res.status_code, 404)
+
+    def test_redirige_anonimo(self):
+        self.client.logout()
+        res = self.client.get('/panel/whatsapp/persona1/')
+        self.assertEqual(res.status_code, 302)
+
+
+class WhatsappQrStatusEndpointTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            username='staff_wa_status', password='pass', is_staff=True
+        )
+        self.client.login(username='staff_wa_status', password='pass')
+
+    def test_404_key_desconocida(self):
+        res = self.client.get('/panel/whatsapp/no-existe/status/')
+        self.assertEqual(res.status_code, 404)
+
+    def test_redirige_anonimo(self):
+        self.client.logout()
+        res = self.client.get('/panel/whatsapp/persona1/status/')
+        self.assertEqual(res.status_code, 302)
+
+    def test_sin_archivo_devuelve_no_data(self):
+        # persona1 en el entorno de test no tiene .qr_state.json real
+        res = self.client.get('/panel/whatsapp/persona1/status/')
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body['status'], 'no_data')
+        self.assertIsNone(body['qr'])
+
+    def test_con_archivo_devuelve_su_contenido(self):
+        from panel.whatsapp import WHATSAPP_INSTANCES
+        import json as _json
+        inst = next(i for i in WHATSAPP_INSTANCES if i['key'] == 'persona1')
+        inst['state_path'].parent.mkdir(parents=True, exist_ok=True)
+        inst['state_path'].write_text(_json.dumps({
+            'status': 'qr', 'qr': 'test-qr-string', 'updated_at': '2026-08-03T10:00:00'
+        }))
+        try:
+            res = self.client.get('/panel/whatsapp/persona1/status/')
+            body = res.json()
+            self.assertEqual(body['status'], 'qr')
+            self.assertEqual(body['qr'], 'test-qr-string')
+        finally:
+            inst['state_path'].unlink(missing_ok=True)

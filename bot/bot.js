@@ -16,8 +16,10 @@ const { createBatchBuffer, MAX_PER_GROUP } = require('./batchBuffer')
 const { acquireAuthLock } = require('./lock')
 const { createOrderSessionStore } = require('./orderSession')
 const { WELCOME_MESSAGE, menuReply, isGreetableJid, createWelcomeStore } = require('./welcome')
+const { writeQrState } = require('./qrState')
 
 const AUTH_DIR = '.baileys_auth'
+const QR_STATE_FILE = '.qr_state.json'
 
 // Baileys es ESM-only (>=6.7.x) → se carga con import() dinámico desde este
 // módulo CommonJS; se asignan en main() antes de connect().
@@ -767,21 +769,25 @@ async function connect() {
         if (qr) {
             qrcode.generate(qr, { small: true })
             logger.info('Escanear el QR con WhatsApp → Dispositivos vinculados → Vincular dispositivo')
+            writeQrState(QR_STATE_FILE, 'qr', qr)
         }
         if (connection === 'close') {
             const code = lastDisconnect?.error?.output?.statusCode
             if (code !== DisconnectReason.loggedOut) {
                 logger.info({ code, motivo: lastDisconnect?.error?.message }, 'Desconectado — reconectando en 5s...')
+                writeQrState(QR_STATE_FILE, 'close', null)
                 setTimeout(connect, 5000)
             } else {
                 // loggedOut: la sesión murió. Salir con 0 para que systemd
                 // (Restart=on-failure) NO reinicie en bucle generando QR en los logs.
                 // Requiere re-login manual: borrar .baileys_auth/ y re-escanear QR.
                 logger.error('Sesión cerrada (loggedOut). Borra .baileys_auth/ y re-escanea el QR. El servicio NO se reinicia solo.')
+                writeQrState(QR_STATE_FILE, 'logged_out', null)
                 process.exit(0)
             }
         } else if (connection === 'open') {
             logger.info('Bot conectado ✓')
+            writeQrState(QR_STATE_FILE, 'open', null)
         }
     })
 
