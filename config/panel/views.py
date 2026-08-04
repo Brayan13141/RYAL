@@ -14,7 +14,7 @@ from django.core.paginator import Paginator
 from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum, Value
 from django.db.models.functions import Coalesce
 from django.db.models.functions import TruncDate
-from django.http import HttpResponse, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -24,6 +24,7 @@ from django.views.decorators.http import require_POST
 from catalog.models import Category, HeroSlide, PendingProduct, Product, ProductImage, Section, SiteConfig, SizeGroup, SubcategorySection, VolumeTier
 from orders.models import Order, OrderItem, OrderPayment, SupplierOrder, SupplierOrderItem
 from orders.forms import OrderPaymentForm
+from panel.whatsapp import WHATSAPP_INSTANCES, get_instance, read_qr_state
 
 _LOGIN = '/accounts/login/'
 _UNSET = object()
@@ -2049,3 +2050,28 @@ def resumen_global(request):
         'ingresos_total':    round(ingresos_total),
         'ganancia_total':    round(ganancia_total),
     })
+
+
+@_staff
+def whatsapp_qr_list(request):
+    instances = [
+        {**inst, 'state': read_qr_state(inst['state_path'])}
+        for inst in WHATSAPP_INSTANCES
+    ]
+    return render(request, 'panel/whatsapp_qr_list.html', {'instances': instances})
+
+
+@_staff
+def whatsapp_qr_detail(request, key):
+    inst = get_instance(key)
+    if inst is None:
+        raise Http404(f'Instancia WhatsApp desconocida: {key}')
+    return render(request, 'panel/whatsapp_qr_detail.html', {'inst': inst})
+
+
+@_staff
+def whatsapp_qr_status(request, key):
+    inst = get_instance(key)
+    if inst is None:
+        raise Http404(f'Instancia WhatsApp desconocida: {key}')
+    return JsonResponse(read_qr_state(inst['state_path']))
