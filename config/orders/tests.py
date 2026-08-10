@@ -1,9 +1,11 @@
 import json
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from django.conf import settings
 
 from catalog.models import Category, Product, ProductImage, SizeGroup
 from orders.models import Order
@@ -602,3 +604,41 @@ class OrderSeenAtTests(TestCase):
             order_code='SEEN-INIT-1', customer_name='Ana', customer_phone='5512345678',
         )
         self.assertIsNone(order.seen_at)
+
+
+class NotifyNewOrderTests(TestCase):
+    def setUp(self):
+        self.order = Order.objects.create(
+            order_code='NOTIFY-1', customer_name='Ana', customer_phone='5512345678',
+        )
+        self.order.items.create(
+            product=None, quantity=1, price_snapshot=Decimal('850'),
+            sku_snapshot='X', name_snapshot='X',
+        )
+
+    @patch('orders.notifications.urllib.request.urlopen')
+    def test_arma_mensaje_y_url_correctos(self, mock_urlopen):
+        from orders.notifications import notify_new_order
+        notify_new_order(self.order)
+        mock_urlopen.assert_called_once()
+        request_obj = mock_urlopen.call_args[0][0]
+        self.assertEqual(request_obj.full_url, f'{settings.BOT_NOTIFY_URL}/notify')
+        payload = json.loads(request_obj.data.decode('utf-8'))
+        self.assertEqual(payload['target'], 'orders')
+        self.assertIn('NOTIFY-1', payload['message'])
+        self.assertIn('Ana', payload['message'])
+        self.assertIn('850', payload['message'])
+
+    @patch('orders.notifications.urllib.request.urlopen', side_effect=OSError('conexión rechazada'))
+    def test_no_propaga_si_falla_la_conexion(self, mock_urlopen):
+        from orders.notifications import notify_new_order
+        notify_new_order(self.order)  # no debe lanzar
+
+    @patch('orders.notifications.threading.Thread')
+    def test_async_lanza_thread_daemon_con_la_funcion_sincrona(self, mock_thread_cls):
+        from orders.notifications import notify_new_order, notify_new_order_async
+        notify_new_order_async(self.order)
+        mock_thread_cls.assert_called_once_with(
+            target=notify_new_order, args=(self.order,), daemon=True
+        )
+        mock_thread_cls.return_value.start.assert_called_once()

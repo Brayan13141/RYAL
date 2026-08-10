@@ -149,6 +149,13 @@ ACCOUNT_ADAPTER             = 'accounts.adapters.AccountAdapter'
 # WhatsApp business number (without + or spaces)
 WHATSAPP_NUMBER = '521XXXXXXXXXX'
 
+# URL del servidor /notify del bot de WhatsApp (persona2 en prod — la única
+# instancia con ORDERS_GROUP_ID configurado; ver bot/bot.js:startNotifyServer).
+BOT_NOTIFY_URL = os.environ.get('BOT_NOTIFY_URL', 'http://127.0.0.1:8952')
+
+# URL pública del sitio — se usa para armar links en avisos (WhatsApp, etc).
+SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
+
 # ——— Upload limits ———
 DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024   # 20 MB per request body
 FILE_UPLOAD_MAX_MEMORY_SIZE = 15 * 1024 * 1024   # 15 MB before spooling to disk
