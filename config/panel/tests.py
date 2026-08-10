@@ -852,3 +852,31 @@ class PedidosNuevosCountTests(TestCase):
         self.client.login(username='staff_notify_count', password='pass')
         res = self.client.get(reverse('panel:pedidos_nuevos_count'))
         self.assertEqual(res.json(), {'count': 1})
+
+
+class OrdersListMarkSeenTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            username='staff_mark_seen', password='pass', is_staff=True
+        )
+        self.client.login(username='staff_mark_seen', password='pass')
+        self.order = Order.objects.create(
+            order_code=f'SEEN-{uuid4().hex[:10]}', customer_name='Cliente',
+            customer_phone='5550004444', status='pending',
+        )
+
+    def test_visitar_orders_list_marca_seen_at(self):
+        self.assertIsNone(self.order.seen_at)
+        self.client.get(reverse('panel:orders_list'))
+        self.order.refresh_from_db()
+        self.assertIsNotNone(self.order.seen_at)
+
+    def test_visitar_order_detail_marca_seen_at_de_otros_pendientes(self):
+        # visto GLOBAL: entrar al detalle de UN pedido limpia el badge de TODOS
+        otro = Order.objects.create(
+            order_code=f'SEEN-OTHER-{uuid4().hex[:6]}', customer_name='Otro',
+            customer_phone='5550005555', status='pending',
+        )
+        self.client.get(reverse('panel:order_detail', args=[self.order.pk]))
+        otro.refresh_from_db()
+        self.assertIsNotNone(otro.seen_at)

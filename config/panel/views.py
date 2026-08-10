@@ -434,6 +434,7 @@ def pedidos_nuevos_count(request):
 
 @_staff
 def orders_list(request):
+    Order.objects.filter(status='pending', seen_at__isnull=True).update(seen_at=timezone.now())
     qs = Order.objects.select_related('user').prefetch_related('items', 'payments')
 
     status = request.GET.get('status', '')
@@ -511,6 +512,7 @@ def orders_export(request):
 
 @_staff
 def order_detail(request, pk):
+    Order.objects.filter(status='pending', seen_at__isnull=True).update(seen_at=timezone.now())
     order = get_object_or_404(
         Order.objects.prefetch_related('items__product__images', 'items__variant', 'payments'),
         pk=pk,
