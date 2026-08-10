@@ -1208,10 +1208,22 @@
       var badge = document.getElementById('pedidosBellBadge');
       if (!badge) return;
       var lastCount = null;
+      var ctx = null;
+
+      function ensureAudioCtx() {
+        try {
+          if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+          if (ctx.state === 'suspended') ctx.resume();
+        } catch (e) { /* audio no disponible */ }
+      }
+
+      document.addEventListener('click', ensureAudioCtx, { once: true });
+      document.addEventListener('keydown', ensureAudioCtx, { once: true });
 
       function beep() {
         try {
-          var ctx = new (window.AudioContext || window.webkitAudioContext)();
+          if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+          if (ctx.state === 'suspended') ctx.resume();
           var osc = ctx.createOscillator();
           var gain = ctx.createGain();
           osc.frequency.value = 880;
