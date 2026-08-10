@@ -635,13 +635,27 @@ class NotifyNewOrderTests(TestCase):
         notify_new_order(self.order)  # no debe lanzar
 
     @patch('orders.notifications.threading.Thread')
-    def test_async_lanza_thread_daemon_con_la_funcion_sincrona(self, mock_thread_cls):
-        from orders.notifications import notify_new_order, notify_new_order_async
+    def test_async_lanza_thread_daemon_con_mensaje_ya_armado(self, mock_thread_cls):
+        from orders.notifications import _post_notify, notify_new_order_async
         notify_new_order_async(self.order)
-        mock_thread_cls.assert_called_once_with(
-            target=notify_new_order, args=(self.order,), daemon=True
-        )
+        mock_thread_cls.assert_called_once()
+        _, kwargs = mock_thread_cls.call_args
+        self.assertEqual(kwargs['target'], _post_notify)
+        self.assertTrue(kwargs['daemon'])
+        message, order_code = kwargs['args']
+        self.assertIsInstance(message, str)
+        self.assertEqual(order_code, 'NOTIFY-1')
+        self.assertIn('NOTIFY-1', message)
+        self.assertIn('Ana', message)
+        self.assertIn('850', message)
         mock_thread_cls.return_value.start.assert_called_once()
+
+    @patch('orders.notifications.threading.Thread')
+    @patch('orders.notifications._build_message', side_effect=Exception('boom'))
+    def test_async_no_lanza_thread_si_falla_armar_mensaje(self, mock_build, mock_thread_cls):
+        from orders.notifications import notify_new_order_async
+        notify_new_order_async(self.order)  # no debe lanzar
+        mock_thread_cls.assert_not_called()
 
 
 class CheckoutConfirmNotifyTests(TestCase):
@@ -671,7 +685,8 @@ class CheckoutConfirmNotifyTests(TestCase):
         order = Order.objects.get()
         mock_notify.assert_called_once_with(order)
 
-    def test_order_creado_tiene_seen_at_nulo(self):
+    @patch('orders.views.notify_new_order_async')
+    def test_order_creado_tiene_seen_at_nulo(self, mock_notify):
         self._set_cart()
         self.client.post(self.url, {'nombre': 'Ana', 'telefono': '5512345678'})
         order = Order.objects.get()

@@ -151,7 +151,10 @@ WHATSAPP_NUMBER = '521XXXXXXXXXX'
 
 # URL del servidor /notify del bot de WhatsApp (persona2 en prod — la única
 # instancia con ORDERS_GROUP_ID configurado; ver bot/bot.js:startNotifyServer).
-BOT_NOTIFY_URL = os.environ.get('BOT_NOTIFY_URL', 'http://127.0.0.1:8952')
+# persona2 DEBE correr con NOTIFY_PORT=8953 (ver bot/DEPLOY.md, Fase 3) — el
+# default de NOTIFY_PORT es 8952 y ese puerto lo ocupa persona1, que NO tiene
+# ORDERS_GROUP_ID configurado.
+BOT_NOTIFY_URL = os.environ.get('BOT_NOTIFY_URL', 'http://127.0.0.1:8953')
 
 # URL pública del sitio — se usa para armar links en avisos (WhatsApp, etc).
 SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')

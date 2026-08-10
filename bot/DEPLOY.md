@@ -101,7 +101,11 @@ DJANGO_API_URL=http://localhost:8000
 DJANGO_API_KEY=<el mismo NEGOCIO_KEY>
 MARKUP=100
 ORDERS_GROUP_ID=<JID del Grupo Pedidos — obtener en Fase 4>
+NOTIFY_PORT=8953
 ```
+> `NOTIFY_PORT=8953` es obligatorio aquí: las tres instancias del bot comparten
+> el host y todas caen en el default 8952 si no se fija — Django (`BOT_NOTIFY_URL`)
+> apunta a 8953 porque persona2 es la única instancia con `ORDERS_GROUP_ID`.
 
 ---
 

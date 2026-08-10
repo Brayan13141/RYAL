@@ -1142,7 +1142,7 @@
           <h1>{% block page_title %}Panel{% endblock %}</h1>
         </div>
         <div class="p-topbar-right">
-          <a href="{% url 'panel:orders_list' %}" id="pedidosBell" class="p-bell" title="Pedidos web nuevos">
+          <a href="{% url 'panel:orders_list' %}" class="p-bell" title="Pedidos web nuevos" aria-label="Pedidos web nuevos">
             <i class="bi bi-bell"></i>
             <span id="pedidosBellBadge" class="p-bell-badge" style="display:none;">0</span>
           </a>
@@ -1222,8 +1222,8 @@
 
       function beep() {
         try {
-          if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
-          if (ctx.state === 'suspended') ctx.resume();
+          ensureAudioCtx();
+          if (!ctx) return;
           var osc = ctx.createOscillator();
           var gain = ctx.createGain();
           osc.frequency.value = 880;

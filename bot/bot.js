@@ -866,10 +866,13 @@ function startNotifyServer() {
                 await currentSock.sendMessage(jid, { text: message })
                 res.writeHead(200).end('ok')
             } catch (err) {
-                logger.error({ err: err.message }, 'Error enviando aviso de watchdog')
+                logger.error({ err: err.message, jid, target }, 'Error enviando aviso (/notify)')
                 res.writeHead(500).end('Error al enviar')
             }
         })
+    })
+    server.on('error', (err) => {
+        logger.error({ err: err.message, port: NOTIFY_PORT }, 'No se pudo levantar el servidor de avisos')
     })
     server.listen(NOTIFY_PORT, '127.0.0.1', () => {
         logger.info({ port: NOTIFY_PORT }, 'Servidor de avisos (watchdog) escuchando en localhost')
