@@ -63,6 +63,10 @@ class Order(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    seen_at = models.DateTimeField(
+        null=True, blank=True, default=None,
+        help_text='Cuándo el staff vio este pedido en el panel (marca global, no por usuario).',
+    )
 
     class Meta:
         verbose_name = 'Pedido'

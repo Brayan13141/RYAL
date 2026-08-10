@@ -594,3 +594,11 @@ class PlanBackfillPaymentsTests(TestCase):
             self._plan("500", "500", True),
             [{"monto": Decimal("500"), "notas": "Adelanto migrado"}],
         )
+
+
+class OrderSeenAtTests(TestCase):
+    def test_order_nace_sin_ver(self):
+        order = Order.objects.create(
+            order_code='SEEN-INIT-1', customer_name='Ana', customer_phone='5512345678',
+        )
+        self.assertIsNone(order.seen_at)
