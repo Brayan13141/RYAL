@@ -427,6 +427,12 @@ def dashboard(request):
 # ─── Orders ──────────────────────────────────────────────────────────────────
 
 @_staff
+def pedidos_nuevos_count(request):
+    count = Order.objects.filter(status='pending', seen_at__isnull=True).count()
+    return JsonResponse({'count': count})
+
+
+@_staff
 def orders_list(request):
     qs = Order.objects.select_related('user').prefetch_related('items', 'payments')
 

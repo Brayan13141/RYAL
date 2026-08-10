@@ -5,6 +5,7 @@ from uuid import uuid4
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from catalog.models import Product, Category
 from negocio.models import Cliente, Pedido, Pago, Gasto
@@ -826,3 +827,28 @@ class WhatsappQrStatusEndpointTests(TestCase):
             self.assertEqual(body['qr'], 'test-qr-string')
         finally:
             inst['state_path'].unlink(missing_ok=True)
+
+
+class PedidosNuevosCountTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            username='staff_notify_count', password='pass', is_staff=True
+        )
+
+    def _create_order(self, seen_at=None, status='pending'):
+        return Order.objects.create(
+            order_code=f'CNT-{uuid4().hex[:10]}', customer_name='Cliente',
+            customer_phone='5550001111', status=status, seen_at=seen_at,
+        )
+
+    def test_requiere_staff(self):
+        res = self.client.get(reverse('panel:pedidos_nuevos_count'))
+        self.assertNotEqual(res.status_code, 200)
+
+    def test_cuenta_solo_pendientes_no_vistos(self):
+        self._create_order()                             # pending, no visto → cuenta
+        self._create_order(seen_at=timezone.now())        # pending, ya visto → no cuenta
+        self._create_order(status='confirmed')             # no pending → no cuenta
+        self.client.login(username='staff_notify_count', password='pass')
+        res = self.client.get(reverse('panel:pedidos_nuevos_count'))
+        self.assertEqual(res.json(), {'count': 1})

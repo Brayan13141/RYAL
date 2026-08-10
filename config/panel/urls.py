@@ -83,4 +83,5 @@ urlpatterns = [
     path('whatsapp/',                         views.whatsapp_qr_list,       name='whatsapp_qr_list'),
     path('whatsapp/<str:key>/',               views.whatsapp_qr_detail,     name='whatsapp_qr_detail'),
     path('whatsapp/<str:key>/status/',        views.whatsapp_qr_status,     name='whatsapp_qr_status'),
+    path('api/pedidos-nuevos/',                views.pedidos_nuevos_count,   name='pedidos_nuevos_count'),
 ]
