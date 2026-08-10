@@ -13,6 +13,7 @@ from django.views.decorators.http import require_POST
 from django_ratelimit.decorators import ratelimit
 from catalog.models import Product, ProductVariant, ProductImage
 from .models import Order, OrderItem, SavedCartItem
+from .notifications import notify_new_order_async
 
 
 def _client_ip(group, request):
@@ -619,6 +620,8 @@ def checkout_confirm(request):
                 order.descuento_aplicado = descuento_decimal
                 order.notes = f'Código de descuento: {codigo_descuento_str} (−${descuento_decimal:.0f} MXN)'
                 order.save(update_fields=['notes', 'descuento_aplicado'])
+
+    notify_new_order_async(order)
 
     _save_cart(request, {})
     if request.user.is_authenticated:

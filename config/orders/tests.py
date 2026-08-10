@@ -642,3 +642,37 @@ class NotifyNewOrderTests(TestCase):
             target=notify_new_order, args=(self.order,), daemon=True
         )
         mock_thread_cls.return_value.start.assert_called_once()
+
+
+class CheckoutConfirmNotifyTests(TestCase):
+    def setUp(self):
+        self.cat = Category.objects.create(name='Tenis Notify', slug='tenis-notify')
+        self.product = Product.objects.create(
+            sku='RYL-NOTIFY-1', name='Tenis Notify', category=self.cat,
+            base_price=Decimal('300'),
+        )
+        self.url = reverse('orders:checkout_confirm')
+
+    def _set_cart(self):
+        session = self.client.session
+        session['cart'] = {
+            f'{self.product.pk}_none': {
+                'product_id': self.product.pk, 'variant_id': None, 'image_pk': None,
+                'variant_name': '', 'quantity': 1,
+                'price': float(self.product.final_price),
+            }
+        }
+        session.save()
+
+    @patch('orders.views.notify_new_order_async')
+    def test_checkout_exitoso_dispara_notify_new_order_async(self, mock_notify):
+        self._set_cart()
+        self.client.post(self.url, {'nombre': 'Ana', 'telefono': '5512345678'})
+        order = Order.objects.get()
+        mock_notify.assert_called_once_with(order)
+
+    def test_order_creado_tiene_seen_at_nulo(self):
+        self._set_cart()
+        self.client.post(self.url, {'nombre': 'Ana', 'telefono': '5512345678'})
+        order = Order.objects.get()
+        self.assertIsNone(order.seen_at)
