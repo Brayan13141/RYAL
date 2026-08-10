@@ -17,6 +17,7 @@ const { acquireAuthLock } = require('./lock')
 const { createOrderSessionStore } = require('./orderSession')
 const { WELCOME_MESSAGE, menuReply, isGreetableJid, createWelcomeStore } = require('./welcome')
 const { writeQrState } = require('./qrState')
+const { resolveNotifyJid } = require('./notifyTarget')
 
 const AUTH_DIR = '.baileys_auth'
 const QR_STATE_FILE = '.qr_state.json'
@@ -839,9 +840,11 @@ function startNotifyServer() {
         let body = ''
         req.on('data', (chunk) => { body += chunk })
         req.on('end', async () => {
-            let message
+            let message, target
             try {
-                message = JSON.parse(body || '{}').message
+                const parsed = JSON.parse(body || '{}')
+                message = parsed.message
+                target = parsed.target
             } catch (e) {
                 res.writeHead(400).end('JSON inválido')
                 return
@@ -854,8 +857,13 @@ function startNotifyServer() {
                 res.writeHead(503).end('Bot aún no conectado')
                 return
             }
+            const { jid, error } = resolveNotifyJid(target, { ordersGid: ORDERS_GID, alertJid: ALERT_JID })
+            if (error) {
+                res.writeHead(503).end('Grupo de pedidos no configurado en esta instancia')
+                return
+            }
             try {
-                await currentSock.sendMessage(ALERT_JID, { text: message })
+                await currentSock.sendMessage(jid, { text: message })
                 res.writeHead(200).end('ok')
             } catch (err) {
                 logger.error({ err: err.message }, 'Error enviando aviso de watchdog')
