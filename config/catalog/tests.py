@@ -13,6 +13,7 @@ from catalog.modaverse import parse_specifications
 from catalog.management.commands.load_productos import (
     _category_filter_ids,
     _build_existing_pids,
+    _next_sku_index,
 )
 from catalog.models import (
     Category, Product, Tag, TipoArticulo, CodigoDescuento,
@@ -1152,6 +1153,213 @@ class PendingProductApproveTests(TestCase):
         self.pending.reject()
         self.pending.refresh_from_db()
         self.assertEqual(self.pending.status, 'rejected')
+
+
+class NextSkuIndexReservadosTests(TestCase):
+    """_next_sku_index debe respetar los SKUs ya reservados por pendientes.
+
+    Regresión: solo miraba Product, así que una segunda corrida de
+    load_productos reasignaba SKUs que ya tenían pendientes sin aprobar.
+    """
+
+    def setUp(self):
+        self.cat = Category.objects.create(name='Cat Sku', slug='cat-sku')
+
+    def test_salta_skus_reservados_por_pendientes(self):
+        Product.objects.create(
+            sku='RYL-RES-001', name='Ya en catálogo', category=self.cat,
+            base_price=Decimal('100'),
+        )
+        PendingProduct.objects.create(
+            supplier_url='https://modaverse.vip/#/proinfo/RESERVADO',
+            display_name='Reservado sin aprobar',
+            category=self.cat, base_price=Decimal('100'),
+            raw_data={'sku': 'RYL-RES-002'},
+        )
+        self.assertEqual(_next_sku_index('RES'), 3)
+
+
+class RepairSkuColisionesCommandTests(TestCase):
+    """repair_sku_colisiones: repara el daño ya hecho por la colisión de SKU.
+
+    Dos reparaciones distintas:
+      a) pendientes marcados 'approved' que nunca llegaron al catálogo
+      b) productos cuyo nombre/precio fueron pisados por un pendiente ajeno
+    """
+
+    URL_A = 'https://modaverse.vip/#/proinfo/AAA'
+    URL_B = 'https://modaverse.vip/#/proinfo/BBB'
+
+    def setUp(self):
+        self.cat = Category.objects.create(
+            name='Cat Rep', slug='cat-rep', shipping_cost=0, profit_margin=100,
+        )
+        # Producto A, ya en catálogo, pero con nombre/precio pisados por B
+        self.prod_a = Product.objects.create(
+            sku='RYL-REP-001', name='Nombre De B', category=self.cat,
+            base_price=Decimal('222'), supplier_url=self.URL_A,
+        )
+        self.pend_a = PendingProduct.objects.create(
+            supplier_url=self.URL_A, display_name='Nombre Real De A',
+            modaverse_name='Nombre Real De A', category=self.cat,
+            base_price=Decimal('111'), status='approved',
+            raw_data={'sku': 'RYL-REP-001'},
+        )
+        # Pendiente B: aprobado, mismo SKU reservado, nunca creó producto
+        self.pend_b = PendingProduct.objects.create(
+            supplier_url=self.URL_B, display_name='Nombre De B',
+            category=self.cat, base_price=Decimal('222'), status='approved',
+            raw_data={'sku': 'RYL-REP-001'},
+        )
+
+    def _run(self, *args):
+        out = StringIO()
+        call_command('repair_sku_colisiones', *args, stdout=out)
+        return out.getvalue()
+
+    def test_recupera_el_pendiente_que_nunca_llego_al_catalogo(self):
+        self._run()
+        prod_b = Product.objects.filter(supplier_url=self.URL_B).first()
+        self.assertIsNotNone(prod_b, 'el pendiente aprobado sin producto no se recuperó')
+        self.assertNotEqual(prod_b.sku, 'RYL-REP-001')
+
+    def test_restaura_el_producto_pisado(self):
+        self._run()
+        self.prod_a.refresh_from_db()
+        self.assertEqual(self.prod_a.name, 'Nombre Real De A')
+        self.assertEqual(self.prod_a.base_price, Decimal('111'))
+
+    def test_dry_run_no_escribe_nada(self):
+        self._run('--dry-run')
+        self.prod_a.refresh_from_db()
+        self.assertEqual(self.prod_a.name, 'Nombre De B')
+        self.assertFalse(Product.objects.filter(supplier_url=self.URL_B).exists())
+
+    def test_no_duplica_si_el_producto_existe_con_el_otro_formato_de_url(self):
+        """El catálogo guarda dos formatos de supplier_url para el mismo pid;
+        la reconciliación es por pid, no por string exacto."""
+        PendingProduct.objects.create(
+            supplier_url='https://www.modaverse.vip/#/proinfo/PID777',
+            display_name='Ya existe con otro formato', category=self.cat,
+            base_price=Decimal('150'), status='approved',
+            raw_data={'sku': 'RYL-REP-777'},
+        )
+        Product.objects.create(
+            sku='RYL-REP-778', name='Ya existe con otro formato', category=self.cat,
+            base_price=Decimal('150'),
+            supplier_url='https://www.modaverse.vip/#/product/CAT9?pid=PID777',
+        )
+        antes = Product.objects.count()
+        self._run()
+        self.assertEqual(Product.objects.count(), antes + 1)  # solo el pend_b legítimo
+
+    def test_recupera_pendiente_sin_categoria_resolviendola_del_json(self):
+        """Los pendientes sin categoría son recuperables si el JSON dice a qué
+        categoría del árbol pertenecen y esa categoría existe en el catálogo."""
+        destino = Category.objects.create(
+            name='Gorro de Pico AA05', slug='gorro-de-pico-aa05', parent=self.cat,
+        )
+        PendingProduct.objects.create(
+            supplier_url='https://www.modaverse.vip/#/proinfo/PIDSINCAT',
+            display_name='Gorra sin categoría', category=None,
+            base_price=Decimal('130'), status='approved',
+            raw_data={'sku': 'RYL-CAP-501'},
+        )
+        data = {
+            'categories': [{
+                'id': 'CATROOT', 'name_es': 'Gorra',
+                'subcategories': [{'id': 'CATSUB', 'name_es': 'Gorro de Pico AA05'}],
+            }],
+            'products': [{'sku': 'PIDSINCAT', 'category_id': 'CATSUB'}],
+        }
+        with patch('catalog.management.commands.repair_sku_colisiones.read_modaverse_json',
+                   return_value=data):
+            self._run()
+        prod = Product.objects.filter(
+            supplier_url='https://www.modaverse.vip/#/proinfo/PIDSINCAT').first()
+        self.assertIsNotNone(prod, 'no se recuperó el pendiente sin categoría')
+        self.assertEqual(prod.category, destino)
+
+    def test_no_inventa_categoria_si_el_json_no_la_tiene_en_el_arbol(self):
+        """Categoría eliminada del proveedor: se reporta y se salta, no se
+        inventa un destino ni se crea una categoría nueva."""
+        antes_cats = Category.objects.count()
+        PendingProduct.objects.create(
+            supplier_url='https://www.modaverse.vip/#/proinfo/PIDHUERFANO',
+            display_name='Collar huérfano', category=None,
+            base_price=Decimal('320'), status='approved',
+            raw_data={'sku': 'RYL-GEN-502'},
+        )
+        data = {
+            'categories': [{'id': 'CATROOT', 'name_es': 'Gorra', 'subcategories': []}],
+            'products': [{'sku': 'PIDHUERFANO', 'category_id': 'CAT-QUE-YA-NO-EXISTE'}],
+        }
+        with patch('catalog.management.commands.repair_sku_colisiones.read_modaverse_json',
+                   return_value=data):
+            self._run()
+        self.assertFalse(Product.objects.filter(
+            supplier_url='https://www.modaverse.vip/#/proinfo/PIDHUERFANO').exists())
+        self.assertEqual(Category.objects.count(), antes_cats)
+
+    def test_no_revierte_nombres_editados_a_mano(self):
+        """Solo se restaura lo que tiene firma de colisión: un producto renombrado
+        a mano difiere de su pendiente, pero nadie lo pisó — no se toca."""
+        url_c = 'https://modaverse.vip/#/proinfo/CCC'
+        prod_c = Product.objects.create(
+            sku='RYL-REP-900', name='Nombre Editado A Mano', category=self.cat,
+            base_price=Decimal('300'), supplier_url=url_c,
+        )
+        PendingProduct.objects.create(
+            supplier_url=url_c, display_name='Nombre Crudo Del Scraper',
+            category=self.cat, base_price=Decimal('300'), status='approved',
+            raw_data={'sku': 'RYL-REP-900'},
+        )
+        self._run()
+        prod_c.refresh_from_db()
+        self.assertEqual(prod_c.name, 'Nombre Editado A Mano')
+
+
+class ApproveSkuColisionTests(TestCase):
+    """Aprobar un pendiente cuyo SKU ya pertenece a OTRO producto.
+
+    Regresión: dos corridas de load_productos antes de aprobar reservaban el
+    mismo SKU. approve() hacía get_or_create(sku=...), encontraba el producto
+    ajeno y le sobrescribía nombre/precio, sin crear nunca el producto nuevo.
+    """
+
+    URL_ORIGINAL = 'https://modaverse.vip/#/proinfo/ORIGINAL'
+    URL_NUEVO    = 'https://modaverse.vip/#/proinfo/NUEVO'
+
+    def setUp(self):
+        self.cat = Category.objects.create(
+            name='Cat Colisión', slug='cat-colision',
+            shipping_cost=50, profit_margin=100,
+        )
+        self.original = Product.objects.create(
+            sku='RYL-COL-001', name='Producto Original', category=self.cat,
+            base_price=Decimal('111'), supplier_url=self.URL_ORIGINAL,
+        )
+        self.pending = PendingProduct.objects.create(
+            supplier_url=self.URL_NUEVO,
+            display_name='Producto Nuevo',
+            category=self.cat,
+            base_price=Decimal('222'),
+            raw_data={'sku': 'RYL-COL-001'},
+        )
+
+    def test_no_sobrescribe_el_producto_ajeno(self):
+        self.pending.approve()
+        self.original.refresh_from_db()
+        self.assertEqual(self.original.name, 'Producto Original')
+        self.assertEqual(self.original.base_price, Decimal('111'))
+        self.assertEqual(self.original.supplier_url, self.URL_ORIGINAL)
+
+    def test_crea_el_producto_nuevo_con_sku_libre(self):
+        product = self.pending.approve()
+        self.assertIsNotNone(product)
+        self.assertEqual(product.supplier_url, self.URL_NUEVO)
+        self.assertNotEqual(product.sku, 'RYL-COL-001')
+        self.assertTrue(Product.objects.filter(supplier_url=self.URL_NUEVO).exists())
 
 
 # ── load_productos: reconciliación automática al usar --category ──────────────

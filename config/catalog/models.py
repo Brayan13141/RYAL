@@ -229,6 +229,46 @@ class Product(models.Model):
         return f'{self.sku} — {self.name}'
 
 
+def next_sku_index(prefix: str) -> int:
+    """Siguiente índice libre para 'RYL-{prefix}-'.
+
+    Considera tanto el catálogo (Product) como los SKUs ya reservados por
+    pendientes sin aprobar: si solo mirara Product, dos corridas de
+    load_productos antes de aprobar reasignarían el mismo SKU y al aprobar el
+    segundo pendiente se pisaría el producto del primero.
+    """
+    nums = []
+    reserved = list(
+        Product.objects.filter(sku__startswith=f'RYL-{prefix}-')
+        .values_list('sku', flat=True)
+    )
+    reserved += [
+        s for s in PendingProduct.objects
+        .values_list('raw_data__sku', flat=True)
+        if isinstance(s, str) and s.startswith(f'RYL-{prefix}-')
+    ]
+    for sku in reserved:
+        try:
+            nums.append(int(sku.rsplit('-', 1)[-1]))
+        except (ValueError, IndexError):
+            pass
+    return (max(nums) + 1) if nums else 1
+
+
+def free_sku(prefix: str) -> str:
+    """SKU completo libre para el prefijo dado."""
+    idx = next_sku_index(prefix)
+    while Product.objects.filter(sku=f'RYL-{prefix}-{idx:03d}').exists():
+        idx += 1
+    return f'RYL-{prefix}-{idx:03d}'
+
+
+def _prefix_from_sku(sku: str) -> str:
+    """'RYL-GOR-012' → 'GOR'. Devuelve '' si el SKU no tiene ese formato."""
+    base = sku.rpartition('-')[0]
+    return base[4:] if base.startswith('RYL-') else ''
+
+
 class PendingProduct(models.Model):
     """Productos nuevos detectados en el scrape, en espera de aprobación manual."""
     STATUS_CHOICES = [
@@ -296,22 +336,32 @@ class PendingProduct(models.Model):
             except SizeGroup.DoesNotExist:
                 pass
 
-        product, created = Product.objects.get_or_create(
-            sku=sku,
-            defaults={
-                'name':           self.display_name,
-                'modaverse_name': self.modaverse_name or self.display_name,
-                'category':       self.category,
-                'base_price':     self.base_price,
-                'supplier_url':   self.supplier_url,
-                'variant_colors': variant_colors,
-                'size_group':     size_group,
-                'description':    description,
-                'status':         'available',
-                'is_active':      True,
-            },
-        )
-        if not created:
+        # La identidad del producto es su supplier_url, no su SKU: el SKU es
+        # solo un correlativo interno y puede haber quedado reservado por otro
+        # producto. Buscar por supplier_url mantiene approve() idempotente.
+        product = Product.objects.filter(supplier_url=self.supplier_url).first() \
+            if self.supplier_url else None
+
+        if product is None:
+            # Si el SKU reservado ya lo tomó otro producto, tomar uno libre en
+            # vez de pisarlo (antes: get_or_create(sku=...) sobrescribía el ajeno).
+            if not sku or Product.objects.filter(sku=sku).exists():
+                prefix = _prefix_from_sku(sku) or 'GEN'
+                sku = free_sku(prefix)
+            product = Product.objects.create(
+                sku=sku,
+                name=self.display_name,
+                modaverse_name=self.modaverse_name or self.display_name,
+                category=self.category,
+                base_price=self.base_price,
+                supplier_url=self.supplier_url,
+                variant_colors=variant_colors,
+                size_group=size_group,
+                description=description,
+                status='available',
+                is_active=True,
+            )
+        else:
             product.name           = self.display_name
             product.modaverse_name = self.modaverse_name or self.display_name
             product.base_price     = self.base_price

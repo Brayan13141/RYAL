@@ -15,7 +15,10 @@ from django.utils.text import slugify
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
 
-from catalog.models import Category, PendingProduct, Product, ProductImage, Tag, SizeGroup
+from catalog.models import (
+    Category, PendingProduct, Product, ProductImage, Tag, SizeGroup,
+    next_sku_index,
+)
 from catalog.modaverse import pid_from_url, category_filter_ids, read_modaverse_json
 
 
@@ -133,16 +136,9 @@ def _download_image(url: str, timeout: int = 20, referer: str | None = None):
 
 
 def _next_sku_index(prefix: str) -> int:
-    existing = Product.objects.filter(
-        sku__startswith=f'RYL-{prefix}-'
-    ).values_list('sku', flat=True)
-    nums = []
-    for sku in existing:
-        try:
-            nums.append(int(sku.rsplit('-', 1)[-1]))
-        except (ValueError, IndexError):
-            pass
-    return (max(nums) + 1) if nums else 1
+    # Delegado a catalog.models: también cuenta los SKUs reservados por
+    # pendientes sin aprobar, para no reasignarlos en una segunda corrida.
+    return next_sku_index(prefix)
 
 
 # Alias backward-compat — movido a catalog/modaverse.py
