@@ -9,6 +9,7 @@ string completo de la URL) reconcilia ambos formatos y evita duplicados.
 """
 import json as _json
 import re
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 _PID_RE = re.compile(r'/proinfo/(\w+)|[?&]pid=(\w+)')
@@ -93,3 +94,44 @@ def category_filter_ids(categories_tree, keywords) -> set:
                     ids.add(sub['id'])
                     ids.add(cat['id'])
     return ids
+
+
+def precio_proveedor(p):
+    """Precio del proveedor para una entrada del JSON, como Decimal, o None.
+
+    El JSON trae `price_mxn` en 0 para una parte del catálogo; eso no es un
+    precio de $0, es un hueco (al crearlos, load_productos cae a un default por
+    categoría). Sincronizar contra ese 0 destruiría el precio bueno.
+    """
+    raw = p.get('price_mxn') or p.get('price_usd') or 0
+    try:
+        val = Decimal(str(raw))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    return val if val > 0 else None
+
+
+def sincronizar_precio(prod, precio):
+    """Aplica el precio del proveedor a un Product respetando ediciones manuales.
+
+    `modaverse_price` es el último precio visto del proveedor:
+      - si `base_price == modaverse_price`, nadie lo tocó desde la última
+        sincronización y el precio se actualiza;
+      - si difieren, alguien lo editó en el panel y `base_price` no se toca —
+        solo avanza la marca, para seguir al proveedor sin pisar la decisión;
+      - si la marca es None (producto anterior a este campo), se adopta sin
+        cambiar el precio: no hay forma de saber si fue editado.
+
+    Devuelve la lista de campos que cambiaron, lista para `update_fields`.
+    """
+    if precio is None:
+        return []
+    campos = []
+    marca = prod.modaverse_price
+    if marca is not None and prod.base_price == marca and prod.base_price != precio:
+        prod.base_price = precio
+        campos.append('base_price')
+    if marca != precio:
+        prod.modaverse_price = precio
+        campos.append('modaverse_price')
+    return campos

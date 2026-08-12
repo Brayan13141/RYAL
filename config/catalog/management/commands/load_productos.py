@@ -19,7 +19,10 @@ from catalog.models import (
     Category, PendingProduct, Product, ProductImage, Tag, SizeGroup,
     next_sku_index,
 )
-from catalog.modaverse import pid_from_url, category_filter_ids, read_modaverse_json
+from catalog.modaverse import (
+    pid_from_url, category_filter_ids, read_modaverse_json,
+    precio_proveedor, sincronizar_precio,
+)
 
 
 def _build_existing_pids(supplier_urls) -> set:
@@ -384,6 +387,9 @@ class Command(BaseCommand):
                         if raw_name and prod.modaverse_name != raw_name:
                             prod.modaverse_name = raw_name
                             changed_fields.append('modaverse_name')
+                        # El proveedor mueve precios: sin esto base_price queda
+                        # congelado en el del día que se cargó el producto.
+                        changed_fields += sincronizar_precio(prod, precio_proveedor(p))
                         if changed_fields:
                             prod.save(update_fields=changed_fields)
                         # Reclasificar si la categoría cambió dentro del mismo scope

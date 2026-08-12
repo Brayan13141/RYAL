@@ -1957,3 +1957,166 @@ class CategoryOverrideValidationTests(TestCase):
         root = Category.objects.create(name='Gorras Val3', slug='gorras-val3')
         root.profit_margin_override = Decimal('50')
         root.full_clean()  # no debe lanzar
+
+
+from catalog.management.commands.sync_precios_modaverse import Command as SyncCommand
+
+
+class SyncPreciosModaverseTests(TestCase):
+    """El precio del proveedor cambia con el tiempo y load_productos nunca lo
+    actualizaba en productos ya existentes: base_price quedaba congelado en el
+    precio del día que se cargó. `modaverse_price` guarda el último precio visto
+    del proveedor, y sirve para distinguir un precio automático (base_price ==
+    modaverse_price) de uno editado a mano en el panel."""
+
+    def setUp(self):
+        self.cat = Category.objects.create(name='Gorra', slug='gorra')
+
+    def _json(self, price, pid='PR001', cat_id='C1', cat_name='Gorra'):
+        return {
+            'products': [{
+                'sku': pid, 'name': 'ZA-179', 'category_id': cat_id,
+                'category': cat_name,
+                'url': f'https://www.modaverse.vip/#/product/{cat_id}?pid={pid}',
+                'images': [], 'sizes': [], 'colors': [], 'price_mxn': price,
+            }],
+            'categories': [{'id': cat_id, 'name_es': cat_name, 'subcategories': []}],
+        }
+
+    def _producto(self, base, marca, pid='PR001', cat=None):
+        return Product.objects.create(
+            sku='RYL-CAP-001', name='ZA-179', category=cat or self.cat,
+            base_price=Decimal(base), modaverse_price=None if marca is None else Decimal(marca),
+            supplier_url=f'https://www.modaverse.vip/#/proinfo/{pid}',
+        )
+
+    def test_actualiza_precio_de_producto_no_editado_a_mano(self):
+        prod = self._producto(base='250', marca='250')
+        with patch.object(SyncCommand, '_read_modaverse_json', return_value=self._json(220)):
+            call_command('sync_precios_modaverse')
+        prod.refresh_from_db()
+        self.assertEqual(prod.base_price, Decimal('220.00'))
+        self.assertEqual(prod.modaverse_price, Decimal('220.00'))
+
+    def test_respeta_el_precio_editado_a_mano(self):
+        """base_price != modaverse_price = alguien lo cambió en el panel: no se pisa."""
+        prod = self._producto(base='400', marca='250')
+        with patch.object(SyncCommand, '_read_modaverse_json', return_value=self._json(220)):
+            call_command('sync_precios_modaverse')
+        prod.refresh_from_db()
+        self.assertEqual(prod.base_price, Decimal('400.00'))
+        # la marca sí avanza, para seguir al proveedor sin tocar el precio manual
+        self.assertEqual(prod.modaverse_price, Decimal('220.00'))
+
+    def test_producto_sin_marca_la_adopta_sin_tocar_el_precio(self):
+        prod = self._producto(base='250', marca=None)
+        with patch.object(SyncCommand, '_read_modaverse_json', return_value=self._json(220)):
+            call_command('sync_precios_modaverse')
+        prod.refresh_from_db()
+        self.assertEqual(prod.base_price, Decimal('250.00'))
+        self.assertEqual(prod.modaverse_price, Decimal('220.00'))
+
+    def test_dry_run_no_escribe_nada(self):
+        prod = self._producto(base='250', marca='250')
+        out = StringIO()
+        with patch.object(SyncCommand, '_read_modaverse_json', return_value=self._json(220)):
+            call_command('sync_precios_modaverse', '--dry-run', stdout=out)
+        prod.refresh_from_db()
+        self.assertEqual(prod.base_price, Decimal('250.00'))
+        self.assertEqual(prod.modaverse_price, Decimal('250.00'))
+        self.assertIn('250', out.getvalue())
+        self.assertIn('220', out.getvalue())
+
+    def test_precio_cero_del_json_no_pisa_el_precio_bueno(self):
+        """El JSON trae price_mxn 0 para algunos productos; load_productos cae a un
+        default por categoría al crearlos. Sincronizar contra 0 sería destructivo."""
+        prod = self._producto(base='250', marca='250')
+        with patch.object(SyncCommand, '_read_modaverse_json', return_value=self._json(0)):
+            call_command('sync_precios_modaverse')
+        prod.refresh_from_db()
+        self.assertEqual(prod.base_price, Decimal('250.00'))
+
+    def test_category_limita_el_alcance(self):
+        otra = Category.objects.create(name='Reloj', slug='reloj')
+        fuera = Product.objects.create(
+            sku='RYL-REL-001', name='Rolex', category=otra,
+            base_price=Decimal('900'), modaverse_price=Decimal('900'),
+            supplier_url='https://www.modaverse.vip/#/proinfo/PR999',
+        )
+        dentro = self._producto(base='250', marca='250')
+        data = self._json(220)
+        data['products'].append({
+            'sku': 'PR999', 'name': 'Rolex', 'category_id': 'C2', 'category': 'Reloj',
+            'url': 'https://www.modaverse.vip/#/product/C2?pid=PR999',
+            'images': [], 'sizes': [], 'colors': [], 'price_mxn': 700,
+        })
+        data['categories'].append({'id': 'C2', 'name_es': 'Reloj', 'subcategories': []})
+        with patch.object(SyncCommand, '_read_modaverse_json', return_value=data):
+            call_command('sync_precios_modaverse', '--category', 'Gorra')
+        dentro.refresh_from_db()
+        fuera.refresh_from_db()
+        self.assertEqual(dentro.base_price, Decimal('220.00'))
+        self.assertEqual(fuera.base_price, Decimal('900.00'))
+
+    def test_load_productos_tambien_sincroniza_el_precio(self):
+        """La causa raíz: una corrida normal de load_productos debe dejar el precio
+        al día, no solo el nombre y las variantes."""
+        prod = self._producto(base='250', marca='250')
+        with patch.object(LoadCommand, '_read_modaverse_json', return_value=self._json(220)):
+            call_command('load_productos', '--category', 'Gorra', '--no-images')
+        prod.refresh_from_db()
+        self.assertEqual(prod.base_price, Decimal('220.00'))
+        self.assertEqual(prod.modaverse_price, Decimal('220.00'))
+
+    def test_load_productos_no_pisa_el_precio_editado_a_mano(self):
+        prod = self._producto(base='400', marca='250')
+        with patch.object(LoadCommand, '_read_modaverse_json', return_value=self._json(220)):
+            call_command('load_productos', '--category', 'Gorra', '--no-images')
+        prod.refresh_from_db()
+        self.assertEqual(prod.base_price, Decimal('400.00'))
+
+    def test_aprobar_un_pendiente_deja_el_producto_marcado_como_automatico(self):
+        """Si el producto nace sin marca, la primera sincronización lo trataría
+        como 'editado a mano' y su precio nunca se actualizaría."""
+        pend = PendingProduct.objects.create(
+            display_name='ZA-500', modaverse_name='ZA-500', category=self.cat,
+            base_price=Decimal('220'),
+            supplier_url='https://www.modaverse.vip/#/proinfo/PR500',
+        )
+        prod = pend.approve()
+        self.assertEqual(prod.modaverse_price, Decimal('220.00'))
+
+    def test_reaprobar_sobre_producto_existente_reajusta_la_marca(self):
+        prod = self._producto(base='250', marca='250', pid='PR600')
+        pend = PendingProduct.objects.create(
+            display_name='ZA-600', modaverse_name='ZA-600', category=self.cat,
+            base_price=Decimal('220'),
+            supplier_url='https://www.modaverse.vip/#/proinfo/PR600',
+        )
+        pend.approve()
+        prod.refresh_from_db()
+        self.assertEqual(prod.base_price, Decimal('220.00'))
+        self.assertEqual(prod.modaverse_price, Decimal('220.00'))
+
+    def test_no_toca_productos_de_yupoo(self):
+        """Calzado viene de otro proveedor (putianshoefactory.x.yupoo.com) y su
+        supplier_url no tiene pid de Modaverse. Un match espurio le reescribiría
+        el precio con el de un producto ajeno."""
+        calzado = Category.objects.create(name='Calzado', slug='calzado')
+        tenis = Product.objects.create(
+            sku='RYL-TN2-389', name='AMIRI', category=calzado,
+            base_price=Decimal('380'), modaverse_price=Decimal('380'),
+            supplier_url='https://putianshoefactory.x.yupoo.com/albums/171878819?uid=1',
+        )
+        data = self._json(220)
+        # una entrada del JSON sin url reconocible: no debe colapsar contra el tenis
+        data['products'].append({
+            'sku': '', 'name': 'YAA3065', 'category_id': 'C1', 'category': 'Gorra',
+            'url': 'https://www.modaverse.vip/#/index', 'images': [],
+            'sizes': [], 'colors': [], 'price_mxn': 0,
+        })
+        with patch.object(SyncCommand, '_read_modaverse_json', return_value=data):
+            call_command('sync_precios_modaverse')
+        tenis.refresh_from_db()
+        self.assertEqual(tenis.base_price, Decimal('380.00'))
+        self.assertEqual(tenis.modaverse_price, Decimal('380.00'))

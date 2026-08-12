@@ -98,6 +98,13 @@ class Product(models.Model):
         Category, on_delete=models.PROTECT, related_name='products'
     )
     base_price = models.DecimalField(max_digits=8, decimal_places=2)
+    # Último precio visto en Modaverse. Sirve para distinguir un precio
+    # automático (base_price == modaverse_price) de uno editado a mano en el
+    # panel, y así sincronizar sin pisar ediciones manuales.
+    modaverse_price = models.DecimalField(
+        max_digits=8, decimal_places=2, null=True, blank=True,
+        help_text='Último precio del proveedor. Si difiere de base_price, el precio fue editado a mano.'
+    )
 
     # Minimum units per order (e.g. some suppliers require 3+)
     min_order_qty = models.PositiveIntegerField(default=1)
@@ -354,6 +361,8 @@ class PendingProduct(models.Model):
                 modaverse_name=self.modaverse_name or self.display_name,
                 category=self.category,
                 base_price=self.base_price,
+                # nace como precio automático: base_price == modaverse_price
+                modaverse_price=self.base_price,
                 supplier_url=self.supplier_url,
                 variant_colors=variant_colors,
                 size_group=size_group,
@@ -362,10 +371,13 @@ class PendingProduct(models.Model):
                 is_active=True,
             )
         else:
-            product.name           = self.display_name
-            product.modaverse_name = self.modaverse_name or self.display_name
-            product.base_price     = self.base_price
-            product.save(update_fields=['name', 'modaverse_name', 'base_price'])
+            product.name            = self.display_name
+            product.modaverse_name  = self.modaverse_name or self.display_name
+            product.base_price      = self.base_price
+            product.modaverse_price = self.base_price
+            product.save(update_fields=[
+                'name', 'modaverse_name', 'base_price', 'modaverse_price',
+            ])
 
         if self.cover_image and not product.images.filter(is_cover=True).exists():
             import shutil, os
