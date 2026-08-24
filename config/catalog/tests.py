@@ -2315,3 +2315,74 @@ class RevivePendingCommandTests(TestCase):
     def test_reporta_cuantos_reviviria(self):
         salida = self._run()
         self.assertIn('1', salida)
+
+
+class OverrideMargenVsTierTests(TestCase):
+    """No se puede dejar la ganancia de una subcategoría por debajo del mayor
+    descuento por volumen de su raíz: a esa cantidad el precio caería por
+    debajo del costo.
+
+    Es la configuración que produjo los 2 pedidos de alfileres en $0 el
+    2026-08-16 (`Alfileres` margen 20 bajo `Gorra` con tier −$70). El piso de
+    `_price_with_volume_tier` ya impide el daño; esto lo ataja antes, en el
+    panel, donde se comete el error.
+    """
+
+    def setUp(self):
+        from catalog.models import VolumeTier
+        self.raiz = Category.objects.create(
+            name='Gorra Val', slug='gorra-val', profit_margin=Decimal('100'))
+        VolumeTier.objects.create(
+            category=self.raiz, min_qty=50, discount_amount=Decimal('50'))
+        VolumeTier.objects.create(
+            category=self.raiz, min_qty=100, discount_amount=Decimal('70'))
+
+    def _sub(self, margen):
+        return Category(
+            name='Alfileres Val', slug='alfileres-val', parent=self.raiz,
+            base_price_override=Decimal('55'), profit_margin_override=margen,
+        )
+
+    def test_rechaza_margen_menor_al_mayor_tier(self):
+        from django.core.exceptions import ValidationError
+        with self.assertRaises(ValidationError) as ctx:
+            self._sub(Decimal('20')).full_clean()
+        self.assertIn('profit_margin_override', ctx.exception.error_dict)
+
+    def test_el_mensaje_dice_las_dos_cifras_y_la_raiz(self):
+        from django.core.exceptions import ValidationError
+        try:
+            self._sub(Decimal('20')).full_clean()
+            self.fail('debió rechazar')
+        except ValidationError as e:
+            msg = ' '.join(e.message_dict['profit_margin_override'])
+        self.assertIn('20', msg)
+        self.assertIn('70', msg)
+        self.assertIn('Gorra Val', msg)
+
+    def test_acepta_margen_igual_al_mayor_tier(self):
+        """Justo en el límite el precio queda al costo, no por debajo."""
+        self._sub(Decimal('70')).full_clean()
+
+    def test_acepta_margen_mayor(self):
+        self._sub(Decimal('120')).full_clean()
+
+    def test_sin_tiers_en_la_raiz_cualquier_margen_vale(self):
+        otra = Category.objects.create(name='Reloj Val', slug='reloj-val')
+        Category(name='Sub Reloj', slug='sub-reloj', parent=otra,
+                 profit_margin_override=Decimal('5')).full_clean()
+
+    def test_no_estorba_cuando_no_hay_override_de_margen(self):
+        """Un override solo de precio base no toca la ganancia: no se valida."""
+        Category(name='Solo Base', slug='solo-base', parent=self.raiz,
+                 base_price_override=Decimal('55')).full_clean()
+
+    def test_raiz_sin_subcategorias_se_compara_con_sus_propios_tiers(self):
+        from catalog.models import VolumeTier
+        suelta = Category.objects.create(name='Suelta', slug='suelta')
+        VolumeTier.objects.create(
+            category=suelta, min_qty=10, discount_amount=Decimal('80'))
+        suelta.profit_margin_override = Decimal('30')
+        from django.core.exceptions import ValidationError
+        with self.assertRaises(ValidationError):
+            suelta.full_clean()

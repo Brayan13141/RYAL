@@ -691,3 +691,88 @@ class CheckoutConfirmNotifyTests(TestCase):
         self.client.post(self.url, {'nombre': 'Ana', 'telefono': '5512345678'})
         order = Order.objects.get()
         self.assertIsNone(order.seen_at)
+
+
+class VolumeTierPisoCostoTests(TestCase):
+    """El descuento por volumen sale de la GANANCIA, nunca del costo.
+
+    El tier vive en la categoría raíz y es un monto fijo en pesos, dimensionado
+    para el margen de esa raíz. Un `profit_margin_override` de subcategoría más
+    chico que el tier rompía ese supuesto en silencio: el viejo
+    `max(0.0, final − descuento)` convertía el desbordamiento en $0 y el pedido
+    se cerraba gratis.
+
+    Caso real (2026-08-16): 2 pedidos de alfileres (300 y 100 pzs) con total
+    $0.00 — categoría `Alfileres` (margen 20) bajo `Gorra` (tier −$70).
+    """
+
+    def setUp(self):
+        from catalog.models import VolumeTier
+        self.gorra = Category.objects.create(
+            name="Gorra Piso", slug="gorra-piso", profit_margin=Decimal("100"),
+            shipping_cost=Decimal("0"),
+        )
+        VolumeTier.objects.create(
+            category=self.gorra, min_qty=50, discount_amount=Decimal("50"))
+        VolumeTier.objects.create(
+            category=self.gorra, min_qty=100, discount_amount=Decimal("70"))
+
+        # Subcategoría con precio propio barato: costo 55 + ganancia 20 = $75
+        self.alfileres = Category.objects.create(
+            name="Alfileres Piso", slug="alfileres-piso", parent=self.gorra,
+            base_price_override=Decimal("55"), profit_margin_override=Decimal("20"),
+        )
+        self.pin = Product.objects.create(
+            sku="RYL-PIN-1", name="PJ-001", category=self.alfileres,
+            base_price=Decimal("35"),
+        )
+        # Gorra normal: costo 130 + ganancia 100 = $230
+        self.gorra_sub = Category.objects.create(
+            name="Gorro Normal", slug="gorro-normal", parent=self.gorra)
+        self.gorra_prod = Product.objects.create(
+            sku="RYL-GOR-1", name="Gorra", category=self.gorra_sub,
+            base_price=Decimal("130"),
+        )
+
+    def _precio(self, product, qty):
+        from orders.views import _price_with_volume_tier
+        return _price_with_volume_tier(product, qty, float(product.final_price))
+
+    def test_el_pin_nunca_baja_del_costo(self):
+        self.assertEqual(float(self.pin.final_price), 75.0)
+        # −70 daría 5; el piso es el costo (55 + envío 0)
+        self.assertEqual(self._precio(self.pin, 100), 55.0)
+
+    def test_el_pin_tampoco_baja_del_costo_en_el_tier_chico(self):
+        # −50 daría 25, también por debajo del costo
+        self.assertEqual(self._precio(self.pin, 50), 55.0)
+
+    def test_nunca_devuelve_cero(self):
+        """El síntoma original: pedido de 300 pzs con total $0."""
+        self.assertGreater(self._precio(self.pin, 300), 0.0)
+
+    def test_la_gorra_normal_conserva_su_descuento(self):
+        """El margen de la raíz (100) cubre el tier (70): no cambia nada."""
+        self.assertEqual(float(self.gorra_prod.final_price), 230.0)
+        self.assertEqual(self._precio(self.gorra_prod, 100), 160.0)
+        self.assertEqual(self._precio(self.gorra_prod, 50), 180.0)
+
+    def test_sin_tier_devuelve_el_precio_recibido(self):
+        self.assertEqual(self._precio(self.pin, 10), 75.0)
+
+    def test_el_envio_cuenta_como_costo(self):
+        """El piso es costo + envío, no solo el costo del proveedor."""
+        self.gorra.shipping_cost = Decimal("20")
+        self.gorra.save(update_fields=["shipping_cost"])
+        pin = Product.objects.get(pk=self.pin.pk)
+        # final = 55 + 20 + 20 = 95 ; −70 = 25 ; piso = 55 + 20 = 75
+        self.assertEqual(float(pin.final_price), 95.0)
+        self.assertEqual(self._precio(pin, 100), 75.0)
+
+    def test_no_sube_un_precio_manual_puesto_bajo_el_costo(self):
+        """Si Bryan fija a mano un precio por debajo del costo (promoción), el
+        tier no puede *subirlo* para respetar el piso."""
+        self.pin.price_override = Decimal("40")
+        self.pin.save(update_fields=["price_override"])
+        pin = Product.objects.get(pk=self.pin.pk)
+        self.assertEqual(self._precio(pin, 100), 40.0)

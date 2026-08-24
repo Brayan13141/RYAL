@@ -63,6 +63,25 @@ class Category(models.Model):
                     'aplicaría a sus productos. Configúralo en cada subcategoría.',
             })
 
+        # El descuento por volumen se resta del precio final y sale de la
+        # ganancia. Los tiers viven en la raíz y son un monto fijo en pesos,
+        # dimensionado para el margen de esa raíz; una ganancia más chica aquí
+        # haría que a esa cantidad el precio caiga por debajo del costo.
+        # Pasó de verdad: Alfileres (20) bajo Gorra (tier −70) → pedidos en $0.
+        if self.profit_margin_override is not None:
+            raiz = self.parent if self.parent_id else self
+            if raiz and raiz.pk:
+                mayor = raiz.volume_tiers.order_by('-discount_amount').first()
+                if mayor and self.profit_margin_override < mayor.discount_amount:
+                    raise ValidationError({
+                        'profit_margin_override':
+                            f'La ganancia ({self.profit_margin_override}) es menor '
+                            f'que el mayor descuento por volumen de {raiz.name} '
+                            f'({mayor.discount_amount}, desde {mayor.min_qty} pzs): '
+                            f'a esa cantidad el precio quedaría por debajo del '
+                            f'costo. Sube la ganancia o ajusta el tier.',
+                    })
+
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = slugify(self.name)

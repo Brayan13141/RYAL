@@ -162,12 +162,25 @@ def _generate_order_code():
 
 def _price_with_volume_tier(product, qty, base_price):
     """Precio unitario reaplicando el tier de volumen de la categoría raíz.
-    Sin tier aplicable para esa cantidad, regresa base_price sin tocar."""
+    Sin tier aplicable para esa cantidad, regresa base_price sin tocar.
+
+    El descuento sale de la GANANCIA, nunca del costo. El tier vive en la raíz
+    y es un monto fijo en pesos dimensionado para el margen de esa raíz; una
+    subcategoría con `profit_margin_override` más chico rompe ese supuesto en
+    silencio. El viejo `max(0.0, ...)` convertía el desbordamiento en $0 y el
+    pedido se cerraba gratis (2 pedidos de alfileres, 2026-08-16).
+    """
     root = product.category.parent if product.category.parent_id else product.category
     tier = root.volume_tiers.filter(min_qty__lte=qty).order_by('-min_qty').first()
-    if tier:
-        return max(0.0, float(product.final_price) - float(tier.discount_amount))
-    return base_price
+    if not tier:
+        return base_price
+    sin_tier = float(product.final_price)
+    costo    = float(product.effective_base_price + product.effective_shipping)
+    # El piso es el costo, pero nunca por encima del precio sin tier: un
+    # price_override puesto a mano por debajo del costo es una decisión
+    # deliberada y el tier no puede subirlo.
+    piso = min(costo, sin_tier)
+    return max(piso, sin_tier - float(tier.discount_amount))
 
 
 def _create_order_safe(**kwargs):
