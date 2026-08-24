@@ -2120,3 +2120,198 @@ class SyncPreciosModaverseTests(TestCase):
         tenis.refresh_from_db()
         self.assertEqual(tenis.base_price, Decimal('380.00'))
         self.assertEqual(tenis.modaverse_price, Decimal('380.00'))
+
+
+from catalog.modaverse import merge_scraped_products
+
+
+class MergeScrapedProductsTests(TestCase):
+    """El scraper fusiona lo recién bajado con el JSON previo. Lo que la API
+    acaba de devolver para una categoría del filtro manda sobre la copia
+    guardada, esté archivada donde esté.
+
+    Sin esto, una entrada con `category_id` malo (None → 'General', por una
+    respuesta degradada de la API) queda *fuera* del filtro, entra a la lista de
+    preservados y se vuelve inmune al mecanismo que debería repararla: el
+    scraper la baja completa y la tira. Caso real 2026-08-17: `Gorro de Pico
+    AA10` (203 productos) y `Sombrero de ala plana AA4` (36) llevaban semanas
+    en 'General' con precio 0 y sin imágenes, y cada corrida `--category gorra`
+    los descargaba y los descartaba.
+    """
+
+    FILTER = {"AA10", "AA4", "GORRA"}
+
+    def _prod(self, sku, cat_id, **extra):
+        p = {"sku": sku, "category_id": cat_id, "name": sku, "price_mxn": 150.0}
+        p.update(extra)
+        return p
+
+    def test_producto_de_otra_categoria_se_preserva(self):
+        existentes = [self._prod("P1", "ZAPATO")]
+        out = merge_scraped_products(existentes, [], self.FILTER)
+        self.assertEqual(out, existentes)
+
+    def test_producto_dentro_del_filtro_lo_reemplaza_lo_scrapeado(self):
+        existentes = [self._prod("P1", "AA10", price_mxn=0.0)]
+        nuevos = [self._prod("P1", "AA10", price_mxn=150.0)]
+        out = merge_scraped_products(existentes, nuevos, self.FILTER)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["price_mxn"], 150.0)
+
+    def test_carcasa_con_category_id_none_se_repara(self):
+        """El bug exacto: guardado en 'General' con category_id None, la API lo
+        devuelve bajo AA10. Debe quedar UNA sola entrada, la buena."""
+        carcasa = self._prod("P1", None, category="General",
+                             price_mxn=0.0, images=[], status="out_of_stock")
+        bueno = self._prod("P1", "AA10", category="Gorro de Pico AA10",
+                           price_mxn=150.0, images=["http://x/1.jpg"],
+                           status="available")
+        out = merge_scraped_products([carcasa], [bueno], self.FILTER)
+        self.assertEqual(len(out), 1, "la carcasa sobrevivió al lado del bueno")
+        self.assertEqual(out[0]["category_id"], "AA10")
+        self.assertEqual(out[0]["price_mxn"], 150.0)
+        self.assertEqual(out[0]["images"], ["http://x/1.jpg"])
+
+    def test_no_duplica_cuando_el_producto_cambia_de_categoria(self):
+        """Si el proveedor lo movió de una categoría fuera del filtro a una de
+        adentro, la copia vieja no puede quedar colgada: sería un sku duplicado."""
+        viejo = self._prod("P1", "ZAPATO")
+        nuevo = self._prod("P1", "AA10")
+        out = merge_scraped_products([viejo], [nuevo], self.FILTER)
+        self.assertEqual([p["sku"] for p in out], ["P1"])
+        self.assertEqual(out[0]["category_id"], "AA10")
+
+    def test_producto_sin_sku_no_arrastra_a_los_demas(self):
+        """Una entrada corrupta sin sku no debe hacer que todos los productos
+        sin sku del JSON se consideren 'ya scrapeados' y desaparezcan."""
+        sin_sku = self._prod("", "ZAPATO")
+        otro_sin_sku = self._prod("", "RELOJ")
+        out = merge_scraped_products([sin_sku, otro_sin_sku], [self._prod("", "AA10")],
+                                     self.FILTER)
+        self.assertIn(sin_sku, out)
+        self.assertIn(otro_sin_sku, out)
+
+    def test_sin_filtro_lo_scrapeado_es_el_json_completo(self):
+        """Corrida sin --category: no hay nada que preservar."""
+        nuevos = [self._prod("P1", "AA10"), self._prod("P2", "ZAPATO")]
+        out = merge_scraped_products([self._prod("P9", "VIEJO")], nuevos, set())
+        self.assertEqual([p["sku"] for p in out], ["P1", "P2"])
+
+
+class RevivePendingCommandTests(TestCase):
+    """revive_pending: devuelve a la cola los pendientes que se rechazaron
+    porque el scraper los había guardado rotos.
+
+    Contexto (2026-08-17): un `category_id` nulo en scraped_modaverse.json dejaba
+    productos en 'General', sin imágenes y con precio 0. Se encolaron así, se
+    rechazaron a mano por inservibles, y la fila 'rejected' los volvió inmunes a
+    `load_productos` — que mete en `existing_urls` todos los pendientes sin mirar
+    su estado. Con el JSON ya reparado hay que desbloquearlos explícitamente.
+
+    Solo revive lo que HOY está sano en el JSON: un rechazo sobre un producto que
+    sigue roto era una decisión correcta y se respeta.
+    """
+
+    URL_OK = 'https://www.modaverse.vip/#/proinfo/PRTESTOK'
+    URL_ROTO = 'https://www.modaverse.vip/#/proinfo/PRTESTROTO'
+    URL_FUERA = 'https://www.modaverse.vip/#/proinfo/PRTESTFUERA'
+
+    def setUp(self):
+        self.general = Category.objects.create(
+            name='General', slug='general-rev', shipping_cost=0, profit_margin=100)
+        self.gorra = Category.objects.create(
+            name='Gorra', slug='gorra-rev', shipping_cost=0, profit_margin=100)
+        self.aa10 = Category.objects.create(
+            name='Gorro de Pico AA10', slug='aa10-rev', parent=self.gorra,
+            shipping_cost=0, profit_margin=100)
+
+        self.pend_ok = PendingProduct.objects.create(
+            supplier_url=self.URL_OK, display_name='YAA2825', category=self.general,
+            base_price=Decimal('0'), status='rejected',
+            reviewed_at=datetime.datetime(2026, 7, 4, tzinfo=datetime.timezone.utc),
+            raw_data={'sku': 'RYL-GEN-1', 'image_url': ''},
+        )
+        self.pend_roto = PendingProduct.objects.create(
+            supplier_url=self.URL_ROTO, display_name='ROTO', category=self.general,
+            base_price=Decimal('0'), status='rejected',
+            raw_data={'sku': 'RYL-GEN-2', 'image_url': ''},
+        )
+        self.pend_fuera = PendingProduct.objects.create(
+            supplier_url=self.URL_FUERA, display_name='FUERA', category=self.general,
+            base_price=Decimal('0'), status='rejected',
+            raw_data={'sku': 'RYL-GEN-3', 'image_url': ''},
+        )
+
+    def _json(self):
+        return {
+            'categories': [{
+                'id': 'CAP', 'name_es': 'Gorra',
+                'subcategories': [
+                    {'id': 'AA10', 'name_es': 'Gorro de Pico AA10'},
+                    {'id': 'AA11', 'name_es': 'Gorro de Pico AA11'},
+                ],
+            }, {
+                'id': 'ZAP', 'name_es': 'zapato', 'subcategories': [],
+            }],
+            'products': [
+                {'sku': 'PRTESTOK', 'category_id': 'AA10', 'category': 'Gorro de Pico AA10',
+                 'price_mxn': 150.0, 'images': ['http://x/1.jpg'], 'yn_launch': '1'},
+                # sigue roto: sin categoría, sin precio, sin imágenes
+                {'sku': 'PRTESTROTO', 'category_id': None, 'category': 'General',
+                 'price_mxn': 0.0, 'images': [], 'yn_launch': '1'},
+                # sano, pero de otra categoría: fuera del filtro
+                {'sku': 'PRTESTFUERA', 'category_id': 'ZAP', 'category': 'zapato',
+                 'price_mxn': 300.0, 'images': ['http://x/2.jpg'], 'yn_launch': '1'},
+            ],
+        }
+
+    def _run(self, *args):
+        out = StringIO()
+        with patch('catalog.management.commands.revive_pending.read_modaverse_json',
+                   return_value=self._json()):
+            call_command('revive_pending', '--category', 'gorra', *args, stdout=out)
+        return out.getvalue()
+
+    def test_dry_run_por_defecto_no_escribe(self):
+        self._run()
+        self.pend_ok.refresh_from_db()
+        self.assertEqual(self.pend_ok.status, 'rejected')
+
+    def test_revive_el_que_ya_esta_sano(self):
+        self._run('--apply')
+        self.pend_ok.refresh_from_db()
+        self.assertEqual(self.pend_ok.status, 'pending')
+        self.assertEqual(self.pend_ok.category, self.aa10)
+        self.assertEqual(self.pend_ok.base_price, Decimal('150'))
+        self.assertEqual(self.pend_ok.raw_data['image_url'], 'http://x/1.jpg')
+        self.assertIsNone(self.pend_ok.reviewed_at)
+
+    def test_no_revive_el_que_sigue_roto(self):
+        """Rechazar un producto sin imágenes ni precio fue correcto; se respeta."""
+        self._run('--apply')
+        self.pend_roto.refresh_from_db()
+        self.assertEqual(self.pend_roto.status, 'rejected')
+
+    def test_no_toca_lo_de_otra_categoria(self):
+        self._run('--apply')
+        self.pend_fuera.refresh_from_db()
+        self.assertEqual(self.pend_fuera.status, 'rejected')
+
+    def test_no_toca_aprobados_ni_pendientes(self):
+        self.pend_ok.status = 'approved'
+        self.pend_ok.save(update_fields=['status'])
+        self._run('--apply')
+        self.pend_ok.refresh_from_db()
+        self.assertEqual(self.pend_ok.status, 'approved')
+
+    def test_no_revive_si_el_producto_ya_esta_en_el_catalogo(self):
+        """Si ya existe el Product, revivir el pendiente lo duplicaría."""
+        Product.objects.create(sku='RYL-AA10-1', name='YAA2825', category=self.aa10,
+                               base_price=Decimal('150'), supplier_url=self.URL_OK)
+        self._run('--apply')
+        self.pend_ok.refresh_from_db()
+        self.assertEqual(self.pend_ok.status, 'rejected')
+
+    def test_reporta_cuantos_reviviria(self):
+        salida = self._run()
+        self.assertIn('1', salida)

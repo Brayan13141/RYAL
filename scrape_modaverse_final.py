@@ -13,6 +13,7 @@ Uso:
   python scrape_modaverse_final.py --category gorras        # solo gorras (fusiona con JSON)
   python scrape_modaverse_final.py --category gorras camisetas  # varias categorías
   python scrape_modaverse_final.py --category gorras --no-merge # sobreescribe JSON
+  python scrape_modaverse_final.py --category gorras --dry-run  # reporta sin escribir
 """
 
 import argparse
@@ -36,7 +37,7 @@ except ImportError:
     _HAS_SCRAPLING = False
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'config'))
-from catalog.modaverse import parse_specifications  # noqa: E402
+from catalog.modaverse import parse_specifications, merge_scraped_products  # noqa: E402
 
 # ─── Argumentos ───────────────────────────────────────────────────────────────
 _ap = argparse.ArgumentParser(description='Scraper modaverse.vip')
@@ -57,6 +58,12 @@ _ap.add_argument(
 _ap.add_argument(
     '--no-browser', action='store_true',
     help='Forzar modo httpx puro (sin scrapling/Playwright). Útil en servidores sin Chromium.',
+)
+_ap.add_argument(
+    '--dry-run', action='store_true',
+    help='No escribir el JSON: solo reportar qué cambiaría (altas, reemplazos y '
+         'productos que se repararían de categoría). El JSON es la fuente del '
+         'catálogo de producción — mirar antes de escribir.',
 )
 _args = _ap.parse_args()
 
@@ -307,14 +314,16 @@ if filter_ids and not _args.no_merge and Path(OUTPUT_PATH).exists():
         with open(OUTPUT_PATH, encoding='utf-8') as _f:
             _existing = json.load(_f)
         existing_products = _existing.get('products', [])
-        _in_filter = 0
-        for _p in existing_products:
-            if filter_ids and _p.get('category_id', '') in filter_ids:
-                _in_filter += 1  # no agregar a seen_ids → será re-scrapeado con specs
-            else:
-                seen_ids.add(_p.get('sku', ''))
+        # Nada del JSON previo entra a seen_ids: lo que la Fase 2 devuelva para una
+        # categoría del filtro es la versión buena y debe reemplazar a la guardada.
+        # Sembrar seen_ids con los skus de afuera del filtro hacía que un producto
+        # con category_id nulo (archivado en 'General') se descartara por duplicado
+        # en cada corrida, quedando inmune a su propia reparación. La fusión final
+        # (merge_scraped_products) es la que evita duplicar.
+        _in_filter = sum(1 for _p in existing_products
+                         if _p.get('category_id') in filter_ids)
         log(f"JSON existente cargado: {len(existing_products)} productos previos "
-            f"({_in_filter} en categoría filtrada serán re-scrapeados con specs)")
+            f"({_in_filter} en categoría filtrada) — la Fase 2 los re-scrapea con specs")
     except Exception as _e:
         log(f"⚠ No se pudo cargar JSON existente: {_e} — se creará uno nuevo")
 
@@ -464,19 +473,36 @@ if unknown_cat_ids:
 if filter_ids and not _args.no_merge:
     # Preservar productos fuera del filtro; los de la categoría filtrada vienen
     # recién scrapeados en all_mapped (con sizes/colors de parse_specifications)
-    existing_outside = [p for p in existing_products if p.get('category_id', '') not in filter_ids]
-    final_products = existing_outside + all_mapped
-    log(f"\nFusión: {len(existing_outside)} fuera de filtro + {len(all_mapped)} re-scrapeados = {len(final_products)} total")
+    final_products = merge_scraped_products(existing_products, all_mapped, filter_ids)
+    _preservados = len(final_products) - len(all_mapped)
+    log(f"\nFusión: {_preservados} preservados + {len(all_mapped)} re-scrapeados = {len(final_products)} total")
 else:
     final_products = all_mapped
 
 results["products"]       = final_products
 results["total_products"] = len(final_products)
 
-with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
-    json.dump(results, f, ensure_ascii=False, indent=2)
+# ── Qué cambia respecto al JSON en disco ──────────────────────────────────────
+_prev_by_sku = {p.get('sku'): p for p in existing_products if p.get('sku')}
+_altas       = [p for p in all_mapped if p.get('sku') not in _prev_by_sku]
+_reparados   = [p for p in all_mapped
+                if p.get('sku') in _prev_by_sku
+                and _prev_by_sku[p['sku']].get('category_id') != p.get('category_id')]
+log(f"Cambios: {len(_altas)} altas, {len(_reparados)} con la categoría corregida")
+if _reparados:
+    for _p in _reparados[:10]:
+        _antes = _prev_by_sku[_p['sku']]
+        log(f"  {_p['sku']}: {_antes.get('category')!r} → {_p.get('category')!r}")
+    if len(_reparados) > 10:
+        log(f"  … y {len(_reparados) - 10} más")
 
-log(f"\nJSON escrito: {OUTPUT_PATH}")
+if _args.dry_run:
+    log(f"\n--dry-run: NO se escribió {OUTPUT_PATH} (quedaría en {len(final_products)} productos)")
+else:
+    with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
+        json.dump(results, f, ensure_ascii=False, indent=2)
+
+    log(f"\nJSON escrito: {OUTPUT_PATH}")
 
 
 # ─── RESUMEN ──────────────────────────────────────────────────────────────────

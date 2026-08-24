@@ -135,3 +135,33 @@ def sincronizar_precio(prod, precio):
         prod.modaverse_price = precio
         campos.append('modaverse_price')
     return campos
+
+
+def merge_scraped_products(existing_products, scraped_products, filter_ids):
+    """Fusiona el resultado de una corrida `--category` con el JSON previo.
+
+    Lo recién bajado manda: si la API acaba de devolver un producto para una
+    categoría del filtro, esa versión reemplaza a la guardada, esté archivada
+    donde esté.
+
+    Preservar solo por `category_id` no alcanza. Una entrada que quedó con
+    `category_id` nulo (respuesta degradada de la API → cae en 'General' con
+    precio 0 y sin imágenes) no coincide con ningún id del filtro, así que se
+    cuela en la lista de preservados y se vuelve **inmune** al mecanismo que
+    debería repararla: el scraper la baja completa y la descarta por duplicada.
+    Comparar también por sku rompe ese círculo, y de paso evita el sku duplicado
+    cuando el proveedor mueve un producto a una categoría del filtro.
+
+    Sin `filter_ids` (corrida completa) no hay nada que preservar: lo scrapeado
+    es el JSON entero.
+    """
+    scraped = list(scraped_products)
+    if not filter_ids:
+        return scraped
+
+    scraped_skus = {p.get('sku') for p in scraped if p.get('sku')}
+    preservados = [
+        p for p in existing_products
+        if p.get('category_id') not in filter_ids and p.get('sku') not in scraped_skus
+    ]
+    return preservados + scraped
