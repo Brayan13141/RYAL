@@ -123,6 +123,9 @@ def api_tienda_create(request):
         'ok': True,
         'pedido_id': pedido.pk,
         'total': f'{pedido.precio_venta + pedido.envio:.2f}',
+        # Artículos que no matchearon ningún tipo: se registraron con costo $0
+        # y la venta quedó con 100% de margen. El bot lo avisa en el grupo.
+        'sin_tipo': getattr(pedido, 'sin_tipo', []),
     })
 
 

@@ -66,12 +66,20 @@ def crear_pedido_tienda_bot(*, items, envio=Decimal('0')):
 
     tipos = list(TipoArticulo.objects.all())
     total_costo = Decimal('0')
+    sin_tipo = []
 
     for item in items:
         nombre_snap = (str(item.get('description') or '').strip() or 'ítem tienda')[:200]
         qty = int(item['qty'])
         precio_u = Decimal(str(item['price']))
-        costo_u = next((t.costo for t in tipos if t.matches(nombre_snap)), Decimal('0'))
+        tipo = next((t for t in tipos if t.matches(nombre_snap)), None)
+        # Sin tipo el costo queda en 0 y la venta se registra con 100% de
+        # margen. Cero es un costo plausible, así que nada lo delata después:
+        # hay que decirlo ahora, en el grupo, mientras quien capturó la venta
+        # todavía está mirando. No se inventa un costo — solo se avisa.
+        if tipo is None and nombre_snap not in sin_tipo:
+            sin_tipo.append(nombre_snap)
+        costo_u = tipo.costo if tipo else Decimal('0')
         PedidoItem.objects.create(
             pedido=pedido,
             product=None,
@@ -94,6 +102,8 @@ def crear_pedido_tienda_bot(*, items, envio=Decimal('0')):
         monto=precio_total,
         metodo_pago=Pago.EFECTIVO,
     )
+    # Transitorio, no se persiste: solo viaja hasta la respuesta del bot.
+    pedido.sin_tipo = sin_tipo
     return pedido
 
 

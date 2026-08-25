@@ -2205,3 +2205,81 @@ class AsignarKeywordTests(TestCase):
         self.client.logout()
         res = self.client.post('/panel/negocio/tipos/asignar/', {})
         self.assertEqual(res.status_code, 302)
+
+
+class VentaSinTipoAvisaTests(TestCase):
+    """Cuando ningún tipo matchea, el costo se graba en $0 y la venta queda
+    con 100% de margen. El cero es plausible, así que nada lo delata: hay que
+    decirlo en voz alta, en el grupo, mientras la persona que sabe sigue ahí.
+    """
+
+    def setUp(self):
+        TipoArticulo.objects.create(nombre='Gorras', keywords='gorra,gorras',
+                                    costo=Decimal('240'))
+
+    def test_el_pedido_expone_los_articulos_sin_tipo(self):
+        from negocio.services import crear_pedido_tienda_bot
+        pedido = crear_pedido_tienda_bot(items=[
+            {'description': 'gorras', 'price': 300, 'qty': 2},
+            {'description': 'Jordan', 'price': 750, 'qty': 1},
+        ])
+        self.assertEqual(pedido.sin_tipo, ['Jordan'])
+
+    def test_sin_huerfanos_la_lista_va_vacia(self):
+        from negocio.services import crear_pedido_tienda_bot
+        pedido = crear_pedido_tienda_bot(items=[
+            {'description': 'gorras', 'price': 300, 'qty': 2}])
+        self.assertEqual(pedido.sin_tipo, [])
+
+    def test_no_repite_el_mismo_texto_dos_veces(self):
+        from negocio.services import crear_pedido_tienda_bot
+        pedido = crear_pedido_tienda_bot(items=[
+            {'description': 'Jordan', 'price': 750, 'qty': 1},
+            {'description': 'Jordan', 'price': 750, 'qty': 1},
+        ])
+        self.assertEqual(pedido.sin_tipo, ['Jordan'])
+
+    def test_el_costo_sigue_en_cero_no_se_inventa_uno(self):
+        """El aviso no adivina el costo: sigue en 0 hasta que alguien decida."""
+        from negocio.services import crear_pedido_tienda_bot
+        pedido = crear_pedido_tienda_bot(items=[
+            {'description': 'Jordan', 'price': 750, 'qty': 1}])
+        self.assertEqual(pedido.costo_producto, Decimal('0'))
+
+    def test_no_avisa_si_algun_tipo_matcheo_aunque_sea_el_equivocado(self):
+        """El aviso cubre el costo $0, no el costo MAL asignado — son dos bugs
+        distintos. 'new balance' con la keyword 'new' de otro tipo se lleva un
+        costo (el de la gorra, $150), así que no queda huérfano y no se avisa.
+        Eso es el bug del matcher y se arregla por su lado; mezclarlos acá haría
+        que el aviso mintiera sobre lo que garantiza."""
+        from negocio.services import crear_pedido_tienda_bot
+        TipoArticulo.objects.create(nombre='Gorras New Era',
+                                    keywords='new era,new', costo=Decimal('150'))
+        pedido = crear_pedido_tienda_bot(items=[
+            {'description': 'new balance', 'price': 1200, 'qty': 1}])
+        self.assertEqual(pedido.sin_tipo, [])
+        self.assertEqual(pedido.costo_producto, Decimal('150'))
+
+
+@override_settings(NEGOCIO_API_KEY='test-key-123')
+class ApiTiendaSinTipoTests(TestCase):
+    def setUp(self):
+        TipoArticulo.objects.create(nombre='Gorras', keywords='gorra,gorras',
+                                    costo=Decimal('240'))
+
+    def _post(self, body, key='test-key-123'):
+        return self.client.post(
+            '/api/negocio/tienda/', data=json.dumps(body),
+            HTTP_AUTHORIZATION=f'Bearer {key}', content_type='application/json')
+
+    def test_devuelve_los_articulos_sin_tipo(self):
+        res = self._post({'items': [
+            {'description': 'gorras', 'price': 300, 'qty': 1},
+            {'description': 'Jordan', 'price': 750, 'qty': 1},
+        ]})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['sin_tipo'], ['Jordan'])
+
+    def test_lista_vacia_cuando_todo_matchea(self):
+        res = self._post({'items': [{'description': 'gorras', 'price': 300, 'qty': 1}]})
+        self.assertEqual(res.json()['sin_tipo'], [])
