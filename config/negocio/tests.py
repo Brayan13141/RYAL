@@ -1968,3 +1968,137 @@ class MasVendidosViewTests(TestCase):
         self.client.logout()
         res = self.client.get('/panel/negocio/mas-vendidos/')
         self.assertEqual(res.status_code, 302)
+
+
+class TextosSinTipoTests(TestCase):
+    """Textos de venta que no matchean ningún TipoArticulo.
+
+    Cuando `matches()` no encuentra tipo, `crear_pedido_tienda_bot` graba
+    `costo_unitario = 0` y la venta queda con 100% de margen sin avisar. Esta
+    lista es la única forma de ver qué keyword falta antes de que siga pasando.
+    """
+
+    def setUp(self):
+        self.cli = Cliente.objects.create(nombre='N', telefono='9')
+        TipoArticulo.objects.create(nombre='Gorras', keywords='gorra,gorras',
+                                    costo=Decimal('240'))
+
+    def _pedido(self, estado=Pedido.PAGADO, descripcion=''):
+        return Pedido.objects.create(
+            cliente=self.cli, descripcion=descripcion,
+            costo_producto=Decimal('0'), precio_venta=Decimal('0'),
+            estado=estado, fecha=datetime.date(2026, 7, 15),
+        )
+
+    def _item(self, pedido, nombre, cantidad=1, precio='750', costo='0'):
+        return PedidoItem.objects.create(
+            pedido=pedido, sku_snapshot='TIENDA-BOT', nombre_snapshot=nombre,
+            cantidad=cantidad, costo_unitario=Decimal(costo),
+            precio_unitario=Decimal(precio),
+        )
+
+    def test_lista_el_texto_que_no_matchea(self):
+        from negocio.services import textos_sin_tipo
+        p = self._pedido()
+        self._item(p, 'yezzy', cantidad=4)
+        filas = textos_sin_tipo()
+        self.assertEqual(len(filas), 1)
+        self.assertEqual(filas[0]['texto'], 'yezzy')
+        self.assertEqual(filas[0]['piezas'], 4)
+        self.assertEqual(filas[0]['ingreso'], Decimal('3000'))
+
+    def test_ignora_el_texto_que_si_matchea(self):
+        from negocio.services import textos_sin_tipo
+        p = self._pedido()
+        self._item(p, 'gorras', cantidad=10)
+        self.assertEqual(textos_sin_tipo(), [])
+
+    def test_agrupa_el_mismo_texto_de_pedidos_distintos(self):
+        from negocio.services import textos_sin_tipo
+        self._item(self._pedido(), 'Jordan', cantidad=5)
+        self._item(self._pedido(), 'Jordan', cantidad=4)
+        filas = textos_sin_tipo()
+        self.assertEqual(len(filas), 1)
+        self.assertEqual(filas[0]['piezas'], 9)
+        self.assertEqual(filas[0]['pedidos'], 2)
+
+    def test_distingue_mayusculas_porque_la_keyword_se_escribe_igual(self):
+        """'playera g5' y 'playera G5' son dos textos que el empleado teclea
+        distinto; verlos separados ayuda a elegir la keyword."""
+        from negocio.services import textos_sin_tipo
+        p = self._pedido()
+        self._item(p, 'playera g5')
+        self._item(p, 'playera G5')
+        self.assertEqual(len(textos_sin_tipo()), 2)
+
+    def test_ordena_por_dinero_en_juego(self):
+        from negocio.services import textos_sin_tipo
+        p = self._pedido()
+        self._item(p, 'barato', cantidad=1, precio='100')
+        self._item(p, 'caro', cantidad=1, precio='9000')
+        self.assertEqual([f['texto'] for f in textos_sin_tipo()], ['caro', 'barato'])
+
+    def test_marca_las_que_se_grabaron_con_costo_cero(self):
+        from negocio.services import textos_sin_tipo
+        p = self._pedido()
+        self._item(p, 'yezzy', costo='0')
+        self._item(p, 'otro raro', costo='500')
+        filas = {f['texto']: f for f in textos_sin_tipo()}
+        self.assertTrue(filas['yezzy']['costo_cero'])
+        self.assertFalse(filas['otro raro']['costo_cero'])
+
+    def test_incluye_pedidos_sin_lineas_por_su_descripcion(self):
+        from negocio.services import textos_sin_tipo
+        p = self._pedido(descripcion='1 playera 1:1')
+        p.precio_venta = Decimal('627')
+        p.save()
+        filas = textos_sin_tipo()
+        self.assertEqual([f['texto'] for f in filas], ['1 playera 1:1'])
+        self.assertEqual(filas[0]['ingreso'], Decimal('627'))
+
+    def test_excluye_pedidos_no_pagados(self):
+        from negocio.services import textos_sin_tipo
+        self._item(self._pedido(estado=Pedido.PENDIENTE), 'yezzy')
+        self.assertEqual(textos_sin_tipo(), [])
+
+    def test_sin_ventas_huerfanas_devuelve_vacio(self):
+        from negocio.services import textos_sin_tipo
+        self.assertEqual(textos_sin_tipo(), [])
+
+
+class TiposListAvisoTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user('tl', password='x', is_staff=True)
+        self.client.force_login(self.staff)
+        self.cli = Cliente.objects.create(nombre='N', telefono='9')
+        TipoArticulo.objects.create(nombre='Gorras', keywords='gorra,gorras',
+                                    costo=Decimal('240'))
+
+    def _venta(self, nombre, cantidad=4, precio='750', costo='0'):
+        p = Pedido.objects.create(
+            cliente=self.cli, costo_producto=Decimal('0'),
+            precio_venta=Decimal(precio) * cantidad, estado=Pedido.PAGADO,
+            fecha=datetime.date(2026, 7, 15),
+        )
+        PedidoItem.objects.create(
+            pedido=p, sku_snapshot='TIENDA-BOT', nombre_snapshot=nombre,
+            cantidad=cantidad, costo_unitario=Decimal(costo),
+            precio_unitario=Decimal(precio))
+
+    def test_muestra_el_aviso_con_los_textos_sueltos(self):
+        self._venta('yezzy')
+        res = self.client.get('/panel/negocio/tipos/')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual([f['texto'] for f in res.context['sin_tipo']], ['yezzy'])
+        self.assertContains(res, 'yezzy')
+
+    def test_sin_textos_sueltos_no_hay_aviso(self):
+        self._venta('gorras')
+        res = self.client.get('/panel/negocio/tipos/')
+        self.assertEqual(res.context['sin_tipo'], [])
+
+    def test_expone_el_dinero_en_juego(self):
+        self._venta('yezzy', cantidad=4, precio='750')
+        res = self.client.get('/panel/negocio/tipos/')
+        self.assertEqual(res.context['sin_tipo_ingreso'], Decimal('3000'))
+        self.assertEqual(res.context['sin_tipo_piezas'], 4)

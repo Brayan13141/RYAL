@@ -612,8 +612,17 @@ from .forms import TipoArticuloForm, CodigoDescuentoForm
 
 @staff_member_required
 def tipos_list(request):
+    from .services import textos_sin_tipo
+
     tipos = TipoArticulo.objects.all()
-    return render(request, 'negocio/tipo_articulo_list.html', {'tipos': tipos})
+    sin_tipo = textos_sin_tipo()
+    return render(request, 'negocio/tipo_articulo_list.html', {
+        'tipos': tipos,
+        'sin_tipo': sin_tipo,
+        'sin_tipo_piezas': sum(f['piezas'] for f in sin_tipo),
+        'sin_tipo_ingreso': sum((f['ingreso'] for f in sin_tipo), Decimal('0')),
+        'sin_tipo_costo_cero': sum(1 for f in sin_tipo if f['costo_cero']),
+    })
 
 
 @staff_member_required

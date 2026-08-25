@@ -15,6 +15,67 @@
   </a>
 </div>
 
+{% if sin_tipo %}
+<div style="background:rgba(224,168,0,.07);border:1px solid rgba(224,168,0,.45);border-radius:10px;padding:16px 18px;margin-bottom:24px;">
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+    <div>
+      <span style="color:#e0a800;font-weight:600;font-size:15px">
+        <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ sin_tipo|length }} texto{{ sin_tipo|length|pluralize }} de venta sin tipo
+      </span>
+      <div class="small mt-1" style="color:var(--pm)">
+        Ninguna keyword coincide con estos textos, así que el bot no encuentra el costo.
+        {% if sin_tipo_costo_cero %}<strong style="color:#e0a800">{{ sin_tipo_costo_cero }}</strong> se grabaron con <strong style="color:#e0a800">costo $0</strong>, o sea 100% de ganancia.{% endif %}
+        Agregá la keyword al tipo que corresponda para que las ventas nuevas salgan bien.
+      </div>
+    </div>
+    <div class="text-end">
+      <div style="font-size:11px;color:var(--pm);text-transform:uppercase;letter-spacing:.5px">En juego</div>
+      <div style="font-size:20px;font-weight:600;color:#e0a800;font-family:var(--f-display)">${{ sin_tipo_ingreso|floatformat:2 }}</div>
+      <div style="font-size:11px;color:var(--pm)">{{ sin_tipo_piezas }} pieza{{ sin_tipo_piezas|pluralize }}</div>
+    </div>
+  </div>
+
+  <div style="overflow-x:auto;">
+    <table class="table table-dark table-borderless mb-0" style="background:transparent;min-width:520px;">
+      <thead>
+        <tr style="border-bottom:1px solid rgba(224,168,0,.25)">
+          <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;padding:8px 10px;">Texto tecleado</th>
+          <th class="text-end" style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;padding:8px 10px;">Pzs</th>
+          <th class="text-end" style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;padding:8px 10px;">Ingreso</th>
+          <th class="text-end" style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;padding:8px 10px;">Costo grabado</th>
+          <th class="text-end" style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;padding:8px 10px;">Pedidos</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in sin_tipo %}
+        <tr style="border-bottom:1px solid rgba(224,168,0,.12)">
+          <td style="background:transparent;padding:8px 10px;vertical-align:middle;">
+            <code style="background:var(--pl);color:var(--pt);font-size:13px;padding:2px 7px;border-radius:4px">{{ f.texto }}</code>
+          </td>
+          <td class="text-end" style="background:transparent;color:var(--pt);font-size:14px;padding:8px 10px;vertical-align:middle;">{{ f.piezas }}</td>
+          <td class="text-end" style="background:transparent;color:var(--pt);font-size:14px;padding:8px 10px;vertical-align:middle;">${{ f.ingreso|floatformat:2 }}</td>
+          <td class="text-end" style="background:transparent;font-size:14px;padding:8px 10px;vertical-align:middle;">
+            {% if f.costo_cero %}
+            <span style="color:#e05555;font-weight:600">$0.00</span>
+            {% else %}
+            <span style="color:var(--pm)">${{ f.costo|floatformat:2 }}</span>
+            {% endif %}
+          </td>
+          <td class="text-end" style="background:transparent;color:var(--pm);font-size:13px;padding:8px 10px;vertical-align:middle;">{{ f.pedidos }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <p class="small mb-0 mt-2" style="color:var(--pm)">
+    <i class="bi bi-info-circle me-1"></i>
+    Agregar la keyword arregla las ventas <strong>futuras</strong>. Las de arriba ya
+    tienen su costo grabado y no cambian solas.
+  </p>
+</div>
+{% endif %}
+
 {% if tipos %}
 <div class="row g-3">
   {% for tipo in tipos %}

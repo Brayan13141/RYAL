@@ -322,6 +322,66 @@ def ranking_por_tipo(fecha_ini=None, fecha_fin=None):
     return ordenar_ranking(filas, 'piezas')
 
 
+def textos_sin_tipo():
+    """Textos de venta que hoy no matchean ningún TipoArticulo.
+
+    Cuando ninguna keyword coincide, `crear_pedido_tienda_bot` resuelve el
+    costo con `next((...), Decimal('0'))` y la venta se graba con costo CERO,
+    o sea 100% de margen. No falla, no avisa y no deja rastro: el único
+    síntoma es que la ganancia iguala al ingreso. Esta lista es lo que hace
+    visible qué keyword falta, antes de que siga pasando.
+
+    Ordena por ingreso: lo que más dinero mueve es lo que más urge nombrar.
+    """
+    from catalog.services import buscar_tipo_articulo
+
+    tipos = list(TipoArticulo.objects.all())
+    acumulado = {}
+
+    def fila_de(texto):
+        if texto not in acumulado:
+            acumulado[texto] = {
+                'texto': texto, 'piezas': 0, 'ingreso': Decimal('0'),
+                'costo': Decimal('0'), 'pedidos': set(),
+            }
+        return acumulado[texto]
+
+    for pedido in Pedido.objects.filter(estado=Pedido.PAGADO).prefetch_related('items'):
+        items = list(pedido.items.all())
+
+        if not items:
+            texto = (pedido.descripcion or '').strip()
+            if not texto or buscar_tipo_articulo(texto, tipos=tipos):
+                continue
+            fila = fila_de(texto)
+            fila['piezas'] += 1
+            fila['ingreso'] += pedido.precio_venta - pedido.descuento_aplicado
+            fila['costo'] += pedido.costo_producto
+            fila['pedidos'].add(pedido.pk)
+            continue
+
+        for item in items:
+            texto = (item.nombre_snapshot or '').strip()
+            if not texto or buscar_tipo_articulo(texto, tipos=tipos):
+                continue
+            fila = fila_de(texto)
+            fila['piezas'] += item.cantidad
+            fila['ingreso'] += item.precio_unitario * item.cantidad
+            fila['costo'] += item.costo_unitario * item.cantidad
+            fila['pedidos'].add(pedido.pk)
+
+    filas = []
+    for fila in acumulado.values():
+        fila['pedidos'] = len(fila['pedidos'])
+        # Sin costo grabado la venta entera se contó como ganancia. Es el caso
+        # grave y merece señalarse aparte de "falta una keyword".
+        fila['costo_cero'] = fila['costo'] == 0
+        filas.append(fila)
+
+    filas.sort(key=lambda f: (-f['ingreso'], f['texto']))
+    return filas
+
+
 ORDENES_RANKING = ('piezas', 'ingreso', 'ganancia')
 
 
