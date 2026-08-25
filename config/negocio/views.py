@@ -611,6 +611,64 @@ from .forms import TipoArticuloForm, CodigoDescuentoForm
 # ── TipoArticulo CRUD ────────────────────────────────────────────────────────
 
 @staff_member_required
+@require_POST
+def tipo_asignar_keyword(request):
+    """Asigna un texto de venta suelto a un tipo, agregándolo como keyword.
+
+    No escribe a ciegas: una keyword corta se roba textos de otros tipos por
+    substring, que es como 'new' se quedó con 'new balance'. Se simula primero
+    y se rechaza con el detalle de a quién le pegaría.
+    """
+    from django.contrib import messages
+    from django.core.exceptions import ValidationError
+    from .services import conflictos_de_keyword
+
+    try:
+        tipo = get_object_or_404(TipoArticulo, pk=int(request.POST.get('tipo_id') or 0))
+    except (TypeError, ValueError):
+        return redirect('negocio:tipos_list')
+
+    texto = ' '.join((request.POST.get('texto') or '').split())
+    keyword = ' '.join((request.POST.get('keyword') or '').split())
+
+    if not keyword:
+        messages.error(request, 'Escribí una keyword antes de asignar.')
+    elif keyword.lower() not in texto.lower():
+        messages.error(
+            request,
+            f'«{keyword}» no aparece en «{texto}», así que ese texto seguiría '
+            f'sin tipo. La keyword tiene que estar contenida en lo que se teclea.')
+    else:
+        conflictos = conflictos_de_keyword(tipo, keyword)
+        if conflictos:
+            detalle = '; '.join(
+                f'«{c["texto"]}» pasaría de {c["antes"]} a {c["despues"] or "sin tipo"}'
+                for c in conflictos[:4])
+            messages.error(
+                request,
+                f'«{keyword}» es demasiado general: rompería {len(conflictos)} '
+                f'texto{"s" if len(conflictos) != 1 else ""} que hoy resuelve'
+                f'{"n" if len(conflictos) != 1 else ""} bien — {detalle}. '
+                f'Usá una keyword más específica.')
+        else:
+            tipo.keywords = f'{tipo.keywords},{keyword}' if tipo.keywords.strip() else keyword
+            try:
+                tipo.full_clean()
+            except ValidationError as e:
+                messages.error(request, ' '.join(
+                    m for msgs in e.message_dict.values() for m in msgs))
+            else:
+                tipo.save()
+                messages.success(
+                    request,
+                    f'«{keyword}» asignada a {tipo.nombre}. Las ventas nuevas con '
+                    f'ese texto ya toman su costo; las viejas conservan el que '
+                    f'tienen grabado.')
+
+    return redirect('negocio:tipos_list')
+
+
+@staff_member_required
 def tipos_list(request):
     from .services import textos_sin_tipo
 

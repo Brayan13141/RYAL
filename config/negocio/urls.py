@@ -30,6 +30,7 @@ urlpatterns = [
     path('etiquetas/print/',                   views.etiquetas_print,     name='etiquetas_print'),
     # TipoArticulo
     path('tipos/',                             views.tipos_list,          name='tipos_list'),
+    path('tipos/asignar/',                     views.tipo_asignar_keyword, name='tipo_asignar_keyword'),
     path('tipos/nuevo/',                       views.tipo_create,         name='tipo_create'),
     path('tipos/<int:pk>/editar/',             views.tipo_edit,           name='tipo_edit'),
     path('tipos/<int:pk>/eliminar/',           views.tipo_delete,         name='tipo_delete'),

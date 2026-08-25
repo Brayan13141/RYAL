@@ -382,6 +382,71 @@ def textos_sin_tipo():
     return filas
 
 
+def _textos_de_venta():
+    """Todos los textos distintos con que se registraron ventas cobradas."""
+    from django.db.models import Count
+
+    textos = set(
+        PedidoItem.objects
+        .filter(pedido__estado=Pedido.PAGADO)
+        .values_list('nombre_snapshot', flat=True)
+    )
+    textos |= set(
+        Pedido.objects
+        .filter(estado=Pedido.PAGADO)
+        .annotate(_n=Count('items')).filter(_n=0)
+        .values_list('descripcion', flat=True)
+    )
+    return {t.strip() for t in textos if t and t.strip()}
+
+
+def _tipo_del_bot(texto, tipos):
+    """La regla que usa `crear_pedido_tienda_bot` para elegir el costo: el
+    PRIMER tipo que matchea, en orden alfabético. No es la misma que
+    `buscar_tipo_articulo` (keyword más larga), y esa diferencia es la que
+    grabó 4 New Balance con costo de gorra."""
+    return next((t for t in tipos if t.matches(texto)), None)
+
+
+def conflictos_de_keyword(tipo, keyword):
+    """Textos que hoy resuelven bien y se romperían si `tipo` sumara `keyword`.
+
+    `matches()` es por substring, así que una keyword corta se lleva puesto
+    todo lo que la contenga: 'new' (de Gorras New Era) se quedó con
+    'new balance'. Simular antes de escribir es lo único que lo impide.
+
+    Se comprueban LAS DOS reglas: la del reporte (keyword más larga) y la del
+    bot (primero alfabético). Una keyword puede ser inocua para una y
+    destructiva para la otra — y la del bot es la que decide el costo.
+    """
+    from catalog.services import buscar_tipo_articulo
+
+    tipos = list(TipoArticulo.objects.all())
+    simulados = [
+        TipoArticulo(pk=t.pk, nombre=t.nombre, costo=t.costo,
+                     keywords=f'{t.keywords},{keyword}' if t.pk == tipo.pk else t.keywords)
+        for t in tipos
+    ]
+    simulados.sort(key=lambda t: t.nombre)
+
+    conflictos = []
+    for texto in sorted(_textos_de_venta()):
+        for resolver in (buscar_tipo_articulo, _tipo_del_bot):
+            antes = resolver(texto, tipos)
+            if antes is None:
+                continue
+            despues = resolver(texto, simulados)
+            if despues is None or despues.pk != antes.pk:
+                conflictos.append({
+                    'texto': texto,
+                    'antes': antes.nombre,
+                    'despues': despues.nombre if despues else None,
+                })
+                break
+
+    return conflictos
+
+
 ORDENES_RANKING = ('piezas', 'ingreso', 'ganancia')
 
 

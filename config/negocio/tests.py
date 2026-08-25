@@ -2102,3 +2102,106 @@ class TiposListAvisoTests(TestCase):
         res = self.client.get('/panel/negocio/tipos/')
         self.assertEqual(res.context['sin_tipo_ingreso'], Decimal('3000'))
         self.assertEqual(res.context['sin_tipo_piezas'], 4)
+
+
+class AsignarKeywordTests(TestCase):
+    """Asignar desde el aviso el texto suelto a un tipo, como keyword.
+
+    El riesgo real: `matches()` es por substring, así que una keyword corta se
+    roba textos de otros tipos. Es exactamente como 'new' (de Gorras New Era)
+    se quedó con 'new balance'. Por eso cada asignación se simula antes de
+    escribirla.
+    """
+
+    def setUp(self):
+        self.staff = User.objects.create_user('ak', password='x', is_staff=True)
+        self.client.force_login(self.staff)
+        self.cli = Cliente.objects.create(nombre='N', telefono='9')
+        self.yeezy = TipoArticulo.objects.create(
+            nombre='Tenis yeezy', keywords='tenis yeezy,yeezy', costo=Decimal('580'))
+        self.nb = TipoArticulo.objects.create(
+            nombre='New balance', keywords='new balance', costo=Decimal('680'))
+
+    def _venta(self, nombre, cantidad=1, precio='750', costo='0'):
+        p = Pedido.objects.create(
+            cliente=self.cli, costo_producto=Decimal('0'),
+            precio_venta=Decimal(precio) * cantidad, estado=Pedido.PAGADO,
+            fecha=datetime.date(2026, 7, 15))
+        PedidoItem.objects.create(
+            pedido=p, sku_snapshot='TIENDA-BOT', nombre_snapshot=nombre,
+            cantidad=cantidad, costo_unitario=Decimal(costo),
+            precio_unitario=Decimal(precio))
+
+    def _post(self, **kw):
+        datos = {'texto': 'yezzy', 'keyword': 'yezzy', 'tipo_id': self.yeezy.pk}
+        datos.update(kw)
+        return self.client.post('/panel/negocio/tipos/asignar/', datos, follow=True)
+
+    def test_agrega_la_keyword_al_tipo(self):
+        self._venta('yezzy')
+        self._post()
+        self.yeezy.refresh_from_db()
+        self.assertIn('yezzy', self.yeezy.keywords_list)
+
+    def test_el_texto_pasa_a_matchear(self):
+        from catalog.services import buscar_tipo_articulo
+        self._venta('yezzy')
+        self.assertIsNone(buscar_tipo_articulo('yezzy'))
+        self._post()
+        self.assertEqual(buscar_tipo_articulo('yezzy'), self.yeezy)
+
+    def test_desaparece_del_aviso(self):
+        self._venta('yezzy')
+        self._post()
+        res = self.client.get('/panel/negocio/tipos/')
+        self.assertEqual(res.context['sin_tipo'], [])
+
+    def test_rechaza_keyword_que_no_esta_en_el_texto(self):
+        """Si la keyword no está contenida en el texto, el texto sigue suelto:
+        la asignación no habría servido para nada."""
+        self._venta('yezzy')
+        res = self._post(keyword='zapatilla')
+        self.yeezy.refresh_from_db()
+        self.assertNotIn('zapatilla', self.yeezy.keywords_list)
+        self.assertContains(res, 'no aparece en')
+
+    def test_rechaza_la_keyword_que_le_roba_un_texto_a_otro_tipo(self):
+        """El caso real: 'Gorras New Era' ordena antes que 'New balance', así
+        que si se le da la keyword 'new', el matcher del bot (primero
+        alfabético) le asigna a 'new balance' el costo de una gorra."""
+        gorras = TipoArticulo.objects.create(
+            nombre='Gorras New Era', keywords='new era', costo=Decimal('150'))
+        self._venta('new balance')
+        self._venta('gorra new')
+        res = self._post(texto='gorra new', keyword='new', tipo_id=gorras.pk)
+        gorras.refresh_from_db()
+        self.assertNotIn('new', gorras.keywords_list)
+        self.assertContains(res, 'new balance')
+
+    def test_permite_la_keyword_que_no_toca_a_nadie(self):
+        self._venta('yezzy')
+        self._venta('new balance')
+        self._post()
+        from catalog.services import buscar_tipo_articulo
+        self.assertEqual(buscar_tipo_articulo('new balance'), self.nb)
+
+    def test_rechaza_keyword_vacia(self):
+        self._venta('yezzy')
+        res = self._post(keyword='   ')
+        self.yeezy.refresh_from_db()
+        self.assertEqual(self.yeezy.keywords_list, ['tenis yeezy', 'yeezy'])
+        self.assertEqual(res.status_code, 200)
+
+    def test_rechaza_tipo_inexistente(self):
+        self._venta('yezzy')
+        res = self._post(tipo_id=99999)
+        self.assertEqual(res.status_code, 404)
+
+    def test_exige_post(self):
+        res = self.client.get('/panel/negocio/tipos/asignar/')
+        self.assertEqual(res.status_code, 405)
+
+    def test_exige_staff(self):
+        self.client.logout()
+        res = self.client.post('/panel/negocio/tipos/asignar/', {})
+        self.assertEqual(res.status_code, 302)
