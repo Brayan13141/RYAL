@@ -20,7 +20,8 @@
       --pt: #e0e0e0;
       --pm: #888;
       --sidebar-w: 220px;
-      --sidebar-collapsed-w: 54px;
+      --sidebar-collapsed-w: 68px;
+      --rail-tile: 44px;
     }
 
     *,
@@ -929,6 +930,152 @@
 
     .p-layout.collapsed .p-nav-group-btn:hover::after {
       opacity: 1;
+    }
+
+    /* ══ Rail colapsado: placas en vez de franjas ═══════════════════════════
+       Sin etiqueta, el icono ES el control, así que necesita una forma propia.
+       El borde izquierdo y el tinte a todo el ancho son el idioma de una fila
+       de 220px con texto; a 54px dejaban un glifo chico flotando en una franja
+       ancha. Acá cada item pasa a ser una placa con su propio contorno.
+       Solo aplica en el rail: expandido no cambia nada.                      */
+
+    .p-layout.collapsed .p-nav a,
+    .p-layout.collapsed .p-nav-group-btn {
+      width: var(--rail-tile);
+      height: var(--rail-tile);
+      margin: 3px auto;
+      padding: 0;
+      justify-content: center;
+      border-left: none;
+      border-radius: 12px;
+      background: transparent;
+      transition: background .14s ease, color .14s ease, box-shadow .14s ease;
+    }
+
+    .p-layout.collapsed .p-nav a i,
+    .p-layout.collapsed .p-nav-group-btn>i:first-child {
+      font-size: 20px;
+      width: auto;
+    }
+
+    .p-layout.collapsed .p-nav a:hover,
+    .p-layout.collapsed .p-nav-group-btn:hover {
+      background: rgba(255, 255, 255, .07);
+      color: #f0f0f0;
+    }
+
+    .p-layout.collapsed .p-nav a.on,
+    .p-layout.collapsed .p-nav-group-btn.on {
+      color: var(--pg);
+      background: rgba(212, 175, 55, .13);
+      box-shadow: inset 0 0 0 1px rgba(212, 175, 55, .38);
+    }
+
+    /* La cabecera de sección ya no cabe como texto, pero el agrupamiento sí es
+       información: se convierte en una hairline corta en vez de un hueco. */
+    .p-layout.collapsed .p-nav-sec {
+      opacity: 1;
+      font-size: 0;
+      color: transparent;
+      width: 24px;
+      height: 1px;
+      padding: 0;
+      margin: 11px auto 10px;
+      background: var(--pl);
+    }
+
+    .p-layout.collapsed .p-nav-sec:first-child {
+      display: none;
+    }
+
+    /* Punto: este icono esconde un submenú. */
+    .p-layout.collapsed .p-nav-group-btn::before {
+      content: '';
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: rgba(212, 175, 55, .5);
+    }
+
+    .p-layout.collapsed .p-nav-group-btn.on::before,
+    .p-layout.collapsed .p-nav-group-btn:hover::before {
+      background: var(--pg);
+    }
+
+    /* ── Flyout del submenú ──────────────────────────────────────────────────
+       Sin esto el rail es un callejón sin salida: el botón de grupo alterna
+       .open pero el submenú queda en max-height 0, así que colapsado no se
+       llega a Negocio ni a sus 5 pantallas sin volver a expandir.            */
+
+    /* Ambos recortan: .p-sidebar para que el texto no se derrame durante la
+       transición de ancho, .p-nav para el scroll. Colapsado no hace falta
+       ninguno de los dos — las etiquetas ya están en width:0 y los 9 items
+       del rail entran sin scroll — y los dos matarían el flyout. */
+    .p-layout.collapsed .p-sidebar,
+    .p-layout.collapsed .p-nav {
+      overflow: visible;
+    }
+
+    .p-layout.collapsed .p-nav-group {
+      position: relative;
+    }
+
+    .p-layout.collapsed .p-nav-group:hover .p-nav-sub,
+    .p-layout.collapsed .p-nav-group:focus-within .p-nav-sub {
+      max-height: none !important;
+      position: absolute;
+      left: var(--sidebar-collapsed-w);
+      top: -4px;
+      min-width: 190px;
+      padding: 6px;
+      background: var(--ps);
+      border: 1px solid var(--pl);
+      border-radius: 12px;
+      box-shadow: 0 14px 34px rgba(0, 0, 0, .6);
+      overflow: visible;
+      z-index: 320;
+    }
+
+    .p-layout.collapsed .p-nav-sub a {
+      width: auto;
+      height: auto;
+      margin: 0;
+      padding: 8px 12px !important;
+      justify-content: flex-start;
+      gap: 10px;
+      border-radius: 8px;
+      font-size: 12.5px;
+    }
+
+    .p-layout.collapsed .p-nav-sub a i {
+      font-size: 14px;
+      width: 16px;
+    }
+
+    .p-layout.collapsed .p-nav-sub .nav-label {
+      opacity: 1;
+      width: auto;
+    }
+
+    /* El flyout ya dice el nombre del grupo: el tooltip se superpondría. */
+    .p-layout.collapsed .p-nav-group-btn:hover::after,
+    .p-layout.collapsed .p-nav-sub a::after {
+      display: none;
+    }
+
+    .p-layout.collapsed .p-nav a::after {
+      left: calc(var(--sidebar-collapsed-w) + 2px);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+
+      .p-layout.collapsed .p-nav a,
+      .p-layout.collapsed .p-nav-group-btn {
+        transition: none;
+      }
     }
 
     @media print {
