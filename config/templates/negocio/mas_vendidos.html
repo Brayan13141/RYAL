@@ -1,0 +1,127 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Más vendidos — RYAL{% endblock %}
+{% block page_title %}Más vendidos por tipo{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div>
+    <h4 class="mb-0" style="font-family:var(--f-display)">Más vendidos por tipo</h4>
+    <p class="small mb-0 mt-1" style="color:var(--pm)">
+      <i class="bi bi-upc-scan me-1"></i>Ventas del negocio agrupadas por tipo de artículo.
+      Solo pedidos pagados.
+    </p>
+  </div>
+  <form method="get" class="d-flex align-items-center gap-2">
+    <input type="hidden" name="orden" value="{{ orden }}">
+    <select name="mes" onchange="this.form.submit()"
+      style="background:#111;border:1px solid var(--pl);color:var(--pt);padding:6px 14px;border-radius:6px;font-size:13px;cursor:pointer;outline:none;">
+      <option value="todo" {% if mes == 'todo' %}selected{% endif %}>Todo el tiempo</option>
+      {% for op in meses_disponibles %}
+      <option value="{{ op.valor }}" {% if mes == op.valor %}selected{% endif %}>{{ op.label }}</option>
+      {% endfor %}
+    </select>
+    <span style="font-size:13px;color:var(--pm)">{{ periodo_label }}</span>
+  </form>
+</div>
+
+{% if filas %}
+
+<div class="row g-3 mb-3">
+  <div class="col-12 col-md-4">
+    <div style="background:var(--ps);border:1px solid var(--pl);border-radius:10px;padding:14px 18px;">
+      <div style="font-size:11px;color:var(--pm);text-transform:uppercase;letter-spacing:.5px">Piezas vendidas</div>
+      <div style="font-size:26px;font-weight:600;color:var(--pt);font-family:var(--f-display)">{{ total_piezas }}</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-4">
+    <div style="background:var(--ps);border:1px solid var(--pl);border-radius:10px;padding:14px 18px;">
+      <div style="font-size:11px;color:var(--pm);text-transform:uppercase;letter-spacing:.5px">Ingreso</div>
+      <div style="font-size:26px;font-weight:600;color:var(--pt);font-family:var(--f-display)">${{ total_ingreso|floatformat:2 }}</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-4">
+    <div style="background:var(--ps);border:1px solid rgba(212,175,55,.4);border-radius:10px;padding:14px 18px;">
+      <div style="font-size:11px;color:var(--pm);text-transform:uppercase;letter-spacing:.5px">Ganancia</div>
+      <div style="font-size:26px;font-weight:600;color:var(--pg);font-family:var(--f-display)">${{ total_ganancia|floatformat:2 }}</div>
+    </div>
+  </div>
+</div>
+
+<div style="background:var(--ps);border:1px solid var(--pl);border-radius:10px;overflow:hidden;">
+  <div style="overflow-x:auto;">
+    <table class="table table-dark table-borderless mb-0" style="background:transparent;min-width:640px;">
+      <thead>
+        <tr style="border-bottom:1px solid var(--pl)">
+          <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;padding:12px 18px;">#</th>
+          <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;padding:12px 18px;">Tipo</th>
+          <th class="text-end" style="background:transparent;padding:12px 18px;">
+            <a href="?mes={{ mes }}&orden=piezas" style="text-decoration:none;font-size:11px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;color:{% if orden == 'piezas' %}var(--pg){% else %}var(--pm){% endif %}">
+              Piezas{% if orden == 'piezas' %} <i class="bi bi-caret-down-fill"></i>{% endif %}
+            </a>
+          </th>
+          <th class="text-end" style="background:transparent;padding:12px 18px;">
+            <a href="?mes={{ mes }}&orden=ingreso" style="text-decoration:none;font-size:11px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;color:{% if orden == 'ingreso' %}var(--pg){% else %}var(--pm){% endif %}">
+              Ingreso{% if orden == 'ingreso' %} <i class="bi bi-caret-down-fill"></i>{% endif %}
+            </a>
+          </th>
+          <th class="text-end" style="background:transparent;padding:12px 18px;">
+            <a href="?mes={{ mes }}&orden=ganancia" style="text-decoration:none;font-size:11px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;color:{% if orden == 'ganancia' %}var(--pg){% else %}var(--pm){% endif %}">
+              Ganancia{% if orden == 'ganancia' %} <i class="bi bi-caret-down-fill"></i>{% endif %}
+            </a>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for fila in filas %}
+        <tr style="border-bottom:1px solid var(--pl)">
+          <td style="background:transparent;color:var(--pm);font-size:12px;padding:12px 18px;vertical-align:middle;">
+            {% if fila.tipo %}{{ forloop.counter }}{% else %}—{% endif %}
+          </td>
+          <td style="background:transparent;padding:12px 18px;vertical-align:middle;">
+            {% if fila.tipo %}
+            <span style="color:var(--pt);font-weight:600;font-size:14px">{{ fila.tipo }}</span>
+            {% else %}
+            <span style="color:#e0a800;font-weight:600;font-size:14px">
+              <i class="bi bi-exclamation-triangle-fill me-1"></i>Sin clasificar
+            </span>
+            <div style="font-size:11px;color:var(--pm);margin-top:2px">
+              Texto que no coincide con ninguna keyword de tipo
+            </div>
+            {% endif %}
+            {% if fila.sin_desglose %}
+            <div style="font-size:11px;color:var(--pm);margin-top:2px">
+              <i class="bi bi-info-circle me-1"></i>{{ fila.sin_desglose }} pedido{{ fila.sin_desglose|pluralize }} sin desglose
+            </div>
+            {% endif %}
+            <div style="height:3px;background:var(--pl);border-radius:2px;margin-top:6px;max-width:220px;">
+              <div style="height:3px;background:var(--pg);border-radius:2px;width:{% widthratio fila.piezas total_piezas 100 %}%"></div>
+            </div>
+          </td>
+          <td class="text-end" style="background:transparent;color:var(--pt);font-size:16px;font-weight:600;padding:12px 18px;vertical-align:middle;">{{ fila.piezas }}</td>
+          <td class="text-end" style="background:transparent;color:var(--pt);font-size:14px;padding:12px 18px;vertical-align:middle;">${{ fila.ingreso|floatformat:2 }}</td>
+          <td class="text-end" style="background:transparent;font-size:14px;font-weight:600;padding:12px 18px;vertical-align:middle;color:{% if fila.ganancia < 0 %}#e05555{% else %}var(--pg){% endif %}">${{ fila.ganancia|floatformat:2 }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if total_sin_desglose %}
+<p class="small mt-3 mb-0" style="color:var(--pm)">
+  <i class="bi bi-info-circle me-1"></i>
+  {{ total_sin_desglose }} pedido{{ total_sin_desglose|pluralize }} se capturó a mano y no tiene desglose de líneas:
+  su dinero está contado completo, pero cuenta como <strong>1 pieza</strong> porque la cantidad
+  solo existe dentro del texto de la descripción.
+</p>
+{% endif %}
+
+{% else %}
+<div style="background:var(--ps);border:1px solid var(--pl);border-radius:10px;padding:40px;text-align:center;">
+  <i class="bi bi-inbox" style="font-size:32px;color:var(--pm)"></i>
+  <p class="mb-0 mt-2" style="color:var(--pm)">No hay ventas pagadas en {{ periodo_label|lower }}.</p>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -240,3 +240,96 @@ def crear_pedido_bot(*, nombre, telefono, items, envio=Decimal('0'),
     ])
 
     return pedido
+
+
+def ranking_por_tipo(fecha_ini=None, fecha_fin=None):
+    """Ventas del negocio agrupadas por TipoArticulo, más vendido primero.
+
+    En el negocio no existe la entidad "producto": ninguna línea tiene FK a
+    catalog.Product y el nombre es texto libre que el empleado tecleó en el
+    grupo del bot ('gorra', 'gorras' y 'gorra barbas' son lo mismo). El tipo
+    es la única agrupación confiable, y además ya es de grano producto.
+
+    El dinero sale del `precio_unitario`/`costo_unitario` GRABADOS en cada
+    línea, no de recalcular contra el catálogo: son ventas cerradas y su
+    precio de ese día es el que vale.
+
+    Devuelve una lista de dicts con tipo (None = sin clasificar), piezas,
+    ingreso, costo, ganancia y sin_desglose. Sin clasificar va siempre al
+    final: esconderlo descuadraría los totales sin que se note.
+    """
+    from catalog.services import buscar_tipo_articulo
+
+    pedidos = Pedido.objects.filter(estado=Pedido.PAGADO)
+    if fecha_ini is not None:
+        pedidos = pedidos.filter(fecha__gte=fecha_ini)
+    if fecha_fin is not None:
+        pedidos = pedidos.filter(fecha__lt=fecha_fin)
+
+    tipos = list(TipoArticulo.objects.all())
+    acumulado = {}
+
+    def fila_de(tipo):
+        nombre = tipo.nombre if tipo else None
+        if nombre not in acumulado:
+            acumulado[nombre] = {
+                'tipo': nombre, 'piezas': 0, 'ingreso': Decimal('0'),
+                'costo': Decimal('0'), 'sin_desglose': 0,
+            }
+        return acumulado[nombre]
+
+    for pedido in pedidos.prefetch_related('items'):
+        items = list(pedido.items.all())
+
+        if not items:
+            # Pedido capturado a mano: no hay campo de cantidad, la cantidad
+            # vive dentro del texto. Cuenta 1 pieza y se declara en pantalla;
+            # parsear prosa para afinar eso cambia un error chico por un
+            # riesgo permanente.
+            fila = fila_de(buscar_tipo_articulo(pedido.descripcion, tipos=tipos))
+            fila['piezas'] += 1
+            fila['ingreso'] += pedido.precio_venta - pedido.descuento_aplicado
+            fila['costo'] += pedido.costo_producto
+            fila['sin_desglose'] += 1
+            continue
+
+        # El descuento vive en el pedido, no en la línea: se reparte a
+        # prorrata para que la suma del ranking siga siendo la del dashboard.
+        bruto = sum(i.precio_unitario * i.cantidad for i in items)
+        repartido = Decimal('0')
+        for pos, item in enumerate(items):
+            subtotal = item.precio_unitario * item.cantidad
+            if pedido.descuento_aplicado and bruto:
+                if pos == len(items) - 1:
+                    parte = pedido.descuento_aplicado - repartido
+                else:
+                    parte = (pedido.descuento_aplicado * subtotal / bruto).quantize(
+                        Decimal('0.01'))
+                    repartido += parte
+            else:
+                parte = Decimal('0')
+
+            fila = fila_de(buscar_tipo_articulo(item.nombre_snapshot, tipos=tipos))
+            fila['piezas'] += item.cantidad
+            fila['ingreso'] += subtotal - parte
+            fila['costo'] += item.costo_unitario * item.cantidad
+
+    filas = []
+    for fila in acumulado.values():
+        fila['ganancia'] = fila['ingreso'] - fila['costo']
+        filas.append(fila)
+
+    return ordenar_ranking(filas, 'piezas')
+
+
+ORDENES_RANKING = ('piezas', 'ingreso', 'ganancia')
+
+
+def ordenar_ranking(filas, orden):
+    """Ordena el ranking descendente por `orden`, dejando "sin clasificar"
+    siempre al final. `orden` desconocido cae a piezas."""
+    if orden not in ORDENES_RANKING:
+        orden = 'piezas'
+    filas = sorted(filas, key=lambda f: (-f[orden], -f['ingreso']))
+    filas.sort(key=lambda f: f['tipo'] is None)
+    return filas

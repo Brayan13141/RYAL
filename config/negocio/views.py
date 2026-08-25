@@ -781,3 +781,51 @@ def label_print_json(request, sku):
         cover = next(iter(product.images.all()), None)
     image_url = request.build_absolute_uri(cover.image.url) if cover and cover.image else None
     return JsonResponse(_build_label_json(product, image_url=image_url))
+
+
+@staff_member_required
+def mas_vendidos(request):
+    """Ranking de lo más vendido en el negocio, agrupado por tipo de artículo."""
+    from .services import ranking_por_tipo, ordenar_ranking, ORDENES_RANKING
+
+    hoy = datetime.date.today()
+    mes = request.GET.get('mes', f"{hoy.year}-{hoy.month:02d}")
+
+    if mes == 'todo':
+        fecha_ini = fecha_fin = None
+        periodo_label = 'Todo el tiempo'
+    else:
+        try:
+            y, m = map(int, mes.split('-'))
+            fecha_ini, fecha_fin = _mes_range(y, m)
+            periodo_label = f"{_MESES_ES[m-1]} {y}"
+        except (ValueError, IndexError, AttributeError):
+            mes = f"{hoy.year}-{hoy.month:02d}"
+            fecha_ini, fecha_fin = _mes_range(hoy.year, hoy.month)
+            periodo_label = f"{_MESES_ES[hoy.month-1]} {hoy.year}"
+
+    orden = request.GET.get('orden', 'piezas')
+    if orden not in ORDENES_RANKING:
+        orden = 'piezas'
+
+    filas = ordenar_ranking(ranking_por_tipo(fecha_ini, fecha_fin), orden)
+
+    meses_disponibles = []
+    for i in range(11, -1, -1):
+        tm, ty = hoy.month - i, hoy.year
+        while tm <= 0:
+            tm += 12
+            ty -= 1
+        meses_disponibles.append({'valor': f"{ty}-{tm:02d}", 'label': f"{_MESES_ES[tm-1]} {ty}"})
+
+    return render(request, 'negocio/mas_vendidos.html', {
+        'filas': filas,
+        'orden': orden,
+        'mes': mes,
+        'periodo_label': periodo_label,
+        'meses_disponibles': meses_disponibles,
+        'total_piezas': sum(f['piezas'] for f in filas),
+        'total_ingreso': sum((f['ingreso'] for f in filas), Decimal('0')),
+        'total_ganancia': sum((f['ganancia'] for f in filas), Decimal('0')),
+        'total_sin_desglose': sum(f['sin_desglose'] for f in filas),
+    })

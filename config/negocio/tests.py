@@ -1748,3 +1748,223 @@ class CajaAjusteTests(TestCase):
         res = self.client.get('/panel/negocio/caja/')
         self.assertEqual(res.status_code, 200)
         self.assertContains(res, 'Saldo inicial')
+
+
+class RankingPorTipoTests(TestCase):
+    """`ranking_por_tipo` agrupa las ventas del negocio por TipoArticulo.
+
+    El texto de una venta es libre y ruidoso ('gorra', 'gorras', 'gorra
+    barbas' son lo mismo), y no hay FK a Product en ninguna línea: el tipo es
+    la única unidad de agrupación confiable que existe.
+    """
+
+    def setUp(self):
+        self.cli = Cliente.objects.create(nombre='N', telefono='9')
+        self.gorras = TipoArticulo.objects.create(
+            nombre='Gorras', keywords='gorra,gorras', costo=Decimal('240'))
+        self.tenis = TipoArticulo.objects.create(
+            nombre='Tenis', keywords='tenis', costo=Decimal('600'))
+
+    def _pedido(self, fecha=None, estado=Pedido.PAGADO, descuento='0', descripcion=''):
+        return Pedido.objects.create(
+            cliente=self.cli, descripcion=descripcion,
+            costo_producto=Decimal('0'), precio_venta=Decimal('0'),
+            descuento_aplicado=Decimal(descuento), estado=estado,
+            fecha=fecha or datetime.date(2026, 7, 15),
+        )
+
+    def _item(self, pedido, nombre, cantidad=1, precio='300', costo='240'):
+        it = PedidoItem.objects.create(
+            pedido=pedido, sku_snapshot='TIENDA-BOT', nombre_snapshot=nombre,
+            cantidad=cantidad, costo_unitario=Decimal(costo),
+            precio_unitario=Decimal(precio),
+        )
+        # precio_venta del pedido = suma de sus líneas, como lo deja el bot.
+        pedido.precio_venta = sum(i.precio_unitario * i.cantidad for i in pedido.items.all())
+        pedido.save(update_fields=['precio_venta'])
+        return it
+
+    def _fila(self, filas, nombre):
+        return next(f for f in filas if f['tipo'] == nombre)
+
+    def test_agrupa_variantes_de_texto_en_el_mismo_tipo(self):
+        """'gorra' y 'gorras' son el mismo producto: deben sumar juntos."""
+        from negocio.services import ranking_por_tipo
+        p = self._pedido()
+        self._item(p, 'gorra', cantidad=1)
+        self._item(p, 'gorras', cantidad=10)
+        filas = ranking_por_tipo()
+        self.assertEqual(len(filas), 1)
+        self.assertEqual(filas[0]['tipo'], 'Gorras')
+        self.assertEqual(filas[0]['piezas'], 11)
+
+    def test_ordena_por_piezas_descendente(self):
+        from negocio.services import ranking_por_tipo
+        p = self._pedido()
+        self._item(p, 'tenis', cantidad=2)
+        self._item(p, 'gorras', cantidad=9)
+        filas = ranking_por_tipo()
+        self.assertEqual([f['tipo'] for f in filas], ['Gorras', 'Tenis'])
+
+    def test_ganancia_es_ingreso_menos_costo_grabado(self):
+        from negocio.services import ranking_por_tipo
+        p = self._pedido()
+        self._item(p, 'gorras', cantidad=2, precio='300', costo='240')
+        fila = ranking_por_tipo()[0]
+        self.assertEqual(fila['ingreso'], Decimal('600'))
+        self.assertEqual(fila['costo'], Decimal('480'))
+        self.assertEqual(fila['ganancia'], Decimal('120'))
+
+    def test_el_total_del_ranking_es_el_total_del_dashboard(self):
+        """El invariante que importa: si el reporte no suma lo mismo que el
+        dashboard, uno de los dos miente y no se sabe cuál."""
+        from negocio.services import ranking_por_tipo
+        from negocio.utils import _VENDIDO_EXPR
+        from django.db.models import Sum
+        p1 = self._pedido()
+        self._item(p1, 'gorras', cantidad=3, precio='300')
+        p2 = self._pedido()
+        self._item(p2, 'tenis', cantidad=1, precio='900', costo='600')
+        p3 = self._pedido(descripcion='1 tenis')
+        p3.precio_venta = Decimal('500')
+        p3.costo_producto = Decimal('300')
+        p3.save()
+
+        del_dashboard = Pedido.objects.filter(estado=Pedido.PAGADO).aggregate(
+            v=Sum(_VENDIDO_EXPR))['v']
+        del_ranking = sum(f['ingreso'] for f in ranking_por_tipo())
+        self.assertEqual(del_ranking, del_dashboard)
+
+    def test_el_descuento_del_pedido_se_prorratea_entre_sus_lineas(self):
+        """Hoy no hay ni un descuento aplicado en producción. El día que lo
+        haya, el ranking no puede despegarse del dashboard en silencio."""
+        from negocio.services import ranking_por_tipo
+        from negocio.utils import _VENDIDO_EXPR
+        from django.db.models import Sum
+        p = self._pedido(descuento='100')
+        self._item(p, 'gorras', cantidad=1, precio='300')
+        self._item(p, 'tenis', cantidad=1, precio='700', costo='600')
+
+        del_dashboard = Pedido.objects.filter(estado=Pedido.PAGADO).aggregate(
+            v=Sum(_VENDIDO_EXPR))['v']
+        filas = ranking_por_tipo()
+        self.assertEqual(sum(f['ingreso'] for f in filas), del_dashboard)
+        # El descuento pesa proporcionalmente: 30% del precio para gorras.
+        self.assertEqual(self._fila(filas, 'Gorras')['ingreso'], Decimal('270'))
+        self.assertEqual(self._fila(filas, 'Tenis')['ingreso'], Decimal('630'))
+
+    def test_pedido_sin_lineas_entra_por_su_descripcion(self):
+        """Los 7 pedidos capturados a mano no tienen PedidoItem: su tipo sale
+        de la descripción y cuentan 1 pieza (no hay campo de cantidad)."""
+        from negocio.services import ranking_por_tipo
+        p = self._pedido(descripcion='3 gorras Barbas')
+        p.precio_venta = Decimal('500')
+        p.costo_producto = Decimal('240')
+        p.save()
+        filas = ranking_por_tipo()
+        self.assertEqual(len(filas), 1)
+        self.assertEqual(filas[0]['tipo'], 'Gorras')
+        self.assertEqual(filas[0]['piezas'], 1)
+        self.assertEqual(filas[0]['ingreso'], Decimal('500'))
+        self.assertEqual(filas[0]['sin_desglose'], 1)
+
+    def test_lo_que_no_matchea_ningun_tipo_es_visible(self):
+        """Esconder lo no clasificado haría que los totales no cuadren sin
+        que se note."""
+        from negocio.services import ranking_por_tipo
+        p = self._pedido()
+        self._item(p, 'playera 1:1', cantidad=2, precio='300')
+        filas = ranking_por_tipo()
+        self.assertEqual(len(filas), 1)
+        self.assertIsNone(filas[0]['tipo'])
+        self.assertEqual(filas[0]['piezas'], 2)
+
+    def test_gana_la_keyword_mas_larga_no_la_primera_alfabetica(self):
+        """`matches()` a secas devuelve el primer tipo por orden alfabético y
+        manda 'new balance' a 'Gorras New Era' por la keyword 'new'. El
+        reporte agrupa con la regla correcta."""
+        from negocio.services import ranking_por_tipo
+        TipoArticulo.objects.create(
+            nombre='Gorras New Era', keywords='new era,new', costo=Decimal('150'))
+        TipoArticulo.objects.create(
+            nombre='New balance', keywords='new balance', costo=Decimal('680'))
+        p = self._pedido()
+        self._item(p, 'new balance', cantidad=1, precio='1200', costo='150')
+        filas = ranking_por_tipo()
+        self.assertEqual([f['tipo'] for f in filas], ['New balance'])
+
+    def test_excluye_pedidos_no_pagados(self):
+        from negocio.services import ranking_por_tipo
+        p = self._pedido(estado=Pedido.PENDIENTE)
+        self._item(p, 'gorras', cantidad=5)
+        self.assertEqual(ranking_por_tipo(), [])
+
+    def test_filtra_por_rango_de_fechas(self):
+        from negocio.services import ranking_por_tipo
+        dentro = self._pedido(fecha=datetime.date(2026, 7, 15))
+        self._item(dentro, 'gorras', cantidad=2)
+        fuera = self._pedido(fecha=datetime.date(2026, 8, 15))
+        self._item(fuera, 'tenis', cantidad=9)
+        filas = ranking_por_tipo(datetime.date(2026, 7, 1), datetime.date(2026, 8, 1))
+        self.assertEqual([f['tipo'] for f in filas], ['Gorras'])
+        self.assertEqual(filas[0]['piezas'], 2)
+
+    def test_sin_ventas_devuelve_lista_vacia(self):
+        from negocio.services import ranking_por_tipo
+        self.assertEqual(ranking_por_tipo(), [])
+
+
+class MasVendidosViewTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user('mv', password='x', is_staff=True)
+        self.client.force_login(self.staff)
+        self.cli = Cliente.objects.create(nombre='N', telefono='9')
+        TipoArticulo.objects.create(nombre='Gorras', keywords='gorra,gorras',
+                                    costo=Decimal('240'))
+        TipoArticulo.objects.create(nombre='Tenis', keywords='tenis',
+                                    costo=Decimal('600'))
+        p = Pedido.objects.create(
+            cliente=self.cli, costo_producto=Decimal('0'),
+            precio_venta=Decimal('1500'), estado=Pedido.PAGADO,
+            fecha=datetime.date(2026, 7, 15),
+        )
+        # Gorras: más piezas, menos ganancia. Tenis: al revés. Así el orden
+        # elegido cambia el primer puesto y el test lo puede distinguir.
+        PedidoItem.objects.create(
+            pedido=p, sku_snapshot='TIENDA-BOT', nombre_snapshot='gorras',
+            cantidad=5, costo_unitario=Decimal('240'), precio_unitario=Decimal('260'))
+        PedidoItem.objects.create(
+            pedido=p, sku_snapshot='TIENDA-BOT', nombre_snapshot='tenis',
+            cantidad=1, costo_unitario=Decimal('600'), precio_unitario=Decimal('1400'))
+
+    def test_responde_y_trae_el_ranking(self):
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual([f['tipo'] for f in res.context['filas']], ['Gorras', 'Tenis'])
+
+    def test_ordena_por_ganancia_cuando_se_pide(self):
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07&orden=ganancia')
+        self.assertEqual([f['tipo'] for f in res.context['filas']], ['Tenis', 'Gorras'])
+
+    def test_orden_invalido_cae_al_default_sin_romper(self):
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07&orden=; DROP TABLE')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.context['orden'], 'piezas')
+        self.assertEqual([f['tipo'] for f in res.context['filas']], ['Gorras', 'Tenis'])
+
+    def test_mes_acota_el_periodo(self):
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-06')
+        self.assertEqual(res.context['filas'], [])
+
+    def test_mes_todo_no_filtra(self):
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=todo')
+        self.assertEqual(len(res.context['filas']), 2)
+
+    def test_mes_invalido_no_rompe(self):
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=no-es-un-mes')
+        self.assertEqual(res.status_code, 200)
+
+    def test_exige_staff(self):
+        self.client.logout()
+        res = self.client.get('/panel/negocio/mas-vendidos/')
+        self.assertEqual(res.status_code, 302)

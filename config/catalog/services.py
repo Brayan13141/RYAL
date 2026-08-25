@@ -20,22 +20,29 @@ def consumir_uso(codigo: str = None, *, pk: int = None) -> bool:
     ).update(usos_actuales=F('usos_actuales') + 1) > 0
 
 
-def buscar_tipo_articulo(texto: str):
+def buscar_tipo_articulo(texto: str, tipos=None):
     """Devuelve el TipoArticulo cuya keyword coincidente más larga (más
     específica) aparezca en texto, o None si ninguna coincide.
 
     Varios tipos pueden compartir una keyword genérica (ej. "gorras"); si el
     texto también contiene una keyword más específica de otro tipo (ej. "new
     era"), esa debe ganar en vez del primero por orden alfabético de nombre.
+
+    `tipos`: lista ya cargada de TipoArticulo. Sin ella cada llamada consulta
+    la tabla completa, lo que en un reporte que recorre cientos de líneas se
+    vuelve una query por línea.
     """
     from .models import TipoArticulo
     texto_norm = ' '.join((texto or '').lower().split())
     if not texto_norm:
         return None
 
+    if tipos is None:
+        tipos = TipoArticulo.objects.all()
+
     mejor_tipo = None
     mejor_len = -1
-    for tipo in TipoArticulo.objects.all():
+    for tipo in tipos:
         for kw in tipo.keywords_list:
             kw_norm = ' '.join(kw.split()).lower()
             if kw_norm in texto_norm and len(kw_norm) > mejor_len:
