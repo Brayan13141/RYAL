@@ -82,6 +82,33 @@ class Order(models.Model):
         return sum(item.quantity for item in self.items.all())
 
     @property
+    def costo_mercancia(self):
+        """Lo que hay que pagarle al proveedor por este pedido.
+
+        Misma cadena de respaldo que `ganancia` — snapshot, costo vivo del
+        producto, y $100 por unidad como último recurso — a propósito: si las
+        dos divergieran, la caja y el reporte contarían costos distintos para
+        el mismo pedido. Hay un test que fija la consistencia.
+        """
+        from decimal import Decimal
+        total = Decimal('0')
+        for item in self.items.all():
+            if item.cost_snapshot is not None:
+                total += item.cost_snapshot * item.quantity
+            elif item.product_id:
+                try:
+                    cost = item.product.effective_base_price + item.product.effective_shipping
+                    total += cost * item.quantity
+                except Exception:
+                    total += (item.price_snapshot - Decimal('100')) * item.quantity
+            else:
+                # OJO: el último recurso de `ganancia` asume $100 de GANANCIA
+                # por unidad, no un costo de $100. El costo implícito es lo que
+                # queda del precio. Leerlo al revés descuadra las dos.
+                total += (item.price_snapshot - Decimal('100')) * item.quantity
+        return total
+
+    @property
     def ganancia(self):
         from decimal import Decimal
         total = Decimal('0')
