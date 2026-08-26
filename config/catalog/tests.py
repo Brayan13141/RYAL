@@ -2418,3 +2418,34 @@ class AliasTextoTests(TestCase):
         # del TestCase rota y el siguiente query de la clase revienta.
         with self.assertRaises(IntegrityError), transaction.atomic():
             AliasTexto.objects.create(texto='  JORDAN ', tipo=self.tipo)
+
+from catalog.services import sugerencias_de_tipo
+
+
+class SugerenciasDeTipoTests(TestCase):
+    def setUp(self):
+        self.j4 = TipoArticulo.objects.create(
+            nombre='JORDAN 4', keywords='jordan 4', costo=Decimal('680'))
+        self.j1 = TipoArticulo.objects.create(
+            nombre='Jordan 1', keywords='jordan 1, J1', costo=Decimal('620'))
+        self.yeezy = TipoArticulo.objects.create(
+            nombre='Tenis yeezy', keywords='yeezy', costo=Decimal('550'))
+
+    def test_jordan_suelto_ofrece_los_dos_jordan(self):
+        nombres = [t.nombre for t in sugerencias_de_tipo('Jordan')]
+        self.assertIn('JORDAN 4', nombres)
+        self.assertIn('Jordan 1', nombres)
+
+    def test_puntua_contra_las_keywords_no_solo_contra_el_nombre(self):
+        # 'yezzy' se parece poco a «Tenis yeezy» y mucho a su keyword 'yeezy'.
+        nombres = [t.nombre for t in sugerencias_de_tipo('yezzy')]
+        self.assertEqual(nombres[0], 'Tenis yeezy')
+
+    def test_sin_parecido_devuelve_vacio(self):
+        self.assertEqual(sugerencias_de_tipo('qwxzpl'), [])
+
+    def test_respeta_el_limite(self):
+        self.assertLessEqual(len(sugerencias_de_tipo('jordan', limite=1)), 1)
+
+    def test_texto_vacio_devuelve_vacio(self):
+        self.assertEqual(sugerencias_de_tipo('   '), [])

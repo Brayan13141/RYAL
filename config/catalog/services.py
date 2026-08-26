@@ -58,6 +58,43 @@ def buscar_tipo_articulo(texto: str, tipos=None):
     return mejor_tipo
 
 
+def sugerencias_de_tipo(texto, tipos=None, limite=3, piso=0.45):
+    """Tipos que se PARECEN al texto, para ofrecerlos cuando ninguno matcheó.
+
+    Puntúa contra el nombre del tipo Y contra cada una de sus keywords, y se
+    queda con el mejor de los dos: 'yezzy' se parece poco a «Tenis yeezy»
+    pero mucho a su keyword 'yeezy', y es la keyword la que sabe que es el
+    mismo producto.
+
+    `piso` corta el ruido: sin él cualquier texto corto "se parece" a todo.
+    Devolver vacío es una respuesta válida — el bot sabe decirlo.
+    """
+    from difflib import SequenceMatcher
+    from .models import TipoArticulo
+
+    texto_norm = normalizar_texto(texto)
+    if not texto_norm:
+        return []
+
+    if tipos is None:
+        tipos = TipoArticulo.objects.all()
+
+    puntuados = []
+    for tipo in tipos:
+        candidatos = [tipo.nombre] + tipo.keywords_list
+        mejor = max(
+            (SequenceMatcher(None, texto_norm, normalizar_texto(c)).ratio()
+             for c in candidatos),
+            default=0.0,
+        )
+        if mejor >= piso:
+            puntuados.append((mejor, tipo))
+
+    # Desempate por nombre para que el orden sea estable entre corridas.
+    puntuados.sort(key=lambda par: (-par[0], par[1].nombre))
+    return [tipo for _, tipo in puntuados[:limite]]
+
+
 def validar_codigo(
     codigo: str,
     descriptions: list = None,
