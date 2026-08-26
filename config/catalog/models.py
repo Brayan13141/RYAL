@@ -685,6 +685,40 @@ class TipoArticulo(models.Model):
         return [kw.strip() for kw in self.keywords.split(',') if kw.strip()]
 
 
+class AliasTexto(models.Model):
+	"""Texto de venta EXACTO → TipoArticulo.
+
+	Las keywords matchean por substring, así que la pantalla de tipos exige
+	que la keyword esté contenida en el texto tecleado. Eso deja textos que
+	ninguna keyword puede capturar: `Jordan` no contiene `jordan 4`, y
+	`jordan` a secas se robaría las ventas de `jordan 1` por el orden
+	alfabético del matcher. El alias es coincidencia exacta, así que no puede
+	filtrarse a ningún otro texto — por eso es lo que se crea cuando alguien
+	elige una opción desde el grupo.
+	"""
+
+	texto      = models.CharField(
+		max_length=200, unique=True,
+		help_text='Texto tal como se teclea. Se guarda en minúsculas y con espacios colapsados.')
+	tipo       = models.ForeignKey(TipoArticulo, on_delete=models.CASCADE, related_name='alias')
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['texto']
+		verbose_name = 'Alias de texto'
+		verbose_name_plural = 'Alias de texto'
+
+	def __str__(self):
+		return f'{self.texto} → {self.tipo.nombre}'
+
+	def save(self, *args, **kwargs):
+		# Import local: `catalog.services` importa modelos dentro de sus
+		# funciones, y a nivel de módulo esto sería circular.
+		from catalog.services import normalizar_texto
+		self.texto = normalizar_texto(self.texto)
+		super().save(*args, **kwargs)
+
+
 class CodigoDescuento(models.Model):
     NEGOCIO = 'negocio'
     WEB     = 'web'

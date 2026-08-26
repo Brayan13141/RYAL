@@ -20,6 +20,13 @@ def consumir_uso(codigo: str = None, *, pk: int = None) -> bool:
     ).update(usos_actuales=F('usos_actuales') + 1) > 0
 
 
+def normalizar_texto(texto: str) -> str:
+    """Minúsculas y espacios colapsados: la forma canónica en que se guardan
+    y se comparan los alias. Es la misma normalización que ya hace
+    `TipoArticulo.matches()`, para que alias y keywords vean el mismo texto."""
+    return ' '.join((texto or '').lower().split())
+
+
 def buscar_tipo_articulo(texto: str, tipos=None):
     """Devuelve el TipoArticulo cuya keyword coincidente más larga (más
     específica) aparezca en texto, o None si ninguna coincide.
