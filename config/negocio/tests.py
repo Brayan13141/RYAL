@@ -2285,104 +2285,112 @@ class ApiTiendaSinTipoTests(TestCase):
         self.assertEqual(res.json()['sin_tipo'], [])
 
 
-class CostoMercanciaWebTests(TestCase):
-    """Un pedido web cobrado entra completo a caja, pero la mercancía todavía
-    hay que pagarla al proveedor y esa salida NO se registra en ningún lado
-    (la app `orders` no crea Gastos). Sin descontarla, la caja muestra como
-    tuyo dinero que ya es del proveedor.
+class GananciaWebEnCajaTests(TestCase):
+    """De un pedido web solo entra a caja la GANANCIA, y solo cuando está
+    liquidado.
+
+    El resto del cobro es dinero que se le debe al proveedor: mientras el
+    pedido no esté 100% cubierto no se reconoce nada, ni siquiera la parte
+    proporcional del anticipo.
+
+    Y hay un corte: un AjusteCaja (arqueo) declara "el efectivo real es este",
+    así que todo lo cobrado hasta esa fecha ya se cuadró contra dinero contado
+    a mano. Volver a tocarlo lo restaría dos veces — que es justo el error que
+    hundió la caja de $27,258 a $20,553.
     """
 
-    def _order(self, codigo, descuento='0'):
+    def _order(self, codigo, precio, costo, qty=1):
         from orders.models import Order
-        return Order.objects.create(
-            order_code=codigo, customer_name='Ana', customer_phone='5512345678',
-            descuento_aplicado=Decimal(descuento),
-        )
-
-    def _item(self, order, precio, costo, qty=1, product=None):
-        return order.items.create(
-            product=product, quantity=qty,
+        o = Order.objects.create(
+            order_code=codigo, customer_name='Ana', customer_phone='5512345678')
+        o.items.create(
+            product=None, quantity=qty,
             price_snapshot=Decimal(precio),
             cost_snapshot=Decimal(costo) if costo is not None else None,
-            sku_snapshot='SKU-1', name_snapshot='Producto',
-        )
+            sku_snapshot='SKU-1', name_snapshot='Producto')
+        return o
 
-    def _pago(self, order, monto):
+    def _pago(self, order, monto, fecha=None):
         from orders.models import OrderPayment
         return OrderPayment.objects.create(
-            order=order, fecha=datetime.date(2026, 8, 1), monto=Decimal(monto))
+            order=order, fecha=fecha or datetime.date(2026, 8, 20),
+            monto=Decimal(monto))
 
-    def test_usa_el_cost_snapshot_cuando_esta(self):
-        o = self._order('W1')
-        self._item(o, '1000', '600', qty=2)
-        self.assertEqual(o.costo_mercancia, Decimal('1200'))
+    def _arqueo(self, fecha, monto='0'):
+        from negocio.models import AjusteCaja
+        return AjusteCaja.objects.create(
+            fecha=fecha, monto=Decimal(monto),
+            saldo_resultante=Decimal('0'), motivo='arqueo')
 
-    def test_sin_cost_snapshot_ni_producto_usa_el_mismo_fallback_que_ganancia(self):
-        """El último recurso de `ganancia` asume $100 de GANANCIA por unidad,
-        no un costo de $100: el costo implícito es lo que queda del precio.
-        Si acá se leyera al revés, la caja y el reporte contarían costos
-        distintos para el mismo pedido."""
-        o = self._order('W2')
-        self._item(o, '1000', None, qty=3)
-        self.assertEqual(o.costo_mercancia, Decimal('2700'))
-
-    def test_ganancia_y_costo_son_consistentes(self):
-        """El invariante que ata las dos propiedades: lo vendido menos el
-        costo menos el descuento tiene que dar la ganancia."""
-        o = self._order('W3', descuento='150')
-        self._item(o, '1000', '600', qty=2)
-        self._item(o, '500', None, qty=1)
-        vendido = sum(i.price_snapshot * i.quantity for i in o.items.all())
-        self.assertEqual(o.ganancia, vendido - o.costo_mercancia - o.descuento_aplicado)
-
-    def test_caja_descuenta_la_mercancia_de_los_pedidos_cobrados(self):
+    def test_liquidado_aporta_solo_la_ganancia(self):
         from negocio.caja import caja_totales
-        o = self._order('W4')
-        self._item(o, '1000', '600')
+        o = self._order('W1', '1000', '600')
         self._pago(o, '1000')
-        c = caja_totales()
-        self.assertEqual(c['cobrado'], Decimal('1000'))
-        self.assertEqual(c['costo_mercancia_web'], Decimal('600'))
-        self.assertEqual(c['saldo'], Decimal('400'))
+        self.assertEqual(caja_totales()['saldo'], Decimal('400'))
 
-    def test_no_descuenta_pedidos_que_nadie_cobro(self):
-        """Sin cobro no hay plata que entró ni mercancía que se haya pedido."""
+    def test_anticipo_no_aporta_nada(self):
+        """Mientras falte un peso, todo lo cobrado se le debe al proveedor."""
         from negocio.caja import caja_totales
-        o = self._order('W5')
-        self._item(o, '1000', '600')
-        c = caja_totales()
-        self.assertEqual(c['costo_mercancia_web'], Decimal('0'))
-        self.assertEqual(c['saldo'], Decimal('0'))
+        o = self._order('W2', '1000', '600')
+        self._pago(o, '700')
+        self.assertEqual(caja_totales()['saldo'], Decimal('0'))
 
-    def test_un_anticipo_ya_compromete_la_mercancia_completa(self):
-        """Se cobra el 30% pero al proveedor se le paga el pedido entero."""
+    def test_al_completarse_recien_aparece_la_ganancia(self):
         from negocio.caja import caja_totales
-        o = self._order('W6')
-        self._item(o, '1000', '600')
+        o = self._order('W3', '1000', '600')
+        self._pago(o, '700')
+        self.assertEqual(caja_totales()['saldo'], Decimal('0'))
         self._pago(o, '300')
-        c = caja_totales()
-        self.assertEqual(c['costo_mercancia_web'], Decimal('600'))
-        self.assertEqual(c['saldo'], Decimal('-300'))
+        self.assertEqual(caja_totales()['saldo'], Decimal('400'))
 
-    def test_no_cuenta_dos_veces_el_pedido_con_dos_pagos(self):
+    def test_pedido_sin_cobrar_no_aporta(self):
         from negocio.caja import caja_totales
-        o = self._order('W7')
-        self._item(o, '1000', '600')
-        self._pago(o, '400')
-        self._pago(o, '600')
-        c = caja_totales()
-        self.assertEqual(c['costo_mercancia_web'], Decimal('600'))
-        self.assertEqual(c['saldo'], Decimal('400'))
+        self._order('W4', '1000', '600')
+        self.assertEqual(caja_totales()['saldo'], Decimal('0'))
 
-    def test_las_ventas_del_negocio_no_se_tocan(self):
-        """El costo del negocio ya sale por Gasto: descontarlo acá lo restaría
-        dos veces."""
+    def test_lo_cobrado_antes_del_arqueo_se_toma_tal_cual(self):
+        """El arqueo ya cuadró la caja contra el efectivo real: recalcular esos
+        pedidos con la regla nueva los restaría dos veces."""
+        from negocio.caja import caja_totales
+        viejo = self._order('W5', '1000', '600')
+        self._pago(viejo, '1000', fecha=datetime.date(2026, 7, 1))
+        self._arqueo(datetime.date(2026, 8, 2))
+        self.assertEqual(caja_totales()['saldo'], Decimal('1000'))
+
+    def test_despues_del_arqueo_si_aplica_la_regla(self):
+        from negocio.caja import caja_totales
+        self._arqueo(datetime.date(2026, 8, 2))
+        nuevo = self._order('W6', '1000', '600')
+        self._pago(nuevo, '1000', fecha=datetime.date(2026, 8, 25))
+        self.assertEqual(caja_totales()['saldo'], Decimal('400'))
+
+    def test_conviven_los_dos_lados_del_arqueo(self):
+        from negocio.caja import caja_totales
+        viejo = self._order('W7', '1000', '600')
+        self._pago(viejo, '1000', fecha=datetime.date(2026, 7, 1))
+        self._arqueo(datetime.date(2026, 8, 2))
+        nuevo = self._order('W8', '2000', '1500')
+        self._pago(nuevo, '2000', fecha=datetime.date(2026, 8, 25))
+        self.assertEqual(caja_totales()['saldo'], Decimal('1500'))
+
+    def test_sin_arqueo_la_regla_aplica_a_todo(self):
+        from negocio.caja import caja_totales
+        o = self._order('W9', '1000', '600')
+        self._pago(o, '1000', fecha=datetime.date(2026, 7, 1))
+        self.assertEqual(caja_totales()['saldo'], Decimal('400'))
+
+    def test_las_ventas_del_negocio_entran_completas(self):
+        """En el negocio la compra al proveedor ya se carga como Gasto: si acá
+        también se descontara, saldría dos veces."""
         from negocio.caja import caja_totales
         cli = Cliente.objects.create(nombre='N', telefono='9')
         p = Pedido.objects.create(
             cliente=cli, costo_producto=Decimal('600'), precio_venta=Decimal('1000'),
-            estado=Pedido.PAGADO, fecha=datetime.date(2026, 8, 1))
+            estado=Pedido.PAGADO, fecha=datetime.date(2026, 8, 25))
         Pago.objects.create(pedido=p, fecha=p.fecha, monto=Decimal('1000'))
-        c = caja_totales()
-        self.assertEqual(c['costo_mercancia_web'], Decimal('0'))
-        self.assertEqual(c['saldo'], Decimal('1000'))
+        self.assertEqual(caja_totales()['saldo'], Decimal('1000'))
+
+    def test_ganancia_y_costo_siguen_siendo_consistentes(self):
+        o = self._order('W10', '1000', '600', qty=2)
+        vendido = sum(i.price_snapshot * i.quantity for i in o.items.all())
+        self.assertEqual(o.ganancia, vendido - o.costo_mercancia - o.descuento_aplicado)

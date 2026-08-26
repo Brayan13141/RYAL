@@ -638,7 +638,10 @@ class DashboardCajaTests(TestCase):
 
         o = Order.objects.create(order_code='K-1', customer_name='C', customer_phone='1',
                                  status='pending', is_paid=False)
-        # Adelanto del MES PASADO (pedido NO liquidado): debe seguir contando.
+        # Adelanto del MES PASADO sobre un pedido web NO liquidado: NO cuenta.
+        # Ese dinero es lo primero que se va en pagarle la mercancía al
+        # proveedor, así que la caja no lo puede mostrar como disponible. Un
+        # pedido web solo aporta su ganancia, y recién cuando está liquidado.
         OrderPayment.objects.create(order=o, fecha=mes_pasado, monto=Decimal('300'),
                                     metodo_pago='efectivo')
         cli = Cliente.objects.create(nombre='N', telefono='9')
@@ -650,9 +653,9 @@ class DashboardCajaTests(TestCase):
         Gasto.objects.create(fecha=date.today(), descripcion='Renta', monto=Decimal('100'))
 
         res = self.client.get('/panel/')
-        self.assertEqual(res.context['caja_cobrado'], Decimal('500'))  # 300 (mes pasado) + 200
+        self.assertEqual(res.context['caja_cobrado'], Decimal('200'))  # solo el del negocio
         self.assertEqual(res.context['caja_gastos'], Decimal('100'))
-        self.assertEqual(res.context['caja_saldo'], Decimal('400'))    # 500 − 100
+        self.assertEqual(res.context['caja_saldo'], Decimal('100'))    # 200 − 100
 
 
 @override_settings(RATELIMIT_ENABLE=False)

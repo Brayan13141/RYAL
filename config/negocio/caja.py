@@ -1,20 +1,25 @@
 """Cálculo del saldo real de caja, única fuente de verdad.
 
-saldo = todo lo cobrado (OrderPayment web + Pago negocio, sin filtro de fecha)
+saldo = cobrado del negocio
+        + lo aportado por los pedidos web
         − todos los gastos
-        − la mercancía de los pedidos web ya cobrados
         + Σ ajustes manuales (arqueo / saldo inicial)
 
-Lo de la mercancía web: un pedido de la tienda online entra completo a caja,
-pero al proveedor todavía hay que pagarle, y esa salida NO queda registrada en
-ningún lado — la app `orders` no crea Gastos. Sin descontarla, la caja muestra
-como propio dinero que ya es del proveedor. En el negocio no pasa: ahí la
-compra al proveedor se carga como Gasto, así que descontarla acá la restaría
-dos veces.
+**Los pedidos web aportan solo su GANANCIA, y solo cuando están liquidados.**
+El resto del cobro es dinero que se le debe al proveedor: entra a la caja
+física, sí, pero no es tuyo. Mientras el pedido no esté 100% cubierto no se
+reconoce nada — ni siquiera la parte proporcional del anticipo, porque el
+anticipo es justo lo primero que se va en pagar la mercancía.
 
-El dinero se arrastra mes a mes; el saldo inicial (efectivo previo a registrar
-ventas) entra como el primer AjusteCaja. Lo usan el dashboard del panel y la
-página de caja de negocio.
+En el NEGOCIO no aplica: ahí la compra al proveedor se carga como `Gasto`, así
+que el costo ya sale por su lado y descontarlo también acá lo restaría dos
+veces.
+
+**El corte del arqueo.** Un `AjusteCaja` declara "el efectivo real es este":
+todo lo cobrado hasta esa fecha ya se cuadró contra dinero contado a mano, con
+sus compras al proveedor incluidas. Aplicarle la regla nueva restaría esa
+mercancía por segunda vez — el error que hundió la caja de $27,258 a $20,553 el
+2026-08-25. Por eso los cobros anteriores al último arqueo se toman tal cual.
 """
 from decimal import Decimal
 
@@ -24,31 +29,52 @@ from orders.models import Order, OrderPayment
 from .models import Pago, Gasto, AjusteCaja
 
 
-def costo_mercancia_web():
-    """Costo de la mercancía de los pedidos web que ya se cobraron.
+def _fecha_ultimo_arqueo():
+    """Hasta acá la caja ya se cuadró contra el efectivo real."""
+    ultimo = AjusteCaja.objects.order_by('-fecha').first()
+    return ultimo.fecha if ultimo else None
 
-    Basta un anticipo para que cuente completo: al proveedor se le paga el
-    pedido entero, no la parte que el cliente adelantó.
+
+def aporte_web():
+    """Lo que los pedidos web le suman a la caja.
+
+    Devuelve (aporte, ganancia_reconocida, cobrado_bruto).
     """
-    cobrados = set(OrderPayment.objects.values_list('order_id', flat=True))
-    if not cobrados:
-        return Decimal('0')
-    pedidos = Order.objects.filter(pk__in=cobrados).prefetch_related('items__product')
-    return sum((p.costo_mercancia for p in pedidos), Decimal('0'))
+    corte = _fecha_ultimo_arqueo()
+
+    recientes = set(
+        OrderPayment.objects
+        .filter(fecha__gt=corte).values_list('order_id', flat=True)
+    ) if corte else set(OrderPayment.objects.values_list('order_id', flat=True))
+
+    previos = OrderPayment.objects.exclude(order_id__in=recientes)
+    aporte = previos.aggregate(t=Sum('monto'))['t'] or Decimal('0')
+    bruto = OrderPayment.objects.aggregate(t=Sum('monto'))['t'] or Decimal('0')
+
+    ganancia = Decimal('0')
+    pedidos = Order.objects.filter(pk__in=recientes).prefetch_related(
+        'items__product', 'payments')
+    for pedido in pedidos:
+        pagado = sum((p.monto for p in pedido.payments.all()), Decimal('0'))
+        # Liquidado o nada: un anticipo es lo primero que se va en la mercancía.
+        if pagado >= pedido.total:
+            ganancia += pedido.ganancia
+
+    return aporte + ganancia, ganancia, bruto
 
 
 def caja_totales():
-    """Devuelve dict con Decimals: cobrado, gastos, costo_mercancia_web,
-    ajustes, saldo."""
-    cobrado = ((OrderPayment.objects.aggregate(t=Sum('monto'))['t'] or Decimal('0'))
-               + (Pago.objects.aggregate(t=Sum('monto'))['t'] or Decimal('0')))
+    """Devuelve dict con Decimals: cobrado, gastos, ajustes, saldo, y el
+    desglose de lo web (cobrado_web_bruto, ganancia_web)."""
+    aporte, ganancia_web, bruto_web = aporte_web()
+    cobrado_negocio = Pago.objects.aggregate(t=Sum('monto'))['t'] or Decimal('0')
     gastos = Gasto.objects.aggregate(t=Sum('monto'))['t'] or Decimal('0')
-    mercancia = costo_mercancia_web()
     ajustes = AjusteCaja.objects.aggregate(t=Sum('monto'))['t'] or Decimal('0')
     return {
-        'cobrado': cobrado,
+        'cobrado': cobrado_negocio + aporte,
+        'cobrado_web_bruto': bruto_web,
+        'ganancia_web': ganancia_web,
         'gastos': gastos,
-        'costo_mercancia_web': mercancia,
         'ajustes': ajustes,
-        'saldo': cobrado - gastos - mercancia + ajustes,
+        'saldo': cobrado_negocio + aporte - gastos + ajustes,
     }
