@@ -2430,6 +2430,8 @@ class SugerenciasDeTipoTests(TestCase):
             nombre='Jordan 1', keywords='jordan 1, J1', costo=Decimal('620'))
         self.yeezy = TipoArticulo.objects.create(
             nombre='Tenis yeezy', keywords='yeezy', costo=Decimal('550'))
+        self.sud = TipoArticulo.objects.create(
+            nombre='Sudadera 1:1', keywords='sudadera 1:1, s 1:1', costo=Decimal('320'))
 
     def test_jordan_suelto_ofrece_los_dos_jordan(self):
         nombres = [t.nombre for t in sugerencias_de_tipo('Jordan')]
@@ -2437,15 +2439,23 @@ class SugerenciasDeTipoTests(TestCase):
         self.assertIn('Jordan 1', nombres)
 
     def test_puntua_contra_las_keywords_no_solo_contra_el_nombre(self):
-        # 'yezzy' se parece poco a «Tenis yeezy» y mucho a su keyword 'yeezy'.
-        nombres = [t.nombre for t in sugerencias_de_tipo('yezzy')]
-        self.assertEqual(nombres[0], 'Tenis yeezy')
+        # '1:1' contra el NOMBRE «Sudadera 1:1» da 0.40 — debajo del piso 0.45,
+        # así que una implementación que puntuara solo contra el nombre
+        # devolvería vacío. Contra la keyword 's 1:1' da 0.75. Este caso es el
+        # que separa la implementación correcta de la rota; con 'yezzy' no se
+        # separaban, porque su nombre ya puntuaba 0.5 y pasaba igual.
+        nombres = [t.nombre for t in sugerencias_de_tipo('1:1')]
+        self.assertEqual(nombres, ['Sudadera 1:1'])
 
     def test_sin_parecido_devuelve_vacio(self):
         self.assertEqual(sugerencias_de_tipo('qwxzpl'), [])
 
+    def test_un_typo_encuentra_su_tipo(self):
+        nombres = [t.nombre for t in sugerencias_de_tipo('yezzy')]
+        self.assertEqual(nombres[0], 'Tenis yeezy')
+
     def test_respeta_el_limite(self):
-        self.assertLessEqual(len(sugerencias_de_tipo('jordan', limite=1)), 1)
+        self.assertEqual(len(sugerencias_de_tipo('jordan', limite=1)), 1)
 
     def test_texto_vacio_devuelve_vacio(self):
         self.assertEqual(sugerencias_de_tipo('   '), [])
