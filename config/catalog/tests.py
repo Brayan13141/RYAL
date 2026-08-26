@@ -2394,27 +2394,27 @@ from catalog.services import normalizar_texto
 
 
 class NormalizarTextoTests(TestCase):
-	def test_minusculas_y_espacios_colapsados(self):
-		self.assertEqual(normalizar_texto('  Jordan   4 '), 'jordan 4')
+    def test_minusculas_y_espacios_colapsados(self):
+        self.assertEqual(normalizar_texto('  Jordan   4 '), 'jordan 4')
 
-	def test_vacio_y_none(self):
-		self.assertEqual(normalizar_texto(''), '')
-		self.assertEqual(normalizar_texto(None), '')
+    def test_vacio_y_none(self):
+        self.assertEqual(normalizar_texto(''), '')
+        self.assertEqual(normalizar_texto(None), '')
 
 
 class AliasTextoTests(TestCase):
-	def setUp(self):
-		self.tipo = TipoArticulo.objects.create(
-			nombre='JORDAN 4', keywords='jordan 4', costo=Decimal('680'))
+    def setUp(self):
+        self.tipo = TipoArticulo.objects.create(
+            nombre='JORDAN 4', keywords='jordan 4', costo=Decimal('680'))
 
-	def test_normaliza_el_texto_al_guardar(self):
-		alias = AliasTexto.objects.create(texto='  Jordan  ', tipo=self.tipo)
-		alias.refresh_from_db()
-		self.assertEqual(alias.texto, 'jordan')
+    def test_normaliza_el_texto_al_guardar(self):
+        alias = AliasTexto.objects.create(texto='  Jordan  ', tipo=self.tipo)
+        alias.refresh_from_db()
+        self.assertEqual(alias.texto, 'jordan')
 
-	def test_el_texto_es_unico_despues_de_normalizar(self):
-		AliasTexto.objects.create(texto='Jordan', tipo=self.tipo)
-		# `atomic` es obligatorio: sin él la IntegrityError deja la transacción
-		# del TestCase rota y el siguiente query de la clase revienta.
-		with self.assertRaises(IntegrityError), transaction.atomic():
-			AliasTexto.objects.create(texto='  JORDAN ', tipo=self.tipo)
+    def test_el_texto_es_unico_despues_de_normalizar(self):
+        AliasTexto.objects.create(texto='Jordan', tipo=self.tipo)
+        # `atomic` es obligatorio: sin él la IntegrityError deja la transacción
+        # del TestCase rota y el siguiente query de la clase revienta.
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            AliasTexto.objects.create(texto='  JORDAN ', tipo=self.tipo)
