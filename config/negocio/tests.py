@@ -4,6 +4,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
+from django.urls import reverse
 from negocio.models import Cliente, Pedido, Pago, Gasto, PedidoItem
 from catalog.models import Category, Product, TipoArticulo, CodigoDescuento, AliasTexto
 from negocio.services import crear_venta_tienda, VentaInvalida, crear_pedido_tienda_bot, VentaSinTipo
@@ -2595,4 +2596,38 @@ class ApiVentaSinTipoTests(TestCase):
             HTTP_AUTHORIZATION='Bearer test-key-123',
             content_type='application/json')
         self.assertEqual(res.status_code, 400)
+        self.assertEqual(AliasTexto.objects.count(), 0)
+
+
+class TipoAsignarAliasTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user('aliasstaff', password='x', is_staff=True)
+        self.client.force_login(self.staff)
+        self.j4 = TipoArticulo.objects.create(
+            nombre='JORDAN 4', keywords='jordan 4', costo=Decimal('680'))
+
+    def test_crea_el_alias_normalizado(self):
+        res = self.client.post(reverse('negocio:tipo_asignar_alias'),
+                               {'texto': ' Jordan ', 'tipo_id': self.j4.pk})
+        self.assertEqual(res.status_code, 302)
+        self.assertEqual(AliasTexto.objects.get().texto, 'jordan')
+
+    def test_no_exige_que_el_texto_contenga_la_keyword(self):
+        # Es la diferencia con asignar keyword: `jordan 4` no está en `Jordan`.
+        self.client.post(reverse('negocio:tipo_asignar_alias'),
+                         {'texto': 'Jordan', 'tipo_id': self.j4.pk})
+        self.assertEqual(AliasTexto.objects.count(), 1)
+
+    def test_texto_vacio_no_crea_nada(self):
+        self.client.post(reverse('negocio:tipo_asignar_alias'),
+                         {'texto': '   ', 'tipo_id': self.j4.pk})
+        self.assertEqual(AliasTexto.objects.count(), 0)
+
+    def test_texto_normalizado_mayor_que_200_devuelve_error(self):
+        # normalizar_texto colapsa espacios múltiples, así que un texto muy
+        # largo sigue siendo largo tras normalizar. Postgres impone max_length=200,
+        # SQLite no, así que sin esta guarda solo aparece el bug en producción.
+        texto_largo = 'x' * 201
+        res = self.client.post(reverse('negocio:tipo_asignar_alias'),
+                               {'texto': texto_largo, 'tipo_id': self.j4.pk})
         self.assertEqual(AliasTexto.objects.count(), 0)

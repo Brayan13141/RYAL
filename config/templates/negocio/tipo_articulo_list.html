@@ -79,6 +79,15 @@
               <button type="submit" class="btn-o btn-sm"
                       style="font-size:12px;padding:4px 10px;white-space:nowrap;">Asignar</button>
             </form>
+            <form method="post" action="{% url 'negocio:tipo_asignar_alias' %}" class="d-flex gap-1 mt-1">
+              {% csrf_token %}
+              <input type="hidden" name="texto" value="{{ f.texto }}">
+              <select name="tipo_id" class="form-select form-select-sm">
+                {% for t in tipos %}<option value="{{ t.pk }}">{{ t.nombre }} — ${{ t.costo }}</option>{% endfor %}
+              </select>
+              <button class="btn btn-sm btn-outline-warning" type="submit">Asignar directo</button>
+            </form>
+            <div class="form-text">Directo = solo ese texto exacto. Usalo cuando ninguna keyword cabe.</div>
           </td>
           <td class="text-end" style="background:transparent;color:var(--pt);font-size:14px;padding:8px 10px;vertical-align:middle;">{{ f.piezas }}</td>
           <td class="text-end" style="background:transparent;color:var(--pt);font-size:14px;padding:8px 10px;vertical-align:middle;">${{ f.ingreso|floatformat:2 }}</td>

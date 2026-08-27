@@ -669,6 +669,45 @@ def tipo_asignar_keyword(request):
 
 
 @staff_member_required
+@require_POST
+def tipo_asignar_alias(request):
+    """Asigna un texto EXACTO a un tipo, sin pasar por keywords.
+
+    `tipo_asignar_keyword` exige que la keyword esté contenida en el texto, y
+    tiene razón. Pero eso deja fuera los textos que ninguna keyword puede
+    capturar sin robarse otros: `Jordan` no contiene `jordan 4`, y `jordan` a
+    secas se llevaría las ventas de `jordan 1`. El alias es exacto, así que
+    no necesita simulación de conflictos: no puede afectar a ningún otro texto.
+    """
+    from django.contrib import messages
+    from catalog.models import AliasTexto
+    from catalog.services import normalizar_texto
+
+    try:
+        tipo = get_object_or_404(TipoArticulo, pk=int(request.POST.get('tipo_id') or 0))
+    except (TypeError, ValueError):
+        return redirect('negocio:tipos_list')
+
+    texto = normalizar_texto(request.POST.get('texto') or '')
+    if not texto:
+        messages.error(request, 'Escribí el texto antes de asignar.')
+    elif len(texto) > 200:
+        messages.error(
+            request,
+            f'El texto normalizado ({len(texto)} caracteres) supera los 200 límite. '
+            f'Tené en cuenta que se normaliza: espacios múltiples se colapsan, '
+            f'mayúsculas se vuelven minúsculas.')
+    else:
+        AliasTexto.objects.update_or_create(texto=texto, defaults={'tipo': tipo})
+        messages.success(
+            request,
+            f'«{texto}» asignado directo a {tipo.nombre}. Solo ese texto exacto '
+            f'toma ese costo; las ventas viejas conservan el que tienen grabado.')
+
+    return redirect('negocio:tipos_list')
+
+
+@staff_member_required
 def tipos_list(request):
     from .services import textos_sin_tipo
 
