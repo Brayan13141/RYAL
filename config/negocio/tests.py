@@ -1,11 +1,12 @@
 import datetime
+import json
 from decimal import Decimal
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from negocio.models import Cliente, Pedido, Pago, Gasto, PedidoItem
-from catalog.models import Category, Product, TipoArticulo, CodigoDescuento
-from negocio.services import crear_venta_tienda, VentaInvalida, crear_pedido_tienda_bot
+from catalog.models import Category, Product, TipoArticulo, CodigoDescuento, AliasTexto
+from negocio.services import crear_venta_tienda, VentaInvalida, crear_pedido_tienda_bot, VentaSinTipo
 
 
 class ClienteModelTest(TestCase):
@@ -2303,14 +2304,17 @@ class ApiTiendaSinTipoTests(TestCase):
             HTTP_AUTHORIZATION=f'Bearer {key}', content_type='application/json')
 
     def test_la_venta_con_texto_sin_tipo_no_se_graba(self):
-        # El codigo HTTP exacto lo fija la Task 4 (409 con las sugerencias).
-        # Aca se aserta el invariante que no depende de esa capa: la venta no
-        # entra a la base y la respuesta no es un exito.
+        # El código HTTP es 409 cuando hay artículos sin tipo. La venta no
+        # entra a la base y la respuesta incluye las sugerencias.
         res = self._post({'items': [
             {'description': 'gorras', 'price': 300, 'qty': 1},
             {'description': 'Jordan', 'price': 750, 'qty': 1},
         ]})
-        self.assertGreaterEqual(res.status_code, 400)
+        self.assertEqual(res.status_code, 409)
+        data = res.json()
+        self.assertIn('sin_tipo', data)
+        self.assertTrue(len(data['sin_tipo']) > 0)
+        self.assertEqual(data['sin_tipo'][0]['texto'], 'Jordan')
         self.assertEqual(Pedido.objects.count(), 0)
         self.assertEqual(PedidoItem.objects.count(), 0)
 
@@ -2513,3 +2517,55 @@ class VentaBloqueadaSinTipoTests(TestCase):
             self._venta('Jordan')
         self.assertFalse(
             Cliente.objects.filter(telefono=MOSTRADOR_TELEFONO).exists())
+
+
+@override_settings(NEGOCIO_API_KEY='test-key-123')
+class ApiVentaSinTipoTests(TestCase):
+    def setUp(self):
+        self.j4 = TipoArticulo.objects.create(
+            nombre='JORDAN 4', keywords='jordan 4', costo=Decimal('680'))
+        self.headers = {'HTTP_AUTHORIZATION': f'Bearer {settings.NEGOCIO_API_KEY}'}
+
+    def _post(self, url, body):
+        return self.client.post(url, data=json.dumps(body),
+                                content_type='application/json', **self.headers)
+
+    def test_tienda_devuelve_409_con_sugerencias(self):
+        res = self._post('/api/negocio/tienda/',
+                         {'items': [{'description': 'Jordan', 'price': 750, 'qty': 9}]})
+        self.assertEqual(res.status_code, 409)
+        data = res.json()
+        self.assertEqual(data['sin_tipo'][0]['texto'], 'Jordan')
+        self.assertIn('JORDAN 4',
+                      [s['nombre'] for s in data['sin_tipo'][0]['sugerencias']])
+        self.assertEqual(Pedido.objects.count(), 0)
+
+    def test_alias_create_y_despues_la_venta_pasa(self):
+        res = self._post('/api/negocio/alias/',
+                         {'texto': 'Jordan', 'tipo_id': self.j4.pk})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['tipo'], 'JORDAN 4')
+
+        res2 = self._post('/api/negocio/tienda/',
+                          {'items': [{'description': 'Jordan', 'price': 750, 'qty': 1}]})
+        self.assertEqual(res2.status_code, 200)
+        self.assertEqual(PedidoItem.objects.first().costo_unitario, Decimal('680'))
+
+    def test_alias_sin_autorizacion(self):
+        res = self.client.post('/api/negocio/alias/',
+                               data=json.dumps({'texto': 'x', 'tipo_id': self.j4.pk}),
+                               content_type='application/json')
+        self.assertEqual(res.status_code, 401)
+
+    def test_alias_con_tipo_inexistente(self):
+        res = self._post('/api/negocio/alias/', {'texto': 'x', 'tipo_id': 999999})
+        self.assertEqual(res.status_code, 400)
+
+    def test_alias_reasigna_si_ya_existia(self):
+        otro = TipoArticulo.objects.create(
+            nombre='Jordan 1', keywords='jordan 1', costo=Decimal('620'))
+        self._post('/api/negocio/alias/', {'texto': 'Jordan', 'tipo_id': self.j4.pk})
+        res = self._post('/api/negocio/alias/', {'texto': 'jordan', 'tipo_id': otro.pk})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(AliasTexto.objects.count(), 1)
+        self.assertEqual(AliasTexto.objects.first().tipo, otro)
