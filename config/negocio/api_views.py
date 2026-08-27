@@ -227,6 +227,11 @@ def api_alias_create(request):
     except (json.JSONDecodeError, ValueError):
         return JsonResponse({'error': 'invalid json'}, status=400)
 
+    if not isinstance(body, dict):
+        # json.loads acepta arrays, strings y numeros sueltos; sobre esos,
+        # body.get() tira AttributeError y sale un 500 en vez de un 400.
+        return JsonResponse({'error': 'el body debe ser un objeto JSON'}, status=400)
+
     raw_texto = body.get('texto')
     if not isinstance(raw_texto, str):
         return JsonResponse({'error': 'texto debe ser string'}, status=400)

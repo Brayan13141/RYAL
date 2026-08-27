@@ -2587,3 +2587,12 @@ class ApiVentaSinTipoTests(TestCase):
                          {'texto': 'x' * 250, 'tipo_id': self.j4.pk})
         self.assertEqual(res.status_code, 400)
         self.assertEqual(AliasTexto.objects.count(), 0)
+
+    def test_body_que_no_es_objeto_devuelve_400_no_500(self):
+        # json.loads acepta un array suelto; body.get() sobre eso reventaba.
+        res = self.client.post(
+            '/api/negocio/alias/', data=json.dumps(['Jordan']),
+            HTTP_AUTHORIZATION='Bearer test-key-123',
+            content_type='application/json')
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(AliasTexto.objects.count(), 0)
