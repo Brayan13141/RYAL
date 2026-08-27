@@ -683,8 +683,13 @@ def tipo_asignar_alias(request):
     from catalog.models import AliasTexto
     from catalog.services import normalizar_texto
 
+    tipo_id = request.POST.get('tipo_id', '').strip()
+    if not tipo_id:
+        messages.error(request, 'Elegí un tipo antes de asignar.')
+        return redirect('negocio:tipos_list')
+
     try:
-        tipo = get_object_or_404(TipoArticulo, pk=int(request.POST.get('tipo_id') or 0))
+        tipo = get_object_or_404(TipoArticulo, pk=int(tipo_id))
     except (TypeError, ValueError):
         return redirect('negocio:tipos_list')
 

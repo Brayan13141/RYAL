@@ -82,7 +82,8 @@
             <form method="post" action="{% url 'negocio:tipo_asignar_alias' %}" class="d-flex gap-1 mt-1">
               {% csrf_token %}
               <input type="hidden" name="texto" value="{{ f.texto }}">
-              <select name="tipo_id" class="form-select form-select-sm">
+              <select name="tipo_id" class="form-select form-select-sm" required>
+                <option value="">Tipo…</option>
                 {% for t in tipos %}<option value="{{ t.pk }}">{{ t.nombre }} — ${{ t.costo }}</option>{% endfor %}
               </select>
               <button class="btn btn-sm btn-outline-warning" type="submit">Asignar directo</button>
