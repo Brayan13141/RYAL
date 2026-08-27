@@ -2493,3 +2493,23 @@ class VentaBloqueadaSinTipoTests(TestCase):
             items=[{'description': 'gorra negra', 'price': 350, 'qty': 2}])
         self.assertEqual(pedido.costo_producto, Decimal('300'))
         self.assertEqual(Pago.objects.count(), 1)
+
+    def test_la_venta_rechazada_no_crea_ni_el_cliente_mostrador(self):
+        """El invariante no debe depender del rollback de la transacción.
+
+        El cliente mostrador es idempotente y no lleva costo, así que su
+        creación no rompía nada — pero si se crea antes del `raise`, la frase
+        "una venta sin tipo no crea nada" pasa a ser cierta solo gracias al
+        @transaction.atomic, y eso es una trampa para quien lo lea después.
+
+        NOTA: Este test PASA incluso con el Cliente creado antes del raise,
+        porque @transaction.atomic lo revierte en el TestCase. El test documenta
+        el orden deseado pero no lo PRUEBA; la prueba real es que el código
+        DICE LO QUE HACE sin depender de rollback.
+        """
+        from negocio.services import MOSTRADOR_TELEFONO
+        self.assertEqual(Cliente.objects.count(), 0)
+        with self.assertRaises(VentaSinTipo):
+            self._venta('Jordan')
+        self.assertFalse(
+            Cliente.objects.filter(telefono=MOSTRADOR_TELEFONO).exists())

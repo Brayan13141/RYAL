@@ -74,11 +74,6 @@ def crear_pedido_tienda_bot(*, items, envio=Decimal('0')):
     if not items:
         raise VentaInvalida('La venta no tiene ítems.')
 
-    cliente, _ = Cliente.objects.get_or_create(
-        telefono=MOSTRADOR_TELEFONO,
-        defaults={'nombre': 'Mostrador'},
-    )
-
     from catalog.models import AliasTexto
     from catalog.services import sugerencias_de_tipo
 
@@ -112,6 +107,15 @@ def crear_pedido_tienda_bot(*, items, envio=Decimal('0')):
 
     precio_total = sum(precio * qty for _, qty, precio, _ in resueltos)
     partes_desc = []
+
+    # El cliente mostrador se resuelve DESPUES del rechazo: asi "una venta sin
+    # tipo no crea nada" es cierto por el orden del codigo y no por el rollback
+    # de @transaction.atomic, que alguien podria quitar mas adelante.
+    cliente, _ = Cliente.objects.get_or_create(
+        telefono=MOSTRADOR_TELEFONO,
+        defaults={'nombre': 'Mostrador'},
+    )
+
     pedido = Pedido.objects.create(
         cliente=cliente,
         descripcion='',
