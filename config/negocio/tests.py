@@ -1929,6 +1929,27 @@ class RankingPorTipoTests(TestCase):
         from negocio.services import ranking_por_tipo
         self.assertEqual(ranking_por_tipo(), [])
 
+    def test_un_texto_con_alias_se_agrupa_en_su_tipo(self):
+        # Una venta con un texto que solo resuelve por alias tiene que caer
+        # en su tipo y NO en "sin clasificar". Sin esto aparecería en el
+        # dashboard como venta anónima.
+        from negocio.services import ranking_por_tipo
+        jordan4 = TipoArticulo.objects.create(
+            nombre='JORDAN 4', keywords='jordan 4', costo=Decimal('680'))
+        p = self._pedido()
+        self._item(p, 'Jordan', cantidad=1, precio='1500', costo='680')
+        # Sin alias, cae en "Sin clasificar" (tipo=None):
+        filas_sin_alias = ranking_por_tipo()
+        self.assertEqual(len(filas_sin_alias), 1)
+        self.assertIsNone(filas_sin_alias[0]['tipo'])
+
+        # Con alias, agrupa en JORDAN 4:
+        AliasTexto.objects.create(texto='jordan', tipo=jordan4)
+        filas_con_alias = ranking_por_tipo()
+        self.assertEqual(len(filas_con_alias), 1)
+        self.assertEqual(filas_con_alias[0]['tipo'], 'JORDAN 4')
+        self.assertEqual(filas_con_alias[0]['piezas'], 1)
+
 
 class MasVendidosViewTests(TestCase):
     def setUp(self):
@@ -2080,6 +2101,19 @@ class TextosSinTipoTests(TestCase):
 
     def test_sin_ventas_huerfanas_devuelve_vacio(self):
         from negocio.services import textos_sin_tipo
+        self.assertEqual(textos_sin_tipo(), [])
+
+    def test_un_texto_con_alias_deja_de_aparecer_sin_tipo(self):
+        # Sin esto, asignar el alias arregla el costo pero el panel sigue
+        # reclamando el mismo texto, y parece que el botón no funcionó.
+        from negocio.services import textos_sin_tipo
+        j4 = TipoArticulo.objects.create(
+            nombre='JORDAN 4', keywords='jordan 4', costo=Decimal('680'))
+        p = self._pedido()
+        self._item(p, 'Jordan')
+        self.assertEqual(len(textos_sin_tipo()), 1)
+
+        AliasTexto.objects.create(texto='jordan', tipo=j4)
         self.assertEqual(textos_sin_tipo(), [])
 
 
@@ -2630,4 +2664,12 @@ class TipoAsignarAliasTests(TestCase):
         texto_largo = 'x' * 201
         res = self.client.post(reverse('negocio:tipo_asignar_alias'),
                                {'texto': texto_largo, 'tipo_id': self.j4.pk})
+        self.assertEqual(AliasTexto.objects.count(), 0)
+
+    def test_sin_elegir_tipo_no_asigna_nada(self):
+        # El select trae una opcion en blanco: postear sin elegir no debe
+        # asignar el texto al primer tipo de la lista por descarte.
+        res = self.client.post(reverse('negocio:tipo_asignar_alias'),
+                               {'texto': 'Jordan', 'tipo_id': ''})
+        self.assertEqual(res.status_code, 302)
         self.assertEqual(AliasTexto.objects.count(), 0)

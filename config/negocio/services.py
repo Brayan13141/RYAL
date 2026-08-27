@@ -65,6 +65,22 @@ def _resolver_tipo(nombre_snap, tipos, aliases):
     return next((t for t in tipos if t.matches(nombre_snap)), None)
 
 
+def _tipo_para_reporte(texto, tipos, aliases):
+    """Alias exacto primero, después la regla del reporte (keyword más larga).
+
+    El alias se antepone SIN tocar `buscar_tipo_articulo`: esa función también
+    la usa la validación de códigos de descuento. Y ojo, el reporte usa la
+    regla de keyword MÁS LARGA mientras el bot usa la del primero alfabético;
+    esa divergencia es un bug conocido que se ataca en su propia sesión, así
+    que acá NO se unifica nada — solo se agrega el alias adelante.
+    """
+    from catalog.services import buscar_tipo_articulo, normalizar_texto
+    alias_tipo = aliases.get(normalizar_texto(texto))
+    if alias_tipo is not None:
+        return alias_tipo
+    return buscar_tipo_articulo(texto, tipos=tipos)
+
+
 @transaction.atomic
 def crear_pedido_tienda_bot(*, items, envio=Decimal('0')):
     """Crea un pedido de tienda física via bot. Sin SKU, sin normalize_telefono.
@@ -317,7 +333,7 @@ def ranking_por_tipo(fecha_ini=None, fecha_fin=None):
     ingreso, costo, ganancia y sin_desglose. Sin clasificar va siempre al
     final: esconderlo descuadraría los totales sin que se note.
     """
-    from catalog.services import buscar_tipo_articulo
+    from catalog.models import AliasTexto
 
     pedidos = Pedido.objects.filter(estado=Pedido.PAGADO)
     if fecha_ini is not None:
@@ -326,6 +342,7 @@ def ranking_por_tipo(fecha_ini=None, fecha_fin=None):
         pedidos = pedidos.filter(fecha__lt=fecha_fin)
 
     tipos = list(TipoArticulo.objects.all())
+    aliases = {a.texto: a.tipo for a in AliasTexto.objects.select_related('tipo')}
     acumulado = {}
 
     def fila_de(tipo):
@@ -345,7 +362,7 @@ def ranking_por_tipo(fecha_ini=None, fecha_fin=None):
             # vive dentro del texto. Cuenta 1 pieza y se declara en pantalla;
             # parsear prosa para afinar eso cambia un error chico por un
             # riesgo permanente.
-            fila = fila_de(buscar_tipo_articulo(pedido.descripcion, tipos=tipos))
+            fila = fila_de(_tipo_para_reporte(pedido.descripcion, tipos, aliases))
             fila['piezas'] += 1
             fila['ingreso'] += pedido.precio_venta - pedido.descuento_aplicado
             fila['costo'] += pedido.costo_producto
@@ -368,7 +385,7 @@ def ranking_por_tipo(fecha_ini=None, fecha_fin=None):
             else:
                 parte = Decimal('0')
 
-            fila = fila_de(buscar_tipo_articulo(item.nombre_snapshot, tipos=tipos))
+            fila = fila_de(_tipo_para_reporte(item.nombre_snapshot, tipos, aliases))
             fila['piezas'] += item.cantidad
             fila['ingreso'] += subtotal - parte
             fila['costo'] += item.costo_unitario * item.cantidad
@@ -392,9 +409,10 @@ def textos_sin_tipo():
 
     Ordena por ingreso: lo que más dinero mueve es lo que más urge nombrar.
     """
-    from catalog.services import buscar_tipo_articulo
+    from catalog.models import AliasTexto
 
     tipos = list(TipoArticulo.objects.all())
+    aliases = {a.texto: a.tipo for a in AliasTexto.objects.select_related('tipo')}
     acumulado = {}
 
     def fila_de(texto):
@@ -410,7 +428,7 @@ def textos_sin_tipo():
 
         if not items:
             texto = (pedido.descripcion or '').strip()
-            if not texto or buscar_tipo_articulo(texto, tipos=tipos):
+            if not texto or _tipo_para_reporte(texto, tipos, aliases):
                 continue
             fila = fila_de(texto)
             fila['piezas'] += 1
@@ -421,7 +439,7 @@ def textos_sin_tipo():
 
         for item in items:
             texto = (item.nombre_snapshot or '').strip()
-            if not texto or buscar_tipo_articulo(texto, tipos=tipos):
+            if not texto or _tipo_para_reporte(texto, tipos, aliases):
                 continue
             fila = fila_de(texto)
             fila['piezas'] += item.cantidad
