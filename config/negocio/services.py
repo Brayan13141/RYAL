@@ -12,6 +12,20 @@ class VentaInvalida(Exception):
     """Payload de venta inválido (SKU inexistente/inactivo, cantidad o precio inválidos)."""
 
 
+class VentaSinTipo(VentaInvalida):
+    """Una o más líneas no resuelven a ningún TipoArticulo: la venta NO se graba.
+
+    Hereda de VentaInvalida para que los `except VentaInvalida` existentes la
+    sigan atrapando, pero quien quiera las sugerencias tiene que atraparla
+    ANTES — el orden de los except importa.
+    """
+
+    def __init__(self, detalles):
+        self.detalles = detalles
+        textos = ', '.join(f'«{d["texto"]}»' for d in detalles)
+        super().__init__(f'Sin tipo: {textos}. La venta no se registró.')
+
+
 _METODOS_VALIDOS = {m[0] for m in Pago.METODO_CHOICES}
 
 
@@ -38,6 +52,19 @@ def _parse_precio(valor):
 MOSTRADOR_TELEFONO = 'TIENDA-MOSTRADOR'
 
 
+def _resolver_tipo(nombre_snap, tipos, aliases):
+    """Alias exacto primero, keyword después.
+
+    El alias es una decisión humana explícita para ese texto exacto; la
+    keyword es una regla general. Cuando las dos aplican, gana la decisión.
+    """
+    from catalog.services import normalizar_texto
+    alias_tipo = aliases.get(normalizar_texto(nombre_snap))
+    if alias_tipo is not None:
+        return alias_tipo
+    return next((t for t in tipos if t.matches(nombre_snap)), None)
+
+
 @transaction.atomic
 def crear_pedido_tienda_bot(*, items, envio=Decimal('0')):
     """Crea un pedido de tienda física via bot. Sin SKU, sin normalize_telefono.
@@ -52,7 +79,38 @@ def crear_pedido_tienda_bot(*, items, envio=Decimal('0')):
         defaults={'nombre': 'Mostrador'},
     )
 
-    precio_total = sum(Decimal(str(i['price'])) * int(i['qty']) for i in items)
+    from catalog.models import AliasTexto
+    from catalog.services import sugerencias_de_tipo
+
+    tipos = list(TipoArticulo.objects.all())
+    aliases = {a.texto: a.tipo for a in AliasTexto.objects.select_related('tipo')}
+
+    # Resolver TODO antes de crear nada. Registrar con costo $0 lo que no
+    # matchea es lo que dejó $14,710 con 100% de margen declarado: cero es un
+    # costo plausible, así que después nada lo delata. Sin tipo no hay venta.
+    resueltos = []
+    faltantes = []
+    for item in items:
+        nombre_snap = (str(item.get('description') or '').strip() or 'ítem tienda')[:200]
+        qty = int(item['qty'])
+        precio_u = Decimal(str(item['price']))
+        tipo = _resolver_tipo(nombre_snap, tipos, aliases)
+        if tipo is None and not any(f['texto'] == nombre_snap for f in faltantes):
+            faltantes.append({
+                'texto': nombre_snap,
+                'qty': qty,
+                'precio': float(precio_u),
+                'sugerencias': [
+                    {'tipo_id': t.pk, 'nombre': t.nombre, 'costo': float(t.costo)}
+                    for t in sugerencias_de_tipo(nombre_snap, tipos=tipos)
+                ],
+            })
+        resueltos.append((nombre_snap, qty, precio_u, tipo))
+
+    if faltantes:
+        raise VentaSinTipo(faltantes)
+
+    precio_total = sum(precio * qty for _, qty, precio, _ in resueltos)
     partes_desc = []
     pedido = Pedido.objects.create(
         cliente=cliente,
@@ -64,36 +122,22 @@ def crear_pedido_tienda_bot(*, items, envio=Decimal('0')):
         origen=Pedido.TIENDA,
     )
 
-    tipos = list(TipoArticulo.objects.all())
     total_costo = Decimal('0')
-    sin_tipo = []
-
-    for item in items:
-        nombre_snap = (str(item.get('description') or '').strip() or 'ítem tienda')[:200]
-        qty = int(item['qty'])
-        precio_u = Decimal(str(item['price']))
-        tipo = next((t for t in tipos if t.matches(nombre_snap)), None)
-        # Sin tipo el costo queda en 0 y la venta se registra con 100% de
-        # margen. Cero es un costo plausible, así que nada lo delata después:
-        # hay que decirlo ahora, en el grupo, mientras quien capturó la venta
-        # todavía está mirando. No se inventa un costo — solo se avisa.
-        if tipo is None and nombre_snap not in sin_tipo:
-            sin_tipo.append(nombre_snap)
-        costo_u = tipo.costo if tipo else Decimal('0')
+    for nombre_snap, qty, precio_u, tipo in resueltos:
         PedidoItem.objects.create(
             pedido=pedido,
             product=None,
             sku_snapshot='TIENDA-BOT',
             nombre_snapshot=nombre_snap,
             cantidad=qty,
-            costo_unitario=costo_u,
+            costo_unitario=tipo.costo,
             precio_unitario=precio_u,
         )
-        total_costo += costo_u * qty
+        total_costo += tipo.costo * qty
         partes_desc.append(f'{nombre_snap[:30]} ×{qty}')
 
     pedido.costo_producto = total_costo
-    pedido.descripcion = f'{len(items)} art.: ' + ', '.join(partes_desc)
+    pedido.descripcion = f'{len(resueltos)} art.: ' + ', '.join(partes_desc)
     pedido.save(update_fields=['costo_producto', 'descripcion'])
 
     Pago.objects.create(
@@ -102,8 +146,9 @@ def crear_pedido_tienda_bot(*, items, envio=Decimal('0')):
         monto=precio_total,
         metodo_pago=Pago.EFECTIVO,
     )
-    # Transitorio, no se persiste: solo viaja hasta la respuesta del bot.
-    pedido.sin_tipo = sin_tipo
+    # Ya no puede haber líneas sin tipo: la venta se habría rechazado. El
+    # campo se conserva para no romper al bot desplegado, que lo lee.
+    pedido.sin_tipo = []
     return pedido
 
 

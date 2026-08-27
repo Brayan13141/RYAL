@@ -1275,6 +1275,16 @@ from decimal import Decimal
 
 
 class CrearPedidoTiendaBotTest(TestCase):
+    def setUp(self):
+        # Desde que la venta se rechaza si un texto no resuelve, estos tests
+        # necesitan que sus textos matcheen. Los costos van en 0 A PROPOSITO:
+        # lo que miden es origen, precio, items y envio — y varios asertan
+        # costo_producto == 0. Un tipo con costo 0 es un cero DECLARADO, que
+        # es justo la distincion que el bloqueo vino a hacer posible.
+        for nombre, kw in (('Tenis', 'tenis'), ('Gorra', 'gorra'),
+                           ('Item tienda', 'ítem tienda')):
+            TipoArticulo.objects.create(nombre=nombre, keywords=kw, costo=Decimal('0'))
+
     def test_crea_pedido_origen_tienda(self):
         items = [{'description': 'tenis rojo', 'price': 450, 'qty': 2}]
         pedido = crear_pedido_tienda_bot(items=items)
@@ -1323,6 +1333,10 @@ class CrearPedidoTiendaBotTest(TestCase):
 
 @override_settings(NEGOCIO_API_KEY='test-key-123')
 class ApiTiendaCreateTest(TestCase):
+    def setUp(self):
+        # Costo 0 a proposito: estos tests miden el contrato HTTP, no el costo.
+        TipoArticulo.objects.create(nombre='Tenis', keywords='tenis', costo=Decimal('0'))
+
     def _post(self, body, key='test-key-123'):
         headers = {'HTTP_AUTHORIZATION': f'Bearer {key}', 'content_type': 'application/json'}
         return self.client.post('/api/negocio/tienda/', data=json.dumps(body), **headers)
@@ -1973,9 +1987,10 @@ class MasVendidosViewTests(TestCase):
 class TextosSinTipoTests(TestCase):
     """Textos de venta que no matchean ningún TipoArticulo.
 
-    Cuando `matches()` no encuentra tipo, `crear_pedido_tienda_bot` graba
-    `costo_unitario = 0` y la venta queda con 100% de margen sin avisar. Esta
-    lista es la única forma de ver qué keyword falta antes de que siga pasando.
+    Ventas NUEVAS con un texto sin tipo ya no se graban: se rechazan. Pero
+    las que se grabaron antes del bloqueo conservan su `costo_unitario = 0` y
+    su 100% de margen, y este reporte sigue siendo la unica forma de verlas
+    para decidir que keyword o alias falta.
     """
 
     def setUp(self):
@@ -2208,22 +2223,30 @@ class AsignarKeywordTests(TestCase):
 
 
 class VentaSinTipoAvisaTests(TestCase):
-    """Cuando ningún tipo matchea, el costo se graba en $0 y la venta queda
-    con 100% de margen. El cero es plausible, así que nada lo delata: hay que
-    decirlo en voz alta, en el grupo, mientras la persona que sabe sigue ahí.
+    """El limite de lo que el bloqueo cubre.
+
+    Antes esta clase fijaba que la venta se grababa con costo $0 y avisaba.
+    Ahora NO se graba. Lo que sigue valiendo, y por eso los tests se quedan,
+    es la frontera: el bloqueo cubre el costo AUSENTE, no el costo MAL
+    asignado — 'new balance' que se lleva la keyword 'new' de otro tipo si
+    resuelve, y por eso la venta pasa con el costo equivocado. Ese es el bug
+    del matcher divergente y se arregla por su lado.
     """
 
     def setUp(self):
         TipoArticulo.objects.create(nombre='Gorras', keywords='gorra,gorras',
                                     costo=Decimal('240'))
 
-    def test_el_pedido_expone_los_articulos_sin_tipo(self):
-        from negocio.services import crear_pedido_tienda_bot
-        pedido = crear_pedido_tienda_bot(items=[
-            {'description': 'gorras', 'price': 300, 'qty': 2},
-            {'description': 'Jordan', 'price': 750, 'qty': 1},
-        ])
-        self.assertEqual(pedido.sin_tipo, ['Jordan'])
+    def test_un_solo_texto_sin_tipo_rechaza_la_venta_completa(self):
+        from negocio.services import crear_pedido_tienda_bot, VentaSinTipo
+        with self.assertRaises(VentaSinTipo) as ctx:
+            crear_pedido_tienda_bot(items=[
+                {'description': 'gorras', 'price': 300, 'qty': 2},
+                {'description': 'Jordan', 'price': 750, 'qty': 1},
+            ])
+        # La linea que SI resolvia tampoco se graba: es todo o nada.
+        self.assertEqual([d['texto'] for d in ctx.exception.detalles], ['Jordan'])
+        self.assertEqual(Pedido.objects.count(), 0)
 
     def test_sin_huerfanos_la_lista_va_vacia(self):
         from negocio.services import crear_pedido_tienda_bot
@@ -2231,22 +2254,29 @@ class VentaSinTipoAvisaTests(TestCase):
             {'description': 'gorras', 'price': 300, 'qty': 2}])
         self.assertEqual(pedido.sin_tipo, [])
 
-    def test_no_repite_el_mismo_texto_dos_veces(self):
-        from negocio.services import crear_pedido_tienda_bot
-        pedido = crear_pedido_tienda_bot(items=[
-            {'description': 'Jordan', 'price': 750, 'qty': 1},
-            {'description': 'Jordan', 'price': 750, 'qty': 1},
-        ])
-        self.assertEqual(pedido.sin_tipo, ['Jordan'])
+    def test_el_mismo_texto_repetido_se_reporta_una_sola_vez(self):
+        from negocio.services import crear_pedido_tienda_bot, VentaSinTipo
+        with self.assertRaises(VentaSinTipo) as ctx:
+            crear_pedido_tienda_bot(items=[
+                {'description': 'Jordan', 'price': 750, 'qty': 1},
+                {'description': 'Jordan', 'price': 750, 'qty': 1},
+            ])
+        self.assertEqual([d['texto'] for d in ctx.exception.detalles], ['Jordan'])
 
-    def test_el_costo_sigue_en_cero_no_se_inventa_uno(self):
-        """El aviso no adivina el costo: sigue en 0 hasta que alguien decida."""
-        from negocio.services import crear_pedido_tienda_bot
-        pedido = crear_pedido_tienda_bot(items=[
-            {'description': 'Jordan', 'price': 750, 'qty': 1}])
-        self.assertEqual(pedido.costo_producto, Decimal('0'))
+    def test_no_se_inventa_un_costo_simplemente_no_se_graba(self):
+        """Antes el costo quedaba en 0; ahora no hay pedido que costear.
 
-    def test_no_avisa_si_algun_tipo_matcheo_aunque_sea_el_equivocado(self):
+        En los dos casos el sistema se niega a adivinar dinero. La diferencia
+        es que ahora tampoco deja un registro que parezca correcto.
+        """
+        from negocio.services import crear_pedido_tienda_bot, VentaSinTipo
+        with self.assertRaises(VentaSinTipo):
+            crear_pedido_tienda_bot(items=[
+                {'description': 'Jordan', 'price': 750, 'qty': 1}])
+        self.assertEqual(Pedido.objects.count(), 0)
+        self.assertEqual(PedidoItem.objects.count(), 0)
+
+    def test_pasa_si_algun_tipo_matcheo_aunque_sea_el_equivocado(self):
         """El aviso cubre el costo $0, no el costo MAL asignado — son dos bugs
         distintos. 'new balance' con la keyword 'new' de otro tipo se lleva un
         costo (el de la gorra, $150), así que no queda huérfano y no se avisa.
@@ -2272,13 +2302,17 @@ class ApiTiendaSinTipoTests(TestCase):
             '/api/negocio/tienda/', data=json.dumps(body),
             HTTP_AUTHORIZATION=f'Bearer {key}', content_type='application/json')
 
-    def test_devuelve_los_articulos_sin_tipo(self):
+    def test_la_venta_con_texto_sin_tipo_no_se_graba(self):
+        # El codigo HTTP exacto lo fija la Task 4 (409 con las sugerencias).
+        # Aca se aserta el invariante que no depende de esa capa: la venta no
+        # entra a la base y la respuesta no es un exito.
         res = self._post({'items': [
             {'description': 'gorras', 'price': 300, 'qty': 1},
             {'description': 'Jordan', 'price': 750, 'qty': 1},
         ]})
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.json()['sin_tipo'], ['Jordan'])
+        self.assertGreaterEqual(res.status_code, 400)
+        self.assertEqual(Pedido.objects.count(), 0)
+        self.assertEqual(PedidoItem.objects.count(), 0)
 
     def test_lista_vacia_cuando_todo_matchea(self):
         res = self._post({'items': [{'description': 'gorras', 'price': 300, 'qty': 1}]})
@@ -2394,3 +2428,68 @@ class GananciaWebEnCajaTests(TestCase):
         o = self._order('W10', '1000', '600', qty=2)
         vendido = sum(i.price_snapshot * i.quantity for i in o.items.all())
         self.assertEqual(o.ganancia, vendido - o.costo_mercancia - o.descuento_aplicado)
+
+
+from catalog.models import AliasTexto
+from negocio.services import VentaSinTipo
+
+
+class VentaBloqueadaSinTipoTests(TestCase):
+    """Una venta con un texto que no resuelve a ningun tipo NO se graba.
+
+    Antes se grababa con costo $0 y 100% de margen declarado, sin avisar: cero
+    es un costo plausible, asi que nada lo delataba despues. Ya dejo $14,710
+    mal registrados. Ahora se rechaza entera y el bot pide el tipo en el grupo.
+    """
+
+    def setUp(self):
+        self.gorra = TipoArticulo.objects.create(
+            nombre='Gorra', keywords='gorra', costo=Decimal('150'))
+        self.j4 = TipoArticulo.objects.create(
+            nombre='JORDAN 4', keywords='jordan 4', costo=Decimal('680'))
+
+    def _venta(self, desc):
+        return crear_pedido_tienda_bot(
+            items=[{'description': desc, 'price': 750, 'qty': 9}])
+
+    def test_texto_sin_tipo_levanta_y_no_graba_nada(self):
+        with self.assertRaises(VentaSinTipo):
+            self._venta('Jordan')
+        self.assertEqual(Pedido.objects.count(), 0)
+        self.assertEqual(PedidoItem.objects.count(), 0)
+        self.assertEqual(Pago.objects.count(), 0)
+
+    def test_los_detalles_traen_texto_cantidad_precio_y_sugerencias(self):
+        with self.assertRaises(VentaSinTipo) as ctx:
+            self._venta('Jordan')
+        d = ctx.exception.detalles[0]
+        self.assertEqual(d['texto'], 'Jordan')
+        self.assertEqual(d['qty'], 9)
+        self.assertEqual(d['precio'], 750.0)
+        self.assertIn('JORDAN 4', [s['nombre'] for s in d['sugerencias']])
+
+    def test_una_linea_sin_tipo_tumba_la_venta_entera(self):
+        with self.assertRaises(VentaSinTipo):
+            crear_pedido_tienda_bot(items=[
+                {'description': 'gorra negra', 'price': 350, 'qty': 1},
+                {'description': 'Jordan', 'price': 750, 'qty': 1},
+            ])
+        self.assertEqual(Pedido.objects.count(), 0)
+        self.assertEqual(PedidoItem.objects.count(), 0)
+
+    def test_el_alias_desbloquea_la_venta_y_pone_su_costo(self):
+        AliasTexto.objects.create(texto='Jordan', tipo=self.j4)
+        pedido = self._venta('Jordan')
+        self.assertEqual(pedido.items.first().costo_unitario, Decimal('680'))
+
+    def test_el_alias_gana_sobre_la_keyword(self):
+        AliasTexto.objects.create(texto='gorra negra', tipo=self.j4)
+        pedido = crear_pedido_tienda_bot(
+            items=[{'description': 'gorra negra', 'price': 350, 'qty': 1}])
+        self.assertEqual(pedido.items.first().costo_unitario, Decimal('680'))
+
+    def test_venta_con_todos_los_tipos_resueltos_sigue_funcionando(self):
+        pedido = crear_pedido_tienda_bot(
+            items=[{'description': 'gorra negra', 'price': 350, 'qty': 2}])
+        self.assertEqual(pedido.costo_producto, Decimal('300'))
+        self.assertEqual(Pago.objects.count(), 1)
