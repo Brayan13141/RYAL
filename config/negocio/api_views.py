@@ -227,9 +227,20 @@ def api_alias_create(request):
     except (json.JSONDecodeError, ValueError):
         return JsonResponse({'error': 'invalid json'}, status=400)
 
-    texto = normalizar_texto(body.get('texto') or '')
+    raw_texto = body.get('texto')
+    if not isinstance(raw_texto, str):
+        return JsonResponse({'error': 'texto debe ser string'}, status=400)
+    texto = normalizar_texto(raw_texto)
     if not texto:
         return JsonResponse({'error': 'texto requerido'}, status=400)
+    if len(texto) > 200:
+        # Rechazar, NO truncar: el alias es una clave de coincidencia exacta,
+        # así que un texto recortado nunca matchearía el texto real que lo
+        # originó — seria un alias que se guarda y no sirve para nada, que es
+        # justo la clase de fallo silencioso que esta feature vino a matar.
+        return JsonResponse(
+            {'error': f'El texto no puede pasar de 200 caracteres (tiene {len(texto)}).'},
+            status=400)
     try:
         tipo = TipoArticulo.objects.get(pk=int(body.get('tipo_id') or 0))
     except (TipoArticulo.DoesNotExist, TypeError, ValueError):

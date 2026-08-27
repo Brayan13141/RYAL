@@ -2315,6 +2315,8 @@ class ApiTiendaSinTipoTests(TestCase):
         self.assertIn('sin_tipo', data)
         self.assertTrue(len(data['sin_tipo']) > 0)
         self.assertEqual(data['sin_tipo'][0]['texto'], 'Jordan')
+        self.assertIn('sugerencias', data['sin_tipo'][0])
+        self.assertTrue(len(data['sin_tipo'][0]['sugerencias']) > 0)
         self.assertEqual(Pedido.objects.count(), 0)
         self.assertEqual(PedidoItem.objects.count(), 0)
 
@@ -2569,3 +2571,19 @@ class ApiVentaSinTipoTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(AliasTexto.objects.count(), 1)
         self.assertEqual(AliasTexto.objects.first().tipo, otro)
+
+    def test_texto_no_string_devuelve_400_no_500(self):
+        # El bot manda JSON; un cliente roto puede mandar cualquier cosa.
+        # Antes esto reventaba con AttributeError dentro de normalizar_texto.
+        res = self._post('/api/negocio/alias/',
+                         {'texto': ['Jordan'], 'tipo_id': self.j4.pk})
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(AliasTexto.objects.count(), 0)
+
+    def test_texto_mas_largo_que_el_campo_devuelve_400_no_500(self):
+        # SQLite no impone max_length, Postgres sí: sin esta guarda el bug
+        # solo aparece en produccion.
+        res = self._post('/api/negocio/alias/',
+                         {'texto': 'x' * 250, 'tipo_id': self.j4.pk})
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(AliasTexto.objects.count(), 0)
