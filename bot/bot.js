@@ -18,6 +18,8 @@ const { createOrderSessionStore } = require('./orderSession')
 const { WELCOME_MESSAGE, menuReply, isGreetableJid, createWelcomeStore } = require('./welcome')
 const { writeQrState } = require('./qrState')
 const { resolveNotifyJid } = require('./notifyTarget')
+const { matchPromo } = require('./promos')
+const { avisoSinTipo } = require('./avisoSinTipo')
 
 const AUTH_DIR = '.baileys_auth'
 const QR_STATE_FILE = '.qr_state.json'
@@ -118,10 +120,11 @@ async function flushBatch(sock, text, price) {
 async function handleSupplierMessage(sock, msg) {
     if (!FORWARD_TO_RYAL) return
 
-    // Videos y su respectivo mensaje de precio no se reenvían
+    // Los videos no se reenvían, pero son parte del mismo producto que las fotos
+    // (el proveedor manda fotos → video → precio): el lote pendiente se conserva
+    // para que el precio que viene después sí lo reenvíe.
     if (msg.message?.videoMessage) {
-        const dropped = batch.flush(SUPPLIER_GID)
-        if (dropped.length > 0) logger.warn({ count: dropped.length }, 'Video del proveedor — lote previo descartado')
+        logger.info({ pending: batch.size(SUPPLIER_GID) }, 'Video del proveedor — ignorado, el lote sigue esperando precio')
         return
     }
 
@@ -137,12 +140,16 @@ async function handleSupplierMessage(sock, msg) {
             await flushBatch(sock, batch.getCaption(SUPPLIER_GID), buffPrice)
         }
 
-        if (batch.size(SUPPLIER_GID) >= MAX_PER_GROUP) {
-            logger.warn('Buffer de lote lleno (>=50) — imagen ignorada')
+        const before = batch.size(SUPPLIER_GID)
+        batch.addImage(SUPPLIER_GID, msg, Date.now(), price, caption)
+        const buffered = batch.size(SUPPLIER_GID)
+        // addImage refresca el TTL aunque el cap rechace la imagen, así que el
+        // lote no expira mientras el proveedor siga mandando.
+        if (buffered === before) {
+            logger.warn({ buffered, max: MAX_PER_GROUP }, 'Buffer de lote lleno — imagen ignorada')
             return
         }
-        batch.addImage(SUPPLIER_GID, msg, Date.now(), price, caption)
-        logger.info({ buffered: batch.size(SUPPLIER_GID), price }, 'Imagen buffereada')
+        logger.info({ buffered, price }, 'Imagen buffereada')
         return
     }
 
@@ -155,6 +162,24 @@ async function handleSupplierMessage(sock, msg) {
         return
     }
     await flushBatch(sock, text, price)
+}
+
+
+// Comandos de promoción del Grupo Ryal (ver bot/promos.js).
+//
+// Solo se atienden mensajes PROPIOS. Eso ES la autorización: un mensaje
+// fromMe únicamente puede existir si salió del teléfono de esta instancia,
+// así que un cliente del grupo no puede disparar el anuncio. De paso resuelve
+// el duplicado — las dos instancias (persona1 y persona2) están en este grupo,
+// pero solo la dueña del número desde el que se escribe lo ve como propio.
+async function handleRyalMessage(sock, msg) {
+    if (!msg.key.fromMe) return
+
+    const promo = matchPromo(getText(msg))
+    if (!promo) return
+
+    await sock.sendMessage(RYAL_GID, { text: promo })
+    logger.info({ cmd: getText(msg).trim().toLowerCase() }, 'Promo publicada en el Grupo Ryal')
 }
 
 
@@ -378,7 +403,7 @@ async function handleOrdersMessage(sock, msg) {
                             closeEndpoint, closePayload,
                             { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 10000 },
                         )
-                        await sock.sendMessage(ORDERS_GID, { text: `✅ Pedido #${data.pedido_id} cerrado — Total: $${data.total} MXN` })
+                        await sock.sendMessage(ORDERS_GID, { text: `✅ Pedido #${data.pedido_id} cerrado — Total: $${data.total} MXN` + avisoSinTipo(data.sin_tipo) })
                     } catch (err) {
                         logger.error({ err: err.message }, 'Error al cerrar pedido anterior (opción 2)')
                         await sock.sendMessage(ORDERS_GID, { text: '❌ Error al cerrar el pedido anterior. Usa /cerrar manualmente primero.' })
@@ -718,7 +743,8 @@ async function handleOrdersMessage(sock, msg) {
             )
             orders.cancelSession(ORDERS_GID)
             await sock.sendMessage(ORDERS_GID, {
-                text: `✅ Pedido #${data.pedido_id} creado — Total: $${data.total} MXN`,
+                text: `✅ Pedido #${data.pedido_id} creado — Total: $${data.total} MXN`
+                    + avisoSinTipo(data.sin_tipo),
             })
         } catch (err) {
             logger.error({ err: err.message }, 'Error al crear pedido en Django')
@@ -739,6 +765,13 @@ async function connect() {
         // Ping más frecuente que el default (30s): detecta antes la conexión
         // muerta y mantiene vivo el NAT durante los reenvíos de lotes pesados.
         keepAliveIntervalMs: 20000,
+        // Baileys manda presencia 'available' al conectar por default
+        // (Defaults/index.js: markOnlineOnConnect: true → chats.js: sendPresenceUpdate).
+        // Con la cuenta marcada online desde este dispositivo vinculado, WhatsApp deja
+        // de enviar la notificación push al teléfono: el mensaje llega al chat pero el
+        // teléfono nunca avisa. 'unavailable' devuelve las notificaciones al teléfono
+        // sin afectar la recepción ni el envío del bot.
+        markOnlineOnConnect: false,
         getMessage: async (key) => sentMsgCache.get(key?.id),
         // Sin esto WA solo manda un snapshot de unos pocos chats recientes en
         // messaging-history.set (verificado: 8-13 chats en un número con muchos
@@ -809,13 +842,18 @@ async function connect() {
             // fromMe = true cuando el dueño del número manda desde su teléfono personal.
             // Lo permitimos solo en ORDERS_GID para que pueda dar comandos desde su propio número.
             const isOwnerOrdersMsg = msg.key.fromMe && ORDERS_GID && isGroup && jid === ORDERS_GID
-            if (msg.key.fromMe && !isOwnerOrdersMsg) continue
+            // Los comandos de promo se disparan desde el propio teléfono, así que
+            // los mensajes propios del Grupo Ryal también tienen que pasar.
+            const isOwnerRyalMsg = msg.key.fromMe && RYAL_GID && isGroup && jid === RYAL_GID
+            if (msg.key.fromMe && !isOwnerOrdersMsg && !isOwnerRyalMsg) continue
 
             try {
                 if (isGroup && jid === SUPPLIER_GID) {
                     await handleSupplierMessage(sock, msg)
                 } else if (ORDERS_GID && isGroup && jid === ORDERS_GID) {
                     await handleOrdersMessage(sock, msg)
+                } else if (RYAL_GID && isGroup && jid === RYAL_GID) {
+                    await handleRyalMessage(sock, msg)
                 } else if (!isGroup) {
                     await handleClientMessage(sock, msg)
                 }
@@ -907,4 +945,8 @@ async function main() {
     await connect()
 }
 
-main()
+// Solo arranca cuando se ejecuta como `node bot.js`; al requerirlo desde los
+// tests el módulo se carga sin conectar a WhatsApp.
+if (require.main === module) main()
+
+module.exports = { handleSupplierMessage, batch, avisoSinTipo }

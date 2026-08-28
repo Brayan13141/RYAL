@@ -5,8 +5,8 @@
 //      lote anterior y se empieza uno nuevo.
 //   B) Imágenes sin precio + texto final con el precio: flush al recibir
 //      el texto (comportamiento original).
-const TTL_MS = 5 * 60 * 1000   // 5 minutos
-const MAX_PER_GROUP = 50
+const TTL_MS = 30 * 60 * 1000   // 30 minutos
+const MAX_PER_GROUP = 150
 
 /**
  * Crea una instancia de buffer con estado propio (facilita los tests).
@@ -37,9 +37,12 @@ function createBatchBuffer({ ttlMs = TTL_MS, maxPerGroup = MAX_PER_GROUP } = {})
     function addImage(groupJid, msg, now, price = null, caption = '') {
         purgeExpired(now)
         const entry = buffers[groupJid] || { items: [], lastTs: now, price: null, caption: '' }
+        // El reloj se refresca aunque la imagen no entre por el cap: mientras el
+        // proveedor siga mandando, el lote sigue vivo esperando su precio.
+        entry.lastTs = now
+        buffers[groupJid] = entry
         if (entry.items.length >= maxPerGroup) return entry.items.length
         entry.items.push(msg)
-        entry.lastTs = now
         // Guardar el precio y caption del lote (se actualiza con cada imagen)
         if (price !== null) entry.price = price
         if (caption)        entry.caption = caption
