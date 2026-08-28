@@ -1,7 +1,8 @@
 from django.contrib import admin
 from django.utils import timezone
 from django.utils.html import format_html
-from .models import Category, Tag, Product, ProductImage, ProductVariant, VolumeTier, PendingProduct
+from .models import (Category, Tag, Product, ProductImage, ProductVariant, VolumeTier,
+                     PendingProduct, AliasTexto)
 
 
 class VolumeTierInline(admin.TabularInline):
@@ -133,3 +134,20 @@ class PendingProductAdmin(admin.ModelAdmin):
             pending.reject()
             count += 1
         self.message_user(request, f'{count} producto(s) rechazado(s).')
+
+
+@admin.register(AliasTexto)
+class AliasTextoAdmin(admin.ModelAdmin):
+    """Un alias decide el costo de todas las ventas futuras de ese texto.
+
+    Se crean desde el grupo de WhatsApp respondiendo un numero, sin
+    confirmacion, y una vez creado el texto DESAPARECE del listado de
+    "textos sin tipo" del panel. Sin esta pantalla no habria forma de ver
+    que alias existen, ni de corregir uno elegido por error: la venta
+    saldria con el costo equivocado para siempre y en silencio.
+    """
+
+    list_display  = ('texto', 'tipo', 'created_at')
+    list_filter   = ('tipo',)
+    search_fields = ('texto', 'tipo__nombre')
+    ordering      = ('texto',)
