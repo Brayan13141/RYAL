@@ -329,6 +329,19 @@ async function resolveClienteYCrearModa(sock, moda) {
 }
 
 /**
+ * Arma el payload de una venta tienda a partir de la sesión ACTUAL. Es la
+ * única fuente de verdad para /cerrar, para el cierre de una sesión previa
+ * en el conflicto, y para el reintento tras resolver un alias — así un ítem
+ * cargado después del 409 y antes de la respuesta numérica no se pierde.
+ */
+function payloadVentaTienda(sess, envio = 0) {
+    return {
+        items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty })),
+        envio,
+    }
+}
+
+/**
  * Manda la venta a Django. El 409 no es un error: es "no se puede registrar
  * todavía". La sesión NO se toca — los ítems tienen que sobrevivir.
  */
@@ -344,9 +357,14 @@ async function enviarVentaTienda(sock, { endpoint, payload }) {
             const detalles = (err.response.data && err.response.data.sin_tipo) || []
             const totalItems = (payload.items || []).length
             const { texto, opciones } = mensajeSinTipo(detalles, totalItems)
-            orders.setPending(ORDERS_GID, 'sin_tipo', {
-                detalles, opciones, endpoint, ventaPayload: payload,
-            })
+            // Sin sugerencias no hay nada que numerar: armar el pending solo
+            // trabaría la carga de ítems de texto libre para siempre (el "1"
+            // de un item nunca puede distinguirse del "1" de elegir opción).
+            if (opciones.length > 0) {
+                orders.setPending(ORDERS_GID, 'sin_tipo', {
+                    detalles, opciones, endpoint, envio: payload.envio || 0,
+                })
+            }
             await sock.sendMessage(ORDERS_GID, { text: texto })
             return { ok: false, sinTipo: detalles }
         }
@@ -443,7 +461,7 @@ async function handleOrdersMessage(sock, msg) {
                         ? `${DJANGO_URL}/api/negocio/tienda/`
                         : `${DJANGO_URL}/api/negocio/pedido/`
                     const closePayload = closingTienda
-                        ? { items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty })), envio: 0 }
+                        ? payloadVentaTienda(sess, 0)
                         : { nombre: sess.cliente.nombre, telefono: sess.cliente.telefono, items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty, costo: i.costo || 0 })), envio: 0, descuento_monto: orders.getDescuento(ORDERS_GID)?.monto || 0, codigo_descuento_id: orders.getDescuento(ORDERS_GID)?.codigoId || null }
                     const resPrev = await enviarVentaTienda(
                         sock, { endpoint: closeEndpoint, payload: closePayload })
@@ -518,7 +536,7 @@ async function handleOrdersMessage(sock, msg) {
         }
 
         if (pending.type === 'sin_tipo') {
-            const { detalles, opciones, endpoint, ventaPayload } = pending.payload
+            const { detalles, opciones, endpoint, envio } = pending.payload
             if (bareNum < 1 || bareNum > opciones.length) {
                 orders.setPending(ORDERS_GID, 'sin_tipo', pending.payload)
                 await sock.sendMessage(ORDERS_GID, {
@@ -527,7 +545,10 @@ async function handleOrdersMessage(sock, msg) {
                 return
             }
             const elegido = opciones[bareNum - 1]
-            orders.clearPending(ORDERS_GID)
+            // El pending sobrevive hasta que el POST del alias confirme éxito:
+            // si falla y ya lo hubiéramos borrado, el reintento natural del
+            // usuario (teclear el número otra vez) caería en el bloque de
+            // ítem de tienda y agregaría un artículo fantasma de $1.
             try {
                 await axios.post(
                     `${DJANGO_URL}/api/negocio/alias/`,
@@ -539,12 +560,24 @@ async function handleOrdersMessage(sock, msg) {
                 await sock.sendMessage(ORDERS_GID, { text: '❌ No pude guardar el tipo. Intenta de nuevo.' })
                 return
             }
+            orders.clearPending(ORDERS_GID)
             await sock.sendMessage(ORDERS_GID, {
                 text: `✅ «${detalles[0].texto}» quedó como ${elegido.nombre} (costo $${elegido.costo}).`,
             })
-            // Reintento: si queda otro texto sin tipo, el servidor vuelve a
-            // rechazar con el siguiente y el pending se rearma solo.
-            const res = await enviarVentaTienda(sock, { endpoint, payload: ventaPayload })
+            // Reintento: el payload se arma desde la sesión ACTUAL, no desde
+            // el snapshot del 409 — lo que se cargó mientras el pending
+            // estaba vivo tiene que ir incluido. Si queda otro texto sin
+            // tipo, el servidor vuelve a rechazar con el siguiente y el
+            // pending se rearma solo.
+            const sesionActual = orders.getSession(ORDERS_GID)
+            if (!sesionActual || sesionActual.items.length === 0) {
+                await sock.sendMessage(ORDERS_GID, {
+                    text: '⚠️ La sesión ya no existe o quedó vacía — no se reintentó la venta.',
+                })
+                return
+            }
+            const payload = payloadVentaTienda(sesionActual, envio)
+            const res = await enviarVentaTienda(sock, { endpoint, payload })
             if (!res.ok) return
             orders.cancelSession(ORDERS_GID)
             await sock.sendMessage(ORDERS_GID, {
@@ -803,10 +836,7 @@ async function handleOrdersMessage(sock, msg) {
             ? `${DJANGO_URL}/api/negocio/tienda/`
             : `${DJANGO_URL}/api/negocio/pedido/`
         const payload = isTienda
-            ? {
-                items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty })),
-                envio,
-            }
+            ? payloadVentaTienda(sess, envio)
             : {
                 nombre: sess.cliente.nombre,
                 telefono: sess.cliente.telefono,

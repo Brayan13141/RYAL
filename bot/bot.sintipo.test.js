@@ -48,7 +48,11 @@ describe('pending sin_tipo — dispatcher real de handleOrdersMessage', () => {
         const pending = ordersReales.getPending(ORDERS)
         expect(pending.type).toBe('sin_tipo')
         expect(pending.payload.opciones[0].tipo_id).toBe(1)
-        expect(pending.payload.ventaPayload.items).toHaveLength(1)
+        // Ya no guarda un snapshot del payload — el reintento se arma desde
+        // la sesión actual (ver CRITICAL 1). Solo persiste lo que no sale de
+        // la sesión: el endpoint y el envío.
+        expect(pending.payload.endpoint).toContain('/api/negocio/tienda/')
+        expect(pending.payload.envio).toBe(0)
     })
 
     test('la sesión sobrevive al rechazo — /cerrar con 409 no cancela ni vacía la sesión', async () => {
@@ -116,6 +120,94 @@ describe('pending sin_tipo — dispatcher real de handleOrdersMessage', () => {
         const llamadas = axios.post.mock.calls.map(c => c[0])
         expect(llamadas.some(u => String(u).includes('/api/negocio/alias/'))).toBe(true)
     })
+
+    test('CRITICAL: el reintento manda el payload actual de la sesion, no el snapshot del 409', async () => {
+        // Reproduce el bug real: entre el 409 y la respuesta numerica se carga
+        // un segundo item (el texto libre no mira el pending). El reintento
+        // tiene que mandar los DOS items, no solo el que existia cuando se
+        // armo el pending — si no, ese segundo item se pierde sin dejar rastro.
+        ordersReales.startSession(ORDERS, 'Mostrador', 'TIENDA-MOSTRADOR', 'tienda')
+        ordersReales.addItem(ORDERS, 'Jordan', 750)
+        ordersReales.setQty(ORDERS, 1, 9)
+
+        axios.post.mockRejectedValueOnce({
+            response: {
+                status: 409,
+                data: {
+                    sin_tipo: [{
+                        texto: 'Jordan', qty: 9, precio: 750,
+                        sugerencias: [{ tipo_id: 1, nombre: 'JORDAN 4', costo: 680 }],
+                    }],
+                },
+            },
+        })
+        const sock = { sendMessage: jest.fn() }
+        await handleOrdersMessage(sock, mensajeDeTexto('/cerrar'))
+
+        // Se carga un segundo item MIENTRAS el pending sigue vivo
+        await handleOrdersMessage(sock, mensajeDeTexto('Nike 500'))
+        expect(ordersReales.getSession(ORDERS).items).toHaveLength(2)
+
+        axios.post
+            .mockResolvedValueOnce({ data: { ok: true } })                       // POST alias
+            .mockResolvedValueOnce({ data: { pedido_id: 99, total: '7250.00' } }) // reintento
+
+        await handleOrdersMessage(sock, mensajeDeTexto('1'))
+
+        const reintento = axios.post.mock.calls[axios.post.mock.calls.length - 1]
+        const payloadEnviado = reintento[1]
+        expect(payloadEnviado.items).toHaveLength(2)
+        expect(payloadEnviado.items.map(i => i.description)).toEqual(
+            expect.arrayContaining(['Jordan', 'Nike']))
+    })
+
+    test('CRITICAL: si falla el POST del alias, el pending sobrevive y reintentar el numero no agrega un item fantasma', async () => {
+        // Si clearPending corriera ANTES del POST, un fallo dejaria el pending
+        // borrado: el reintento natural del usuario (teclear "1" otra vez)
+        // caeria en el bloque de item de tienda y agregaria un articulo de $1.
+        ordersReales.startSession(ORDERS, 'Mostrador', 'TIENDA-MOSTRADOR', 'tienda')
+        ordersReales.addItem(ORDERS, 'Jordan', 750)
+        ordersReales.setPending(ORDERS, 'sin_tipo', {
+            detalles: [{ texto: 'Jordan', qty: 1, precio: 750, sugerencias: [] }],
+            opciones: [{ tipo_id: 7, nombre: 'JORDAN 4', costo: 680 }],
+            endpoint: ENDPOINT,
+            envio: 0,
+        })
+
+        // El POST del alias falla las dos veces
+        axios.post.mockRejectedValue({ message: 'network down' })
+        const sock = { sendMessage: jest.fn() }
+
+        await handleOrdersMessage(sock, mensajeDeTexto('1'))
+        expect(ordersReales.getPending(ORDERS)).not.toBeNull()
+        expect(ordersReales.getPending(ORDERS).type).toBe('sin_tipo')
+        expect(ordersReales.getSession(ORDERS).items).toHaveLength(1)
+
+        // El usuario reintenta el mismo numero — no puede colarse como item de $1
+        await handleOrdersMessage(sock, mensajeDeTexto('1'))
+        expect(ordersReales.getSession(ORDERS).items).toHaveLength(1)
+        expect(ordersReales.getPending(ORDERS)).not.toBeNull()
+    })
+
+    test('IMPORTANT 3: sin sugerencias, un item con precio suelto se puede seguir cargando', async () => {
+        // Antes: opciones=[] armaba pending igual, bareNum > 0 siempre superaba
+        // opciones.length, y el pending se rearmaba para siempre — ningun item
+        // de texto libre podia cargarse hasta /cancelar o /cerrar.
+        ordersReales.startSession(ORDERS, 'Mostrador', 'TIENDA-MOSTRADOR', 'tienda')
+        ordersReales.addItem(ORDERS, 'Jordan', 750)
+        axios.post.mockRejectedValueOnce({
+            response: {
+                status: 409,
+                data: { sin_tipo: [{ texto: 'Jordan', qty: 1, precio: 750, sugerencias: [] }] },
+            },
+        })
+        const sock = { sendMessage: jest.fn() }
+        await handleOrdersMessage(sock, mensajeDeTexto('/cerrar'))
+        expect(ordersReales.getPending(ORDERS)).toBeNull()
+
+        await handleOrdersMessage(sock, mensajeDeTexto('Gorra 200'))
+        expect(ordersReales.getSession(ORDERS).items).toHaveLength(2)
+    })
 })
 
 describe('enviarVentaTienda', () => {
@@ -143,9 +235,27 @@ describe('enviarVentaTienda', () => {
         expect(res.sinTipo).toHaveLength(1)
         const pending = ordersReales.getPending(ORDERS)
         expect(pending.type).toBe('sin_tipo')
-        expect(pending.payload.ventaPayload).toEqual(PAYLOAD)
+        expect(pending.payload.envio).toBe(PAYLOAD.envio)
         expect(pending.payload.opciones[0].tipo_id).toBe(1)
         expect(sock.sendMessage.mock.calls[0][1].text).toContain('NO registrada')
+    })
+
+    test('IMPORTANT 3: un 409 sin sugerencias NO arma pending — no puede trabar la carga de items', async () => {
+        // Con opciones=[] el pending nunca podia resolverse (bareNum siempre
+        // > opciones.length), asi que se rearmaba solo por siempre y el bloque
+        // de item de tienda quedaba bloqueado por esRespuestaAPending.
+        axios.post.mockRejectedValue({
+            response: {
+                status: 409,
+                data: { sin_tipo: [{ texto: 'qwx', qty: 1, precio: 100, sugerencias: [] }] },
+            },
+        })
+        const sock = { sendMessage: jest.fn() }
+        const res = await enviarVentaTienda(sock, { endpoint: ENDPOINT, payload: PAYLOAD })
+
+        expect(res.ok).toBe(false)
+        expect(ordersReales.getPending(ORDERS)).toBeNull()
+        expect(sock.sendMessage.mock.calls[0][1].text).toContain('no encontré ninguno parecido')
     })
 
     test('un 200 devuelve la data y no arma pending', async () => {
