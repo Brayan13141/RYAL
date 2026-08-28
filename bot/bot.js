@@ -20,6 +20,7 @@ const { writeQrState } = require('./qrState')
 const { resolveNotifyJid } = require('./notifyTarget')
 const { matchPromo } = require('./promos')
 const { avisoSinTipo } = require('./avisoSinTipo')
+const { mensajeSinTipo } = require('./ventaSinTipo')
 
 const AUTH_DIR = '.baileys_auth'
 const QR_STATE_FILE = '.qr_state.json'
@@ -327,6 +328,34 @@ async function resolveClienteYCrearModa(sock, moda) {
     })
 }
 
+/**
+ * Manda la venta a Django. El 409 no es un error: es "no se puede registrar
+ * todavía". La sesión NO se toca — los ítems tienen que sobrevivir.
+ */
+async function enviarVentaTienda(sock, { endpoint, payload }) {
+    try {
+        const { data } = await axios.post(
+            endpoint, payload,
+            { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 10000 },
+        )
+        return { ok: true, data }
+    } catch (err) {
+        if (err.response && err.response.status === 409) {
+            const detalles = (err.response.data && err.response.data.sin_tipo) || []
+            const totalItems = (payload.items || []).length
+            const { texto, opciones } = mensajeSinTipo(detalles, totalItems)
+            orders.setPending(ORDERS_GID, 'sin_tipo', {
+                detalles, opciones, endpoint, ventaPayload: payload,
+            })
+            await sock.sendMessage(ORDERS_GID, { text: texto })
+            return { ok: false, sinTipo: detalles }
+        }
+        logger.error({ err: err.message }, 'Error al crear la venta en Django')
+        await sock.sendMessage(ORDERS_GID, { text: '❌ Error al crear el pedido. Intenta de nuevo.' })
+        return { ok: false, error: true }
+    }
+}
+
 async function handleOrdersMessage(sock, msg) {
     const image = msg.message?.imageMessage
     const text = getText(msg)
@@ -377,6 +406,15 @@ async function handleOrdersMessage(sock, msg) {
     const pending = orders.getPending(ORDERS_GID)
     const bareNum = (text && /^\s*\d+\s*$/.test(text)) ? parseInt(text.trim(), 10) : null
 
+    if (pending && pending.type === 'sin_tipo' && /^\s*otro\s*$/i.test(text || '')) {
+        orders.clearPending(ORDERS_GID)
+        await sock.sendMessage(ORDERS_GID, {
+            text: '📋 Cargá el tipo o el alias en /panel/negocio/tipos/ y volvé a mandar /cerrar.'
+                + '\nLos artículos siguen cargados.',
+        })
+        return
+    }
+
     if (pending && bareNum !== null) {
         if (pending.type === 'conflict') {
             const { nombre, telefono } = pending.payload
@@ -398,17 +436,13 @@ async function handleOrdersMessage(sock, msg) {
                     const closePayload = closingTienda
                         ? { items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty })), envio: 0 }
                         : { nombre: sess.cliente.nombre, telefono: sess.cliente.telefono, items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty, costo: i.costo || 0 })), envio: 0, descuento_monto: orders.getDescuento(ORDERS_GID)?.monto || 0, codigo_descuento_id: orders.getDescuento(ORDERS_GID)?.codigoId || null }
-                    try {
-                        const { data } = await axios.post(
-                            closeEndpoint, closePayload,
-                            { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 10000 },
-                        )
-                        await sock.sendMessage(ORDERS_GID, { text: `✅ Pedido #${data.pedido_id} cerrado — Total: $${data.total} MXN` + avisoSinTipo(data.sin_tipo) })
-                    } catch (err) {
-                        logger.error({ err: err.message }, 'Error al cerrar pedido anterior (opción 2)')
-                        await sock.sendMessage(ORDERS_GID, { text: '❌ Error al cerrar el pedido anterior. Usa /cerrar manualmente primero.' })
-                        return
-                    }
+                    const resPrev = await enviarVentaTienda(
+                        sock, { endpoint: closeEndpoint, payload: closePayload })
+                    if (!resPrev.ok) return   // no se abre sesión nueva sobre una venta sin cerrar
+                    await sock.sendMessage(ORDERS_GID, {
+                        text: `✅ Pedido #${resPrev.data.pedido_id} cerrado — Total: $${resPrev.data.total} MXN`
+                            + avisoSinTipo(resPrev.data.sin_tipo),
+                    })
                 }
                 orders.startSession(ORDERS_GID, nombre, telefono, pending.payload.tipo || 'pedido')
                 await sock.sendMessage(ORDERS_GID, {
@@ -471,6 +505,42 @@ async function handleOrdersMessage(sock, msg) {
             const elegido = clientes[bareNum - 1]
             orders.clearPending(ORDERS_GID)
             await crearPedidoModa(sock, { nombre: elegido.nombre, telefono: elegido.telefono, cantidad, ganancia, envio })
+            return
+        }
+
+        if (pending.type === 'sin_tipo') {
+            const { detalles, opciones, endpoint, ventaPayload } = pending.payload
+            if (bareNum < 1 || bareNum > opciones.length) {
+                orders.setPending(ORDERS_GID, 'sin_tipo', pending.payload)
+                await sock.sendMessage(ORDERS_GID, {
+                    text: `⚠️ Responde un número del 1 al ${opciones.length}, o «otro».`,
+                })
+                return
+            }
+            const elegido = opciones[bareNum - 1]
+            orders.clearPending(ORDERS_GID)
+            try {
+                await axios.post(
+                    `${DJANGO_URL}/api/negocio/alias/`,
+                    { texto: detalles[0].texto, tipo_id: elegido.tipo_id },
+                    { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 10000 },
+                )
+            } catch (err) {
+                logger.error({ err: err.message }, 'Error al crear el alias')
+                await sock.sendMessage(ORDERS_GID, { text: '❌ No pude guardar el tipo. Intenta de nuevo.' })
+                return
+            }
+            await sock.sendMessage(ORDERS_GID, {
+                text: `✅ «${detalles[0].texto}» quedó como ${elegido.nombre} (costo $${elegido.costo}).`,
+            })
+            // Reintento: si queda otro texto sin tipo, el servidor vuelve a
+            // rechazar con el siguiente y el pending se rearma solo.
+            const res = await enviarVentaTienda(sock, { endpoint, payload: ventaPayload })
+            if (!res.ok) return
+            orders.cancelSession(ORDERS_GID)
+            await sock.sendMessage(ORDERS_GID, {
+                text: `✅ Pedido #${res.data.pedido_id} creado — Total: $${res.data.total} MXN`,
+            })
             return
         }
     }
@@ -736,20 +806,13 @@ async function handleOrdersMessage(sock, msg) {
                 descuento_monto: orders.getDescuento(ORDERS_GID)?.monto || 0,
                 codigo_descuento_id: orders.getDescuento(ORDERS_GID)?.codigoId || null,
             }
-        try {
-            const { data } = await axios.post(
-                endpoint, payload,
-                { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 10000 },
-            )
-            orders.cancelSession(ORDERS_GID)
-            await sock.sendMessage(ORDERS_GID, {
-                text: `✅ Pedido #${data.pedido_id} creado — Total: $${data.total} MXN`
-                    + avisoSinTipo(data.sin_tipo),
-            })
-        } catch (err) {
-            logger.error({ err: err.message }, 'Error al crear pedido en Django')
-            await sock.sendMessage(ORDERS_GID, { text: '❌ Error al crear el pedido. Intenta de nuevo.' })
-        }
+        const res = await enviarVentaTienda(sock, { endpoint, payload })
+        if (!res.ok) return          // 409 o error: la sesión queda intacta
+        orders.cancelSession(ORDERS_GID)
+        await sock.sendMessage(ORDERS_GID, {
+            text: `✅ Pedido #${res.data.pedido_id} creado — Total: $${res.data.total} MXN`
+                + avisoSinTipo(res.data.sin_tipo),
+        })
         return
     }
 }
@@ -949,4 +1012,4 @@ async function main() {
 // tests el módulo se carga sin conectar a WhatsApp.
 if (require.main === module) main()
 
-module.exports = { handleSupplierMessage, batch, avisoSinTipo }
+module.exports = { handleSupplierMessage, batch, avisoSinTipo, enviarVentaTienda, orders }
