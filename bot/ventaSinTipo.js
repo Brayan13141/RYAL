@@ -26,8 +26,11 @@ function mensajeSinTipo(detalles, totalItems) {
 
     const linea = `«${primero.texto}» ($${money(primero.precio)} × ${primero.qty})`
 
-    const cola = `\n\nLos ${totalItems} artículo${totalItems === 1 ? '' : 's'}`
-        + ` siguen cargados.`
+    // Concordancia completa, no solo el sustantivo: con totalItems = 1 la
+    // version anterior decia «Los 1 articulo siguen cargados».
+    const cola = totalItems === 1
+        ? '\n\nLa venta queda esperando: 1 artículo cargado.'
+        : `\n\nLa venta queda esperando: ${totalItems} artículos cargados.`
 
     if (opciones.length === 0) {
         return {

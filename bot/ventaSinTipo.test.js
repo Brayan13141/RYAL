@@ -44,6 +44,14 @@ describe('mensajeSinTipo', () => {
 
     test('recuerda que los artículos siguen cargados', () => {
         const { texto } = mensajeSinTipo([JORDAN], 3)
-        expect(texto).toContain('3 artículos siguen cargados')
+        expect(texto).toContain('La venta queda esperando: 3 artículos cargados.')
+    })
+
+    test('con un solo artículo la frase concuerda en singular', () => {
+        // La version anterior decia «Los 1 articulo siguen cargados».
+        const { texto } = mensajeSinTipo([JORDAN], 1)
+        expect(texto).toContain('La venta queda esperando: 1 artículo cargado.')
+        expect(texto).not.toContain('Los 1')
+        expect(texto).not.toContain('artículos')
     })
 })
