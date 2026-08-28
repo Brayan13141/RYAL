@@ -2673,3 +2673,19 @@ class TipoAsignarAliasTests(TestCase):
                                {'texto': 'Jordan', 'tipo_id': ''})
         self.assertEqual(res.status_code, 302)
         self.assertEqual(AliasTexto.objects.count(), 0)
+
+    def test_asigna_un_texto_que_no_existe_en_ningun_pedido(self):
+        """El formulario de texto libre del panel acepta un texto nuevo.
+
+        La tabla de "textos sin tipo" solo lista ventas YA GRABADAS, y desde
+        que la venta sin tipo se rechaza un texto nuevo nunca llega a
+        grabarse. Sin este camino, la salida «otro» que ofrece el bot apunta
+        a una pantalla donde ese texto no se puede cargar.
+        """
+        self.assertEqual(Pedido.objects.count(), 0)
+        res = self.client.post(reverse('negocio:tipo_asignar_alias'),
+                               {'texto': 'Zapatilla nueva', 'tipo_id': self.j4.pk})
+        self.assertEqual(res.status_code, 302)
+        alias = AliasTexto.objects.get()
+        self.assertEqual(alias.texto, 'zapatilla nueva')
+        self.assertEqual(alias.tipo, self.j4)
