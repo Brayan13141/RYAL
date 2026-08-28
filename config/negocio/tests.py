@@ -1,11 +1,13 @@
 import datetime
+import json
 from decimal import Decimal
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
+from django.urls import reverse
 from negocio.models import Cliente, Pedido, Pago, Gasto, PedidoItem
-from catalog.models import Category, Product, TipoArticulo, CodigoDescuento
-from negocio.services import crear_venta_tienda, VentaInvalida, crear_pedido_tienda_bot
+from catalog.models import Category, Product, TipoArticulo, CodigoDescuento, AliasTexto
+from negocio.services import crear_venta_tienda, VentaInvalida, crear_pedido_tienda_bot, VentaSinTipo
 
 
 class ClienteModelTest(TestCase):
@@ -1275,6 +1277,16 @@ from decimal import Decimal
 
 
 class CrearPedidoTiendaBotTest(TestCase):
+    def setUp(self):
+        # Desde que la venta se rechaza si un texto no resuelve, estos tests
+        # necesitan que sus textos matcheen. Los costos van en 0 A PROPOSITO:
+        # lo que miden es origen, precio, items y envio — y varios asertan
+        # costo_producto == 0. Un tipo con costo 0 es un cero DECLARADO, que
+        # es justo la distincion que el bloqueo vino a hacer posible.
+        for nombre, kw in (('Tenis', 'tenis'), ('Gorra', 'gorra'),
+                           ('Item tienda', 'ítem tienda')):
+            TipoArticulo.objects.create(nombre=nombre, keywords=kw, costo=Decimal('0'))
+
     def test_crea_pedido_origen_tienda(self):
         items = [{'description': 'tenis rojo', 'price': 450, 'qty': 2}]
         pedido = crear_pedido_tienda_bot(items=items)
@@ -1323,6 +1335,10 @@ class CrearPedidoTiendaBotTest(TestCase):
 
 @override_settings(NEGOCIO_API_KEY='test-key-123')
 class ApiTiendaCreateTest(TestCase):
+    def setUp(self):
+        # Costo 0 a proposito: estos tests miden el contrato HTTP, no el costo.
+        TipoArticulo.objects.create(nombre='Tenis', keywords='tenis', costo=Decimal('0'))
+
     def _post(self, body, key='test-key-123'):
         headers = {'HTTP_AUTHORIZATION': f'Bearer {key}', 'content_type': 'application/json'}
         return self.client.post('/api/negocio/tienda/', data=json.dumps(body), **headers)
@@ -1913,6 +1929,27 @@ class RankingPorTipoTests(TestCase):
         from negocio.services import ranking_por_tipo
         self.assertEqual(ranking_por_tipo(), [])
 
+    def test_un_texto_con_alias_se_agrupa_en_su_tipo(self):
+        # Una venta con un texto que solo resuelve por alias tiene que caer
+        # en su tipo y NO en "sin clasificar". Sin esto aparecería en el
+        # dashboard como venta anónima.
+        from negocio.services import ranking_por_tipo
+        jordan4 = TipoArticulo.objects.create(
+            nombre='JORDAN 4', keywords='jordan 4', costo=Decimal('680'))
+        p = self._pedido()
+        self._item(p, 'Jordan', cantidad=1, precio='1500', costo='680')
+        # Sin alias, cae en "Sin clasificar" (tipo=None):
+        filas_sin_alias = ranking_por_tipo()
+        self.assertEqual(len(filas_sin_alias), 1)
+        self.assertIsNone(filas_sin_alias[0]['tipo'])
+
+        # Con alias, agrupa en JORDAN 4:
+        AliasTexto.objects.create(texto='jordan', tipo=jordan4)
+        filas_con_alias = ranking_por_tipo()
+        self.assertEqual(len(filas_con_alias), 1)
+        self.assertEqual(filas_con_alias[0]['tipo'], 'JORDAN 4')
+        self.assertEqual(filas_con_alias[0]['piezas'], 1)
+
 
 class MasVendidosViewTests(TestCase):
     def setUp(self):
@@ -1973,9 +2010,10 @@ class MasVendidosViewTests(TestCase):
 class TextosSinTipoTests(TestCase):
     """Textos de venta que no matchean ningún TipoArticulo.
 
-    Cuando `matches()` no encuentra tipo, `crear_pedido_tienda_bot` graba
-    `costo_unitario = 0` y la venta queda con 100% de margen sin avisar. Esta
-    lista es la única forma de ver qué keyword falta antes de que siga pasando.
+    Ventas NUEVAS con un texto sin tipo ya no se graban: se rechazan. Pero
+    las que se grabaron antes del bloqueo conservan su `costo_unitario = 0` y
+    su 100% de margen, y este reporte sigue siendo la unica forma de verlas
+    para decidir que keyword o alias falta.
     """
 
     def setUp(self):
@@ -2063,6 +2101,19 @@ class TextosSinTipoTests(TestCase):
 
     def test_sin_ventas_huerfanas_devuelve_vacio(self):
         from negocio.services import textos_sin_tipo
+        self.assertEqual(textos_sin_tipo(), [])
+
+    def test_un_texto_con_alias_deja_de_aparecer_sin_tipo(self):
+        # Sin esto, asignar el alias arregla el costo pero el panel sigue
+        # reclamando el mismo texto, y parece que el botón no funcionó.
+        from negocio.services import textos_sin_tipo
+        j4 = TipoArticulo.objects.create(
+            nombre='JORDAN 4', keywords='jordan 4', costo=Decimal('680'))
+        p = self._pedido()
+        self._item(p, 'Jordan')
+        self.assertEqual(len(textos_sin_tipo()), 1)
+
+        AliasTexto.objects.create(texto='jordan', tipo=j4)
         self.assertEqual(textos_sin_tipo(), [])
 
 
@@ -2208,22 +2259,30 @@ class AsignarKeywordTests(TestCase):
 
 
 class VentaSinTipoAvisaTests(TestCase):
-    """Cuando ningún tipo matchea, el costo se graba en $0 y la venta queda
-    con 100% de margen. El cero es plausible, así que nada lo delata: hay que
-    decirlo en voz alta, en el grupo, mientras la persona que sabe sigue ahí.
+    """El limite de lo que el bloqueo cubre.
+
+    Antes esta clase fijaba que la venta se grababa con costo $0 y avisaba.
+    Ahora NO se graba. Lo que sigue valiendo, y por eso los tests se quedan,
+    es la frontera: el bloqueo cubre el costo AUSENTE, no el costo MAL
+    asignado — 'new balance' que se lleva la keyword 'new' de otro tipo si
+    resuelve, y por eso la venta pasa con el costo equivocado. Ese es el bug
+    del matcher divergente y se arregla por su lado.
     """
 
     def setUp(self):
         TipoArticulo.objects.create(nombre='Gorras', keywords='gorra,gorras',
                                     costo=Decimal('240'))
 
-    def test_el_pedido_expone_los_articulos_sin_tipo(self):
-        from negocio.services import crear_pedido_tienda_bot
-        pedido = crear_pedido_tienda_bot(items=[
-            {'description': 'gorras', 'price': 300, 'qty': 2},
-            {'description': 'Jordan', 'price': 750, 'qty': 1},
-        ])
-        self.assertEqual(pedido.sin_tipo, ['Jordan'])
+    def test_un_solo_texto_sin_tipo_rechaza_la_venta_completa(self):
+        from negocio.services import crear_pedido_tienda_bot, VentaSinTipo
+        with self.assertRaises(VentaSinTipo) as ctx:
+            crear_pedido_tienda_bot(items=[
+                {'description': 'gorras', 'price': 300, 'qty': 2},
+                {'description': 'Jordan', 'price': 750, 'qty': 1},
+            ])
+        # La linea que SI resolvia tampoco se graba: es todo o nada.
+        self.assertEqual([d['texto'] for d in ctx.exception.detalles], ['Jordan'])
+        self.assertEqual(Pedido.objects.count(), 0)
 
     def test_sin_huerfanos_la_lista_va_vacia(self):
         from negocio.services import crear_pedido_tienda_bot
@@ -2231,22 +2290,29 @@ class VentaSinTipoAvisaTests(TestCase):
             {'description': 'gorras', 'price': 300, 'qty': 2}])
         self.assertEqual(pedido.sin_tipo, [])
 
-    def test_no_repite_el_mismo_texto_dos_veces(self):
-        from negocio.services import crear_pedido_tienda_bot
-        pedido = crear_pedido_tienda_bot(items=[
-            {'description': 'Jordan', 'price': 750, 'qty': 1},
-            {'description': 'Jordan', 'price': 750, 'qty': 1},
-        ])
-        self.assertEqual(pedido.sin_tipo, ['Jordan'])
+    def test_el_mismo_texto_repetido_se_reporta_una_sola_vez(self):
+        from negocio.services import crear_pedido_tienda_bot, VentaSinTipo
+        with self.assertRaises(VentaSinTipo) as ctx:
+            crear_pedido_tienda_bot(items=[
+                {'description': 'Jordan', 'price': 750, 'qty': 1},
+                {'description': 'Jordan', 'price': 750, 'qty': 1},
+            ])
+        self.assertEqual([d['texto'] for d in ctx.exception.detalles], ['Jordan'])
 
-    def test_el_costo_sigue_en_cero_no_se_inventa_uno(self):
-        """El aviso no adivina el costo: sigue en 0 hasta que alguien decida."""
-        from negocio.services import crear_pedido_tienda_bot
-        pedido = crear_pedido_tienda_bot(items=[
-            {'description': 'Jordan', 'price': 750, 'qty': 1}])
-        self.assertEqual(pedido.costo_producto, Decimal('0'))
+    def test_no_se_inventa_un_costo_simplemente_no_se_graba(self):
+        """Antes el costo quedaba en 0; ahora no hay pedido que costear.
 
-    def test_no_avisa_si_algun_tipo_matcheo_aunque_sea_el_equivocado(self):
+        En los dos casos el sistema se niega a adivinar dinero. La diferencia
+        es que ahora tampoco deja un registro que parezca correcto.
+        """
+        from negocio.services import crear_pedido_tienda_bot, VentaSinTipo
+        with self.assertRaises(VentaSinTipo):
+            crear_pedido_tienda_bot(items=[
+                {'description': 'Jordan', 'price': 750, 'qty': 1}])
+        self.assertEqual(Pedido.objects.count(), 0)
+        self.assertEqual(PedidoItem.objects.count(), 0)
+
+    def test_pasa_si_algun_tipo_matcheo_aunque_sea_el_equivocado(self):
         """El aviso cubre el costo $0, no el costo MAL asignado — son dos bugs
         distintos. 'new balance' con la keyword 'new' de otro tipo se lleva un
         costo (el de la gorra, $150), así que no queda huérfano y no se avisa.
@@ -2272,13 +2338,22 @@ class ApiTiendaSinTipoTests(TestCase):
             '/api/negocio/tienda/', data=json.dumps(body),
             HTTP_AUTHORIZATION=f'Bearer {key}', content_type='application/json')
 
-    def test_devuelve_los_articulos_sin_tipo(self):
+    def test_la_venta_con_texto_sin_tipo_no_se_graba(self):
+        # El código HTTP es 409 cuando hay artículos sin tipo. La venta no
+        # entra a la base y la respuesta incluye las sugerencias.
         res = self._post({'items': [
             {'description': 'gorras', 'price': 300, 'qty': 1},
             {'description': 'Jordan', 'price': 750, 'qty': 1},
         ]})
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.json()['sin_tipo'], ['Jordan'])
+        self.assertEqual(res.status_code, 409)
+        data = res.json()
+        self.assertIn('sin_tipo', data)
+        self.assertTrue(len(data['sin_tipo']) > 0)
+        self.assertEqual(data['sin_tipo'][0]['texto'], 'Jordan')
+        self.assertIn('sugerencias', data['sin_tipo'][0])
+        self.assertTrue(len(data['sin_tipo'][0]['sugerencias']) > 0)
+        self.assertEqual(Pedido.objects.count(), 0)
+        self.assertEqual(PedidoItem.objects.count(), 0)
 
     def test_lista_vacia_cuando_todo_matchea(self):
         res = self._post({'items': [{'description': 'gorras', 'price': 300, 'qty': 1}]})
@@ -2394,3 +2469,223 @@ class GananciaWebEnCajaTests(TestCase):
         o = self._order('W10', '1000', '600', qty=2)
         vendido = sum(i.price_snapshot * i.quantity for i in o.items.all())
         self.assertEqual(o.ganancia, vendido - o.costo_mercancia - o.descuento_aplicado)
+
+
+from catalog.models import AliasTexto
+from negocio.services import VentaSinTipo
+
+
+class VentaBloqueadaSinTipoTests(TestCase):
+    """Una venta con un texto que no resuelve a ningun tipo NO se graba.
+
+    Antes se grababa con costo $0 y 100% de margen declarado, sin avisar: cero
+    es un costo plausible, asi que nada lo delataba despues. Ya dejo $14,710
+    mal registrados. Ahora se rechaza entera y el bot pide el tipo en el grupo.
+    """
+
+    def setUp(self):
+        self.gorra = TipoArticulo.objects.create(
+            nombre='Gorra', keywords='gorra', costo=Decimal('150'))
+        self.j4 = TipoArticulo.objects.create(
+            nombre='JORDAN 4', keywords='jordan 4', costo=Decimal('680'))
+
+    def _venta(self, desc):
+        return crear_pedido_tienda_bot(
+            items=[{'description': desc, 'price': 750, 'qty': 9}])
+
+    def test_texto_sin_tipo_levanta_y_no_graba_nada(self):
+        with self.assertRaises(VentaSinTipo):
+            self._venta('Jordan')
+        self.assertEqual(Pedido.objects.count(), 0)
+        self.assertEqual(PedidoItem.objects.count(), 0)
+        self.assertEqual(Pago.objects.count(), 0)
+
+    def test_los_detalles_traen_texto_cantidad_precio_y_sugerencias(self):
+        with self.assertRaises(VentaSinTipo) as ctx:
+            self._venta('Jordan')
+        d = ctx.exception.detalles[0]
+        self.assertEqual(d['texto'], 'Jordan')
+        self.assertEqual(d['qty'], 9)
+        self.assertEqual(d['precio'], 750.0)
+        self.assertIn('JORDAN 4', [s['nombre'] for s in d['sugerencias']])
+
+    def test_una_linea_sin_tipo_tumba_la_venta_entera(self):
+        with self.assertRaises(VentaSinTipo):
+            crear_pedido_tienda_bot(items=[
+                {'description': 'gorra negra', 'price': 350, 'qty': 1},
+                {'description': 'Jordan', 'price': 750, 'qty': 1},
+            ])
+        self.assertEqual(Pedido.objects.count(), 0)
+        self.assertEqual(PedidoItem.objects.count(), 0)
+
+    def test_el_alias_desbloquea_la_venta_y_pone_su_costo(self):
+        AliasTexto.objects.create(texto='Jordan', tipo=self.j4)
+        pedido = self._venta('Jordan')
+        self.assertEqual(pedido.items.first().costo_unitario, Decimal('680'))
+
+    def test_el_alias_gana_sobre_la_keyword(self):
+        AliasTexto.objects.create(texto='gorra negra', tipo=self.j4)
+        pedido = crear_pedido_tienda_bot(
+            items=[{'description': 'gorra negra', 'price': 350, 'qty': 1}])
+        self.assertEqual(pedido.items.first().costo_unitario, Decimal('680'))
+
+    def test_venta_con_todos_los_tipos_resueltos_sigue_funcionando(self):
+        pedido = crear_pedido_tienda_bot(
+            items=[{'description': 'gorra negra', 'price': 350, 'qty': 2}])
+        self.assertEqual(pedido.costo_producto, Decimal('300'))
+        self.assertEqual(Pago.objects.count(), 1)
+
+    def test_la_venta_rechazada_no_crea_ni_el_cliente_mostrador(self):
+        """El invariante no debe depender del rollback de la transacción.
+
+        El cliente mostrador es idempotente y no lleva costo, así que su
+        creación no rompía nada — pero si se crea antes del `raise`, la frase
+        "una venta sin tipo no crea nada" pasa a ser cierta solo gracias al
+        @transaction.atomic, y eso es una trampa para quien lo lea después.
+
+        NOTA: Este test PASA incluso con el Cliente creado antes del raise,
+        porque @transaction.atomic lo revierte en el TestCase. El test documenta
+        el orden deseado pero no lo PRUEBA; la prueba real es que el código
+        DICE LO QUE HACE sin depender de rollback.
+        """
+        from negocio.services import MOSTRADOR_TELEFONO
+        self.assertEqual(Cliente.objects.count(), 0)
+        with self.assertRaises(VentaSinTipo):
+            self._venta('Jordan')
+        self.assertFalse(
+            Cliente.objects.filter(telefono=MOSTRADOR_TELEFONO).exists())
+
+
+@override_settings(NEGOCIO_API_KEY='test-key-123')
+class ApiVentaSinTipoTests(TestCase):
+    def setUp(self):
+        self.j4 = TipoArticulo.objects.create(
+            nombre='JORDAN 4', keywords='jordan 4', costo=Decimal('680'))
+        self.headers = {'HTTP_AUTHORIZATION': f'Bearer {settings.NEGOCIO_API_KEY}'}
+
+    def _post(self, url, body):
+        return self.client.post(url, data=json.dumps(body),
+                                content_type='application/json', **self.headers)
+
+    def test_tienda_devuelve_409_con_sugerencias(self):
+        res = self._post('/api/negocio/tienda/',
+                         {'items': [{'description': 'Jordan', 'price': 750, 'qty': 9}]})
+        self.assertEqual(res.status_code, 409)
+        data = res.json()
+        self.assertEqual(data['sin_tipo'][0]['texto'], 'Jordan')
+        self.assertIn('JORDAN 4',
+                      [s['nombre'] for s in data['sin_tipo'][0]['sugerencias']])
+        self.assertEqual(Pedido.objects.count(), 0)
+
+    def test_alias_create_y_despues_la_venta_pasa(self):
+        res = self._post('/api/negocio/alias/',
+                         {'texto': 'Jordan', 'tipo_id': self.j4.pk})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['tipo'], 'JORDAN 4')
+
+        res2 = self._post('/api/negocio/tienda/',
+                          {'items': [{'description': 'Jordan', 'price': 750, 'qty': 1}]})
+        self.assertEqual(res2.status_code, 200)
+        self.assertEqual(PedidoItem.objects.first().costo_unitario, Decimal('680'))
+
+    def test_alias_sin_autorizacion(self):
+        res = self.client.post('/api/negocio/alias/',
+                               data=json.dumps({'texto': 'x', 'tipo_id': self.j4.pk}),
+                               content_type='application/json')
+        self.assertEqual(res.status_code, 401)
+
+    def test_alias_con_tipo_inexistente(self):
+        res = self._post('/api/negocio/alias/', {'texto': 'x', 'tipo_id': 999999})
+        self.assertEqual(res.status_code, 400)
+
+    def test_alias_reasigna_si_ya_existia(self):
+        otro = TipoArticulo.objects.create(
+            nombre='Jordan 1', keywords='jordan 1', costo=Decimal('620'))
+        self._post('/api/negocio/alias/', {'texto': 'Jordan', 'tipo_id': self.j4.pk})
+        res = self._post('/api/negocio/alias/', {'texto': 'jordan', 'tipo_id': otro.pk})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(AliasTexto.objects.count(), 1)
+        self.assertEqual(AliasTexto.objects.first().tipo, otro)
+
+    def test_texto_no_string_devuelve_400_no_500(self):
+        # El bot manda JSON; un cliente roto puede mandar cualquier cosa.
+        # Antes esto reventaba con AttributeError dentro de normalizar_texto.
+        res = self._post('/api/negocio/alias/',
+                         {'texto': ['Jordan'], 'tipo_id': self.j4.pk})
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(AliasTexto.objects.count(), 0)
+
+    def test_texto_mas_largo_que_el_campo_devuelve_400_no_500(self):
+        # SQLite no impone max_length, Postgres sí: sin esta guarda el bug
+        # solo aparece en produccion.
+        res = self._post('/api/negocio/alias/',
+                         {'texto': 'x' * 250, 'tipo_id': self.j4.pk})
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(AliasTexto.objects.count(), 0)
+
+    def test_body_que_no_es_objeto_devuelve_400_no_500(self):
+        # json.loads acepta un array suelto; body.get() sobre eso reventaba.
+        res = self.client.post(
+            '/api/negocio/alias/', data=json.dumps(['Jordan']),
+            HTTP_AUTHORIZATION='Bearer test-key-123',
+            content_type='application/json')
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(AliasTexto.objects.count(), 0)
+
+
+class TipoAsignarAliasTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user('aliasstaff', password='x', is_staff=True)
+        self.client.force_login(self.staff)
+        self.j4 = TipoArticulo.objects.create(
+            nombre='JORDAN 4', keywords='jordan 4', costo=Decimal('680'))
+
+    def test_crea_el_alias_normalizado(self):
+        res = self.client.post(reverse('negocio:tipo_asignar_alias'),
+                               {'texto': ' Jordan ', 'tipo_id': self.j4.pk})
+        self.assertEqual(res.status_code, 302)
+        self.assertEqual(AliasTexto.objects.get().texto, 'jordan')
+
+    def test_no_exige_que_el_texto_contenga_la_keyword(self):
+        # Es la diferencia con asignar keyword: `jordan 4` no está en `Jordan`.
+        self.client.post(reverse('negocio:tipo_asignar_alias'),
+                         {'texto': 'Jordan', 'tipo_id': self.j4.pk})
+        self.assertEqual(AliasTexto.objects.count(), 1)
+
+    def test_texto_vacio_no_crea_nada(self):
+        self.client.post(reverse('negocio:tipo_asignar_alias'),
+                         {'texto': '   ', 'tipo_id': self.j4.pk})
+        self.assertEqual(AliasTexto.objects.count(), 0)
+
+    def test_texto_normalizado_mayor_que_200_devuelve_error(self):
+        # normalizar_texto colapsa espacios múltiples, así que un texto muy
+        # largo sigue siendo largo tras normalizar. Postgres impone max_length=200,
+        # SQLite no, así que sin esta guarda solo aparece el bug en producción.
+        texto_largo = 'x' * 201
+        res = self.client.post(reverse('negocio:tipo_asignar_alias'),
+                               {'texto': texto_largo, 'tipo_id': self.j4.pk})
+        self.assertEqual(AliasTexto.objects.count(), 0)
+
+    def test_sin_elegir_tipo_no_asigna_nada(self):
+        # El select trae una opcion en blanco: postear sin elegir no debe
+        # asignar el texto al primer tipo de la lista por descarte.
+        res = self.client.post(reverse('negocio:tipo_asignar_alias'),
+                               {'texto': 'Jordan', 'tipo_id': ''})
+        self.assertEqual(res.status_code, 302)
+        self.assertEqual(AliasTexto.objects.count(), 0)
+
+    def test_asigna_un_texto_que_no_existe_en_ningun_pedido(self):
+        """El formulario de texto libre del panel acepta un texto nuevo.
+
+        La tabla de "textos sin tipo" solo lista ventas YA GRABADAS, y desde
+        que la venta sin tipo se rechaza un texto nuevo nunca llega a
+        grabarse. Sin este camino, la salida «otro» que ofrece el bot apunta
+        a una pantalla donde ese texto no se puede cargar.
+        """
+        self.assertEqual(Pedido.objects.count(), 0)
+        res = self.client.post(reverse('negocio:tipo_asignar_alias'),
+                               {'texto': 'Zapatilla nueva', 'tipo_id': self.j4.pk})
+        self.assertEqual(res.status_code, 302)
+        alias = AliasTexto.objects.get()
+        self.assertEqual(alias.texto, 'zapatilla nueva')
+        self.assertEqual(alias.tipo, self.j4)

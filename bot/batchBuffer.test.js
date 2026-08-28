@@ -2,6 +2,7 @@ const { createBatchBuffer } = require('./batchBuffer')
 
 const T0 = 1_000_000
 const FIVE_MIN = 5 * 60 * 1000
+const THIRTY_MIN = 30 * 60 * 1000
 
 test('addImage acumula y size refleja el conteo', () => {
     const b = createBatchBuffer()
@@ -62,6 +63,31 @@ test('addImage respeta el cap maxPerGroup', () => {
     b.addImage('g1', { id: 1 }, T0)
     b.addImage('g1', { id: 2 }, T0)
     b.addImage('g1', { id: 3 }, T0) // excede el cap → no se agrega
+    expect(b.size('g1')).toBe(2)
+})
+
+test('el TTL por defecto da 30 minutos para que llegue el precio', () => {
+    const b = createBatchBuffer()
+    b.addImage('g1', { id: 1 }, T0)
+    expect(b.purgeExpired(T0 + THIRTY_MIN - 1)).toBe(0)
+    expect(b.purgeExpired(T0 + THIRTY_MIN + 1)).toBe(1)
+})
+
+test('el cap por defecto admite lotes de más de 50 imágenes', () => {
+    const b = createBatchBuffer()
+    for (let i = 0; i < 120; i++) b.addImage('g1', { id: i }, T0)
+    expect(b.size('g1')).toBe(120)
+})
+
+test('una imagen que excede el cap igual refresca el reloj del lote', () => {
+    // Si el reloj se congela al llegar al tope, el lote muere por TTL mientras
+    // el proveedor todavía está mandando fotos: así se perdieron 1303 fotos.
+    const b = createBatchBuffer({ ttlMs: FIVE_MIN, maxPerGroup: 2 })
+    b.addImage('g1', { id: 1 }, T0)
+    b.addImage('g1', { id: 2 }, T0)
+    b.addImage('g1', { id: 3 }, T0 + FIVE_MIN - 1) // excede el cap, pero el proveedor sigue mandando
+
+    expect(b.purgeExpired(T0 + FIVE_MIN + 1)).toBe(0)
     expect(b.size('g1')).toBe(2)
 })
 

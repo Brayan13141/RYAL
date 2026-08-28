@@ -18,6 +18,9 @@ const { createOrderSessionStore } = require('./orderSession')
 const { WELCOME_MESSAGE, menuReply, isGreetableJid, createWelcomeStore } = require('./welcome')
 const { writeQrState } = require('./qrState')
 const { resolveNotifyJid } = require('./notifyTarget')
+const { matchPromo } = require('./promos')
+const { avisoSinTipo } = require('./avisoSinTipo')
+const { mensajeSinTipo } = require('./ventaSinTipo')
 
 const AUTH_DIR = '.baileys_auth'
 const QR_STATE_FILE = '.qr_state.json'
@@ -118,10 +121,11 @@ async function flushBatch(sock, text, price) {
 async function handleSupplierMessage(sock, msg) {
     if (!FORWARD_TO_RYAL) return
 
-    // Videos y su respectivo mensaje de precio no se reenvían
+    // Los videos no se reenvían, pero son parte del mismo producto que las fotos
+    // (el proveedor manda fotos → video → precio): el lote pendiente se conserva
+    // para que el precio que viene después sí lo reenvíe.
     if (msg.message?.videoMessage) {
-        const dropped = batch.flush(SUPPLIER_GID)
-        if (dropped.length > 0) logger.warn({ count: dropped.length }, 'Video del proveedor — lote previo descartado')
+        logger.info({ pending: batch.size(SUPPLIER_GID) }, 'Video del proveedor — ignorado, el lote sigue esperando precio')
         return
     }
 
@@ -137,12 +141,16 @@ async function handleSupplierMessage(sock, msg) {
             await flushBatch(sock, batch.getCaption(SUPPLIER_GID), buffPrice)
         }
 
-        if (batch.size(SUPPLIER_GID) >= MAX_PER_GROUP) {
-            logger.warn('Buffer de lote lleno (>=50) — imagen ignorada')
+        const before = batch.size(SUPPLIER_GID)
+        batch.addImage(SUPPLIER_GID, msg, Date.now(), price, caption)
+        const buffered = batch.size(SUPPLIER_GID)
+        // addImage refresca el TTL aunque el cap rechace la imagen, así que el
+        // lote no expira mientras el proveedor siga mandando.
+        if (buffered === before) {
+            logger.warn({ buffered, max: MAX_PER_GROUP }, 'Buffer de lote lleno — imagen ignorada')
             return
         }
-        batch.addImage(SUPPLIER_GID, msg, Date.now(), price, caption)
-        logger.info({ buffered: batch.size(SUPPLIER_GID), price }, 'Imagen buffereada')
+        logger.info({ buffered, price }, 'Imagen buffereada')
         return
     }
 
@@ -155,6 +163,24 @@ async function handleSupplierMessage(sock, msg) {
         return
     }
     await flushBatch(sock, text, price)
+}
+
+
+// Comandos de promoción del Grupo Ryal (ver bot/promos.js).
+//
+// Solo se atienden mensajes PROPIOS. Eso ES la autorización: un mensaje
+// fromMe únicamente puede existir si salió del teléfono de esta instancia,
+// así que un cliente del grupo no puede disparar el anuncio. De paso resuelve
+// el duplicado — las dos instancias (persona1 y persona2) están en este grupo,
+// pero solo la dueña del número desde el que se escribe lo ve como propio.
+async function handleRyalMessage(sock, msg) {
+    if (!msg.key.fromMe) return
+
+    const promo = matchPromo(getText(msg))
+    if (!promo) return
+
+    await sock.sendMessage(RYAL_GID, { text: promo })
+    logger.info({ cmd: getText(msg).trim().toLowerCase() }, 'Promo publicada en el Grupo Ryal')
 }
 
 
@@ -302,13 +328,67 @@ async function resolveClienteYCrearModa(sock, moda) {
     })
 }
 
+/**
+ * Arma el payload de una venta tienda a partir de la sesión ACTUAL. Es la
+ * única fuente de verdad para /cerrar, para el cierre de una sesión previa
+ * en el conflicto, y para el reintento tras resolver un alias — así un ítem
+ * cargado después del 409 y antes de la respuesta numérica no se pierde.
+ */
+function payloadVentaTienda(sess, envio = 0) {
+    return {
+        items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty })),
+        envio,
+    }
+}
+
+/**
+ * Manda la venta a Django. El 409 no es un error: es "no se puede registrar
+ * todavía". La sesión NO se toca — los ítems tienen que sobrevivir.
+ */
+async function enviarVentaTienda(sock, { endpoint, payload }) {
+    try {
+        const { data } = await axios.post(
+            endpoint, payload,
+            { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 10000 },
+        )
+        return { ok: true, data }
+    } catch (err) {
+        if (err.response && err.response.status === 409) {
+            const detalles = (err.response.data && err.response.data.sin_tipo) || []
+            const totalItems = (payload.items || []).length
+            const { texto, opciones } = mensajeSinTipo(detalles, totalItems)
+            // Sin sugerencias no hay nada que numerar: armar el pending solo
+            // trabaría la carga de ítems de texto libre para siempre (el "1"
+            // de un item nunca puede distinguirse del "1" de elegir opción).
+            if (opciones.length > 0) {
+                orders.setPending(ORDERS_GID, 'sin_tipo', {
+                    detalles, opciones, endpoint, envio: payload.envio || 0,
+                })
+            }
+            await sock.sendMessage(ORDERS_GID, { text: texto })
+            return { ok: false, sinTipo: detalles }
+        }
+        logger.error({ err: err.message }, 'Error al crear la venta en Django')
+        await sock.sendMessage(ORDERS_GID, { text: '❌ Error al crear el pedido. Intenta de nuevo.' })
+        return { ok: false, error: true }
+    }
+}
+
 async function handleOrdersMessage(sock, msg) {
     const image = msg.message?.imageMessage
     const text = getText(msg)
 
+    // Un pending activo se queda con las respuestas cortas: `parseItemText`
+    // acepta un numero suelto como precio, asi que sin esta guarda el "1"
+    // con el que alguien elige una opcion entra como un item de $1 y el
+    // pending queda trabado para siempre.
+    const pendingVivo = orders.getPending(ORDERS_GID)
+    const esRespuestaAPending = Boolean(pendingVivo)
+        && /^\s*(\d+|otro)\s*$/i.test(text || '')
+
     // Ítem de tienda: texto libre cuando hay sesión tienda activa
     const tiendaSess = orders.getSession(ORDERS_GID)
-    if (tiendaSess && tiendaSess.tipo === 'tienda' && text && !text.startsWith('/')) {
+    if (tiendaSess && tiendaSess.tipo === 'tienda' && text && !text.startsWith('/') && !esRespuestaAPending) {
         const parsed = parseItemText(text)
         if (parsed) {
             const result = orders.addItem(ORDERS_GID, parsed.description || 'ítem tienda', parsed.price)
@@ -349,8 +429,18 @@ async function handleOrdersMessage(sock, msg) {
     }
 
     // Respuesta numérica suelta → puede resolver pending de conflict o disambig
-    const pending = orders.getPending(ORDERS_GID)
+    // (mismo valor ya leído como `pendingVivo` arriba, para la guarda del ítem de tienda)
+    const pending = pendingVivo
     const bareNum = (text && /^\s*\d+\s*$/.test(text)) ? parseInt(text.trim(), 10) : null
+
+    if (pending && pending.type === 'sin_tipo' && /^\s*otro\s*$/i.test(text || '')) {
+        orders.clearPending(ORDERS_GID)
+        await sock.sendMessage(ORDERS_GID, {
+            text: '📋 Cargá el tipo o el alias en /panel/negocio/tipos/ y volvé a mandar /cerrar.'
+                + '\nLos artículos siguen cargados.',
+        })
+        return
+    }
 
     if (pending && bareNum !== null) {
         if (pending.type === 'conflict') {
@@ -371,19 +461,15 @@ async function handleOrdersMessage(sock, msg) {
                         ? `${DJANGO_URL}/api/negocio/tienda/`
                         : `${DJANGO_URL}/api/negocio/pedido/`
                     const closePayload = closingTienda
-                        ? { items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty })), envio: 0 }
+                        ? payloadVentaTienda(sess, 0)
                         : { nombre: sess.cliente.nombre, telefono: sess.cliente.telefono, items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty, costo: i.costo || 0 })), envio: 0, descuento_monto: orders.getDescuento(ORDERS_GID)?.monto || 0, codigo_descuento_id: orders.getDescuento(ORDERS_GID)?.codigoId || null }
-                    try {
-                        const { data } = await axios.post(
-                            closeEndpoint, closePayload,
-                            { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 10000 },
-                        )
-                        await sock.sendMessage(ORDERS_GID, { text: `✅ Pedido #${data.pedido_id} cerrado — Total: $${data.total} MXN` })
-                    } catch (err) {
-                        logger.error({ err: err.message }, 'Error al cerrar pedido anterior (opción 2)')
-                        await sock.sendMessage(ORDERS_GID, { text: '❌ Error al cerrar el pedido anterior. Usa /cerrar manualmente primero.' })
-                        return
-                    }
+                    const resPrev = await enviarVentaTienda(
+                        sock, { endpoint: closeEndpoint, payload: closePayload })
+                    if (!resPrev.ok) return   // no se abre sesión nueva sobre una venta sin cerrar
+                    await sock.sendMessage(ORDERS_GID, {
+                        text: `✅ Pedido #${resPrev.data.pedido_id} cerrado — Total: $${resPrev.data.total} MXN`
+                            + avisoSinTipo(resPrev.data.sin_tipo),
+                    })
                 }
                 orders.startSession(ORDERS_GID, nombre, telefono, pending.payload.tipo || 'pedido')
                 await sock.sendMessage(ORDERS_GID, {
@@ -446,6 +532,57 @@ async function handleOrdersMessage(sock, msg) {
             const elegido = clientes[bareNum - 1]
             orders.clearPending(ORDERS_GID)
             await crearPedidoModa(sock, { nombre: elegido.nombre, telefono: elegido.telefono, cantidad, ganancia, envio })
+            return
+        }
+
+        if (pending.type === 'sin_tipo') {
+            const { detalles, opciones, endpoint, envio } = pending.payload
+            if (bareNum < 1 || bareNum > opciones.length) {
+                orders.setPending(ORDERS_GID, 'sin_tipo', pending.payload)
+                await sock.sendMessage(ORDERS_GID, {
+                    text: `⚠️ Responde un número del 1 al ${opciones.length}, o «otro».`,
+                })
+                return
+            }
+            const elegido = opciones[bareNum - 1]
+            // El pending sobrevive hasta que el POST del alias confirme éxito:
+            // si falla y ya lo hubiéramos borrado, el reintento natural del
+            // usuario (teclear el número otra vez) caería en el bloque de
+            // ítem de tienda y agregaría un artículo fantasma de $1.
+            try {
+                await axios.post(
+                    `${DJANGO_URL}/api/negocio/alias/`,
+                    { texto: detalles[0].texto, tipo_id: elegido.tipo_id },
+                    { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 10000 },
+                )
+            } catch (err) {
+                logger.error({ err: err.message }, 'Error al crear el alias')
+                await sock.sendMessage(ORDERS_GID, { text: '❌ No pude guardar el tipo. Intenta de nuevo.' })
+                return
+            }
+            orders.clearPending(ORDERS_GID)
+            await sock.sendMessage(ORDERS_GID, {
+                text: `✅ «${detalles[0].texto}» quedó como ${elegido.nombre} (costo $${elegido.costo}).`,
+            })
+            // Reintento: el payload se arma desde la sesión ACTUAL, no desde
+            // el snapshot del 409 — lo que se cargó mientras el pending
+            // estaba vivo tiene que ir incluido. Si queda otro texto sin
+            // tipo, el servidor vuelve a rechazar con el siguiente y el
+            // pending se rearma solo.
+            const sesionActual = orders.getSession(ORDERS_GID)
+            if (!sesionActual || sesionActual.items.length === 0) {
+                await sock.sendMessage(ORDERS_GID, {
+                    text: '⚠️ La sesión ya no existe o quedó vacía — no se reintentó la venta.',
+                })
+                return
+            }
+            const payload = payloadVentaTienda(sesionActual, envio)
+            const res = await enviarVentaTienda(sock, { endpoint, payload })
+            if (!res.ok) return
+            orders.cancelSession(ORDERS_GID)
+            await sock.sendMessage(ORDERS_GID, {
+                text: `✅ Pedido #${res.data.pedido_id} creado — Total: $${res.data.total} MXN`,
+            })
             return
         }
     }
@@ -699,10 +836,7 @@ async function handleOrdersMessage(sock, msg) {
             ? `${DJANGO_URL}/api/negocio/tienda/`
             : `${DJANGO_URL}/api/negocio/pedido/`
         const payload = isTienda
-            ? {
-                items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty })),
-                envio,
-            }
+            ? payloadVentaTienda(sess, envio)
             : {
                 nombre: sess.cliente.nombre,
                 telefono: sess.cliente.telefono,
@@ -711,19 +845,13 @@ async function handleOrdersMessage(sock, msg) {
                 descuento_monto: orders.getDescuento(ORDERS_GID)?.monto || 0,
                 codigo_descuento_id: orders.getDescuento(ORDERS_GID)?.codigoId || null,
             }
-        try {
-            const { data } = await axios.post(
-                endpoint, payload,
-                { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 10000 },
-            )
-            orders.cancelSession(ORDERS_GID)
-            await sock.sendMessage(ORDERS_GID, {
-                text: `✅ Pedido #${data.pedido_id} creado — Total: $${data.total} MXN`,
-            })
-        } catch (err) {
-            logger.error({ err: err.message }, 'Error al crear pedido en Django')
-            await sock.sendMessage(ORDERS_GID, { text: '❌ Error al crear el pedido. Intenta de nuevo.' })
-        }
+        const res = await enviarVentaTienda(sock, { endpoint, payload })
+        if (!res.ok) return          // 409 o error: la sesión queda intacta
+        orders.cancelSession(ORDERS_GID)
+        await sock.sendMessage(ORDERS_GID, {
+            text: `✅ Pedido #${res.data.pedido_id} creado — Total: $${res.data.total} MXN`
+                + avisoSinTipo(res.data.sin_tipo),
+        })
         return
     }
 }
@@ -739,6 +867,13 @@ async function connect() {
         // Ping más frecuente que el default (30s): detecta antes la conexión
         // muerta y mantiene vivo el NAT durante los reenvíos de lotes pesados.
         keepAliveIntervalMs: 20000,
+        // Baileys manda presencia 'available' al conectar por default
+        // (Defaults/index.js: markOnlineOnConnect: true → chats.js: sendPresenceUpdate).
+        // Con la cuenta marcada online desde este dispositivo vinculado, WhatsApp deja
+        // de enviar la notificación push al teléfono: el mensaje llega al chat pero el
+        // teléfono nunca avisa. 'unavailable' devuelve las notificaciones al teléfono
+        // sin afectar la recepción ni el envío del bot.
+        markOnlineOnConnect: false,
         getMessage: async (key) => sentMsgCache.get(key?.id),
         // Sin esto WA solo manda un snapshot de unos pocos chats recientes en
         // messaging-history.set (verificado: 8-13 chats en un número con muchos
@@ -809,13 +944,18 @@ async function connect() {
             // fromMe = true cuando el dueño del número manda desde su teléfono personal.
             // Lo permitimos solo en ORDERS_GID para que pueda dar comandos desde su propio número.
             const isOwnerOrdersMsg = msg.key.fromMe && ORDERS_GID && isGroup && jid === ORDERS_GID
-            if (msg.key.fromMe && !isOwnerOrdersMsg) continue
+            // Los comandos de promo se disparan desde el propio teléfono, así que
+            // los mensajes propios del Grupo Ryal también tienen que pasar.
+            const isOwnerRyalMsg = msg.key.fromMe && RYAL_GID && isGroup && jid === RYAL_GID
+            if (msg.key.fromMe && !isOwnerOrdersMsg && !isOwnerRyalMsg) continue
 
             try {
                 if (isGroup && jid === SUPPLIER_GID) {
                     await handleSupplierMessage(sock, msg)
                 } else if (ORDERS_GID && isGroup && jid === ORDERS_GID) {
                     await handleOrdersMessage(sock, msg)
+                } else if (RYAL_GID && isGroup && jid === RYAL_GID) {
+                    await handleRyalMessage(sock, msg)
                 } else if (!isGroup) {
                     await handleClientMessage(sock, msg)
                 }
@@ -907,4 +1047,8 @@ async function main() {
     await connect()
 }
 
-main()
+// Solo arranca cuando se ejecuta como `node bot.js`; al requerirlo desde los
+// tests el módulo se carga sin conectar a WhatsApp.
+if (require.main === module) main()
+
+module.exports = { handleSupplierMessage, handleOrdersMessage, batch, avisoSinTipo, enviarVentaTienda, orders }

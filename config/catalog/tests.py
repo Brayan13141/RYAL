@@ -3,6 +3,7 @@ from io import StringIO
 from unittest.mock import patch
 
 from django.core.management import call_command
+from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
@@ -2386,3 +2387,75 @@ class OverrideMargenVsTierTests(TestCase):
         from django.core.exceptions import ValidationError
         with self.assertRaises(ValidationError):
             suelta.full_clean()
+
+
+from catalog.models import AliasTexto
+from catalog.services import normalizar_texto
+
+
+class NormalizarTextoTests(TestCase):
+    def test_minusculas_y_espacios_colapsados(self):
+        self.assertEqual(normalizar_texto('  Jordan   4 '), 'jordan 4')
+
+    def test_vacio_y_none(self):
+        self.assertEqual(normalizar_texto(''), '')
+        self.assertEqual(normalizar_texto(None), '')
+
+
+class AliasTextoTests(TestCase):
+    def setUp(self):
+        self.tipo = TipoArticulo.objects.create(
+            nombre='JORDAN 4', keywords='jordan 4', costo=Decimal('680'))
+
+    def test_normaliza_el_texto_al_guardar(self):
+        alias = AliasTexto.objects.create(texto='  Jordan  ', tipo=self.tipo)
+        alias.refresh_from_db()
+        self.assertEqual(alias.texto, 'jordan')
+
+    def test_el_texto_es_unico_despues_de_normalizar(self):
+        AliasTexto.objects.create(texto='Jordan', tipo=self.tipo)
+        # `atomic` es obligatorio: sin él la IntegrityError deja la transacción
+        # del TestCase rota y el siguiente query de la clase revienta.
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            AliasTexto.objects.create(texto='  JORDAN ', tipo=self.tipo)
+
+from catalog.services import sugerencias_de_tipo
+
+
+class SugerenciasDeTipoTests(TestCase):
+    def setUp(self):
+        self.j4 = TipoArticulo.objects.create(
+            nombre='JORDAN 4', keywords='jordan 4', costo=Decimal('680'))
+        self.j1 = TipoArticulo.objects.create(
+            nombre='Jordan 1', keywords='jordan 1, J1', costo=Decimal('620'))
+        self.yeezy = TipoArticulo.objects.create(
+            nombre='Tenis yeezy', keywords='yeezy', costo=Decimal('550'))
+        self.sud = TipoArticulo.objects.create(
+            nombre='Sudadera 1:1', keywords='sudadera 1:1, s 1:1', costo=Decimal('320'))
+
+    def test_jordan_suelto_ofrece_los_dos_jordan(self):
+        nombres = [t.nombre for t in sugerencias_de_tipo('Jordan')]
+        self.assertIn('JORDAN 4', nombres)
+        self.assertIn('Jordan 1', nombres)
+
+    def test_puntua_contra_las_keywords_no_solo_contra_el_nombre(self):
+        # '1:1' contra el NOMBRE «Sudadera 1:1» da 0.40 — debajo del piso 0.45,
+        # así que una implementación que puntuara solo contra el nombre
+        # devolvería vacío. Contra la keyword 's 1:1' da 0.75. Este caso es el
+        # que separa la implementación correcta de la rota; con 'yezzy' no se
+        # separaban, porque su nombre ya puntuaba 0.5 y pasaba igual.
+        nombres = [t.nombre for t in sugerencias_de_tipo('1:1')]
+        self.assertEqual(nombres, ['Sudadera 1:1'])
+
+    def test_sin_parecido_devuelve_vacio(self):
+        self.assertEqual(sugerencias_de_tipo('qwxzpl'), [])
+
+    def test_un_typo_encuentra_su_tipo(self):
+        nombres = [t.nombre for t in sugerencias_de_tipo('yezzy')]
+        self.assertEqual(nombres[0], 'Tenis yeezy')
+
+    def test_respeta_el_limite(self):
+        self.assertEqual(len(sugerencias_de_tipo('jordan', limite=1)), 1)
+
+    def test_texto_vacio_devuelve_vacio(self):
+        self.assertEqual(sugerencias_de_tipo('   '), [])

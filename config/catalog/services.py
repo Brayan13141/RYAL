@@ -20,6 +20,13 @@ def consumir_uso(codigo: str = None, *, pk: int = None) -> bool:
     ).update(usos_actuales=F('usos_actuales') + 1) > 0
 
 
+def normalizar_texto(texto: str) -> str:
+    """Minúsculas y espacios colapsados: la forma canónica en que se guardan
+    y se comparan los alias. Es la misma normalización que ya hace
+    `TipoArticulo.matches()`, para que alias y keywords vean el mismo texto."""
+    return ' '.join((texto or '').lower().split())
+
+
 def buscar_tipo_articulo(texto: str, tipos=None):
     """Devuelve el TipoArticulo cuya keyword coincidente más larga (más
     específica) aparezca en texto, o None si ninguna coincide.
@@ -49,6 +56,43 @@ def buscar_tipo_articulo(texto: str, tipos=None):
                 mejor_tipo = tipo
                 mejor_len = len(kw_norm)
     return mejor_tipo
+
+
+def sugerencias_de_tipo(texto, tipos=None, limite=3, piso=0.45):
+    """Tipos que se PARECEN al texto, para ofrecerlos cuando ninguno matcheó.
+
+    Puntúa contra el nombre del tipo Y contra cada una de sus keywords, y se
+    queda con el mejor de los dos: 'yezzy' se parece poco a «Tenis yeezy»
+    pero mucho a su keyword 'yeezy', y es la keyword la que sabe que es el
+    mismo producto.
+
+    `piso` corta el ruido: sin él cualquier texto corto "se parece" a todo.
+    Devolver vacío es una respuesta válida — el bot sabe decirlo.
+    """
+    from difflib import SequenceMatcher
+    from .models import TipoArticulo
+
+    texto_norm = normalizar_texto(texto)
+    if not texto_norm:
+        return []
+
+    if tipos is None:
+        tipos = TipoArticulo.objects.all()
+
+    puntuados = []
+    for tipo in tipos:
+        candidatos = [tipo.nombre] + tipo.keywords_list
+        mejor = max(
+            (SequenceMatcher(None, texto_norm, normalizar_texto(c)).ratio()
+             for c in candidatos),
+            default=0.0,
+        )
+        if mejor >= piso:
+            puntuados.append((mejor, tipo))
+
+    # Desempate por nombre para que el orden sea estable entre corridas.
+    puntuados.sort(key=lambda par: (-par[0], par[1].nombre))
+    return [tipo for _, tipo in puntuados[:limite]]
 
 
 def validar_codigo(

@@ -10,7 +10,7 @@ from django_ratelimit.decorators import ratelimit
 
 from .models import Cliente
 from .phone import normalize_telefono
-from .services import crear_pedido_bot, crear_pedido_tienda_bot, VentaInvalida
+from .services import crear_pedido_bot, crear_pedido_tienda_bot, VentaInvalida, VentaSinTipo
 
 
 def _authorized(request):
@@ -117,14 +117,18 @@ def api_tienda_create(request):
     envio = Decimal(str(body.get('envio', 0)))
     try:
         pedido = crear_pedido_tienda_bot(items=items, envio=envio)
+    except VentaSinTipo as e:
+        # 409: no es un payload inválido — es una venta que no se puede
+        # registrar todavía. El bot la retiene y pide el tipo en el grupo.
+        return JsonResponse({'error': str(e), 'sin_tipo': e.detalles}, status=409)
     except VentaInvalida as e:
         return JsonResponse({'error': str(e)}, status=400)
     return JsonResponse({
         'ok': True,
         'pedido_id': pedido.pk,
         'total': f'{pedido.precio_venta + pedido.envio:.2f}',
-        # Artículos que no matchearon ningún tipo: se registraron con costo $0
-        # y la venta quedó con 100% de margen. El bot lo avisa en el grupo.
+        # Campo conservado por compatibilidad con bot desplegado. Siempre viene
+        # vacío hoy porque las ventas sin tipo se rechazan (409).
         'sin_tipo': getattr(pedido, 'sin_tipo', []),
     })
 
@@ -206,3 +210,50 @@ def api_codigos_validar_publico(request):
     raw_ids = payload.get('category_ids', [])
     categories = [(None, int(i)) for i in raw_ids if str(i).isdigit()]
     return JsonResponse(validar_codigo(codigo, descriptions, canal='web', categories=categories))
+
+
+@csrf_exempt
+@require_POST
+def api_alias_create(request):
+    """Crea (o reasigna) el alias de un texto exacto. Lo usa el bot cuando
+    alguien responde el número de una sugerencia en el grupo."""
+    from catalog.models import AliasTexto, TipoArticulo
+    from catalog.services import normalizar_texto
+
+    if not _authorized(request):
+        return JsonResponse({'error': 'unauthorized'}, status=401)
+    try:
+        body = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'invalid json'}, status=400)
+
+    if not isinstance(body, dict):
+        # json.loads acepta arrays, strings y numeros sueltos; sobre esos,
+        # body.get() tira AttributeError y sale un 500 en vez de un 400.
+        return JsonResponse({'error': 'el body debe ser un objeto JSON'}, status=400)
+
+    raw_texto = body.get('texto')
+    if not isinstance(raw_texto, str):
+        return JsonResponse({'error': 'texto debe ser string'}, status=400)
+    texto = normalizar_texto(raw_texto)
+    if not texto:
+        return JsonResponse({'error': 'texto requerido'}, status=400)
+    if len(texto) > 200:
+        # Rechazar, NO truncar: el alias es una clave de coincidencia exacta,
+        # así que un texto recortado nunca matchearía el texto real que lo
+        # originó — seria un alias que se guarda y no sirve para nada, que es
+        # justo la clase de fallo silencioso que esta feature vino a matar.
+        return JsonResponse(
+            {'error': f'El texto no puede pasar de 200 caracteres (tiene {len(texto)}).'},
+            status=400)
+    try:
+        tipo = TipoArticulo.objects.get(pk=int(body.get('tipo_id') or 0))
+    except (TipoArticulo.DoesNotExist, TypeError, ValueError):
+        return JsonResponse({'error': 'tipo inexistente'}, status=400)
+
+    alias, creado = AliasTexto.objects.update_or_create(
+        texto=texto, defaults={'tipo': tipo})
+    return JsonResponse({
+        'ok': True, 'creado': creado, 'texto': alias.texto,
+        'tipo': tipo.nombre, 'costo': f'{tipo.costo:.2f}',
+    })
