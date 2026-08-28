@@ -360,9 +360,17 @@ async function handleOrdersMessage(sock, msg) {
     const image = msg.message?.imageMessage
     const text = getText(msg)
 
+    // Un pending activo se queda con las respuestas cortas: `parseItemText`
+    // acepta un numero suelto como precio, asi que sin esta guarda el "1"
+    // con el que alguien elige una opcion entra como un item de $1 y el
+    // pending queda trabado para siempre.
+    const pendingVivo = orders.getPending(ORDERS_GID)
+    const esRespuestaAPending = Boolean(pendingVivo)
+        && /^\s*(\d+|otro)\s*$/i.test(text || '')
+
     // Ítem de tienda: texto libre cuando hay sesión tienda activa
     const tiendaSess = orders.getSession(ORDERS_GID)
-    if (tiendaSess && tiendaSess.tipo === 'tienda' && text && !text.startsWith('/')) {
+    if (tiendaSess && tiendaSess.tipo === 'tienda' && text && !text.startsWith('/') && !esRespuestaAPending) {
         const parsed = parseItemText(text)
         if (parsed) {
             const result = orders.addItem(ORDERS_GID, parsed.description || 'ítem tienda', parsed.price)
@@ -403,7 +411,8 @@ async function handleOrdersMessage(sock, msg) {
     }
 
     // Respuesta numérica suelta → puede resolver pending de conflict o disambig
-    const pending = orders.getPending(ORDERS_GID)
+    // (mismo valor ya leído como `pendingVivo` arriba, para la guarda del ítem de tienda)
+    const pending = pendingVivo
     const bareNum = (text && /^\s*\d+\s*$/.test(text)) ? parseInt(text.trim(), 10) : null
 
     if (pending && pending.type === 'sin_tipo' && /^\s*otro\s*$/i.test(text || '')) {
@@ -1012,4 +1021,4 @@ async function main() {
 // tests el módulo se carga sin conectar a WhatsApp.
 if (require.main === module) main()
 
-module.exports = { handleSupplierMessage, batch, avisoSinTipo, enviarVentaTienda, orders }
+module.exports = { handleSupplierMessage, handleOrdersMessage, batch, avisoSinTipo, enviarVentaTienda, orders }
