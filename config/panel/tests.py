@@ -674,7 +674,7 @@ class OrdersListFiltroFechaTests(TestCase):
         Order.objects.filter(pk=o_viejo.pk).update(
             created_at=timezone.now() - timezone.timedelta(days=40))
         self._order()  # hoy
-        hoy = timezone.now().date().isoformat()
+        hoy = timezone.localdate().isoformat()
         res = self.client.get(reverse('panel:orders_list') + f'?desde={hoy}')
         self.assertEqual(len(res.context['page_obj'].object_list), 1)
 

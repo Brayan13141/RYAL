@@ -776,3 +776,32 @@ class VolumeTierPisoCostoTests(TestCase):
         self.pin.save(update_fields=["price_override"])
         pin = Product.objects.get(pk=self.pin.pk)
         self.assertEqual(self._precio(pin, 100), 40.0)
+
+
+# ── El código de pedido usaba la fecha UTC ───────────────────────────────────
+
+class OrderCodeZonaHorariaTests(TestCase):
+    """`_generate_order_code` mezclaba fecha UTC con un conteo en hora local.
+
+    Entre las 18:00 y las 24:00 de México (00:00–06:00 UTC del día siguiente)
+    el prefijo traía la fecha de mañana y el contador buscaba pedidos de esa
+    fecha *en hora local* — ninguno —, así que cada pedido de la tarde salía
+    con el consecutivo 0001. El segundo chocaba, agotaba los 5 reintentos y
+    caía al fallback de UUID: por eso existen códigos como `RY260816F3EA0`.
+    """
+
+    # 2026-08-27 02:00 UTC == 2026-08-26 20:00 en America/Mexico_City
+    FAKE = timezone.datetime(2026, 8, 27, 2, 0, tzinfo=timezone.UTC)
+
+    def _crear(self):
+        from orders.views import _create_order_safe
+        return _create_order_safe(customer_name='C', customer_phone='1', status='pending')
+
+    def test_usa_la_fecha_local_y_no_la_utc(self):
+        with patch('django.utils.timezone.now', return_value=self.FAKE):
+            o1 = self._crear()
+            o2 = self._crear()
+        # La fecha del código es la del día en México, no la UTC de mañana
+        self.assertEqual(o1.order_code, 'RY2608260001')
+        # Y el consecutivo avanza en vez de chocar y caer al fallback de UUID
+        self.assertEqual(o2.order_code, 'RY2608260002')

@@ -155,8 +155,11 @@ def _get_category_violations(cart):
 
 
 def _generate_order_code():
-    date_str = timezone.now().strftime('%y%m%d')
-    today_count = Order.objects.filter(created_at__date=timezone.now().date()).count() + 1
+    # Fecha y conteo en hora local: `created_at__date` lo resuelve Django en
+    # America/Mexico_City, y mezclarlo con la fecha UTC reiniciaba el consecutivo
+    # cada tarde (18:00-24:00) y mandaba el pedido al fallback de UUID.
+    date_str = timezone.localtime().strftime('%y%m%d')
+    today_count = Order.objects.filter(created_at__date=timezone.localdate()).count() + 1
     return f'RY{date_str}{today_count:04d}'
 
 
@@ -193,7 +196,7 @@ def _create_order_safe(**kwargs):
         except IntegrityError:
             pass
     # Absolute fallback — statistically unreachable under normal load
-    fallback = f'RY{timezone.now().strftime("%y%m%d")}{uuid.uuid4().hex[:5].upper()}'
+    fallback = f'RY{timezone.localtime().strftime("%y%m%d")}{uuid.uuid4().hex[:5].upper()}'
     return Order.objects.create(order_code=fallback, **kwargs)
 
 
