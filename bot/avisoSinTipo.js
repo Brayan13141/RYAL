@@ -3,6 +3,14 @@
 /**
  * Aviso para el grupo cuando la venta trae artículos que Django no reconoció.
  *
+ * OJO — desde que la venta sin tipo se RECHAZA (rama feat/venta-sin-tipo),
+ * `/api/negocio/tienda/` devuelve siempre `sin_tipo: []` y esta función no
+ * puede dispararse por esa ruta: ya no existe una venta grabada con costo $0
+ * que avisar. Se conserva porque el bot desplegado la sigue llamando (con
+ * `[]` o `undefined` devuelve `''`, así que es inofensiva) y porque la ruta
+ * de `/pedido` podría querer el mismo aviso. Lo que describe abajo es lo que
+ * pasaba ANTES del bloqueo.
+ *
  * Sin tipo, el costo se graba en $0 y la venta queda con 100% de margen. Cero
  * es un costo plausible, así que después nada lo delata: ni el dashboard, ni
  * la caja, ni el pedido. La única señal es que la ganancia iguala al ingreso,

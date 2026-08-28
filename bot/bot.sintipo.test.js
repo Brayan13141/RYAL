@@ -208,6 +208,45 @@ describe('pending sin_tipo — dispatcher real de handleOrdersMessage', () => {
         await handleOrdersMessage(sock, mensajeDeTexto('Gorra 200'))
         expect(ordersReales.getSession(ORDERS).items).toHaveLength(2)
     })
+
+    test('CAMINO VERDE: numero -> alias con el body correcto -> reintento OK -> venta grabada', async () => {
+        // El unico test que respondia un numero hacia fallar el reintento a
+        // proposito, asi que el camino que decide si la venta SE GRABA no
+        // estaba cubierto por nada. Y nadie verificaba el BODY del alias: si
+        // alguien mandara elegido.nombre en vez de detalles[0].texto, el
+        // alias se guardaria con el texto equivocado y todo seguia verde.
+        ordersReales.startSession(ORDERS, 'Mostrador', 'TIENDA-MOSTRADOR', 'tienda')
+        ordersReales.addItem(ORDERS, 'Jordan', 750)
+        ordersReales.setPending(ORDERS, 'sin_tipo', {
+            detalles: [{ texto: 'Jordan', qty: 1, precio: 750, sugerencias: [] }],
+            opciones: [
+                { tipo_id: 7, nombre: 'JORDAN 4', costo: 680 },
+                { tipo_id: 9, nombre: 'Jordan 1', costo: 620 },
+            ],
+            endpoint: ENDPOINT,
+            envio: 0,
+        })
+
+        axios.post
+            .mockResolvedValueOnce({ data: { ok: true, creado: true } })
+            .mockResolvedValueOnce({ data: { pedido_id: 42, total: '750.00', sin_tipo: [] } })
+
+        const sock = { sendMessage: jest.fn() }
+        await handleOrdersMessage(sock, mensajeDeTexto('2'))
+
+        // El body del alias: el texto del detalle y el tipo de la opcion ELEGIDA
+        const [urlAlias, bodyAlias] = axios.post.mock.calls[0]
+        expect(String(urlAlias)).toContain('/api/negocio/alias/')
+        expect(bodyAlias).toEqual({ texto: 'Jordan', tipo_id: 9 })
+
+        // El reintento salio y la venta quedo grabada
+        expect(String(axios.post.mock.calls[1][0])).toContain('/api/negocio/tienda/')
+        const dichos = sock.sendMessage.mock.calls.map(c => c[1].text).join(' | ')
+        expect(dichos).toContain('Pedido #42 creado')
+
+        // Y la sesion se cerro, que es lo que distingue el camino verde
+        expect(ordersReales.getSession(ORDERS)).toBeNull()
+    })
 })
 
 describe('enviarVentaTienda', () => {
