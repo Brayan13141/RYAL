@@ -2764,3 +2764,97 @@ class MatcherUnicoTest(TestCase):
         ])
         self.assertEqual(pedido.items.get().costo_unitario, Decimal('150'))
 
+
+class GananciaNetaVsFlujoTest(TestCase):
+    """`ganancia_neta` restaba la mercaderia dos veces: una dentro de
+    `costo_producto` (via _GANANCIA_EXPR) y otra como Gasto de categoria
+    `compra_proveedor`. Con eso el panel mostraba -$42,600 donde habia
+    $38,124 de margen real."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            username='staff_neta', password='pass', is_staff=True)
+        self.client.login(username='staff_neta', password='pass')
+        self.cliente = Cliente.objects.create(nombre='Z', telefono='5550007777')
+        hoy = datetime.date.today()
+        # Vendido 1000, costo de la mercaderia vendida 400 -> ganancia 600.
+        pedido = Pedido.objects.create(
+            cliente=self.cliente, descripcion='Venta',
+            costo_producto=Decimal('400'), precio_venta=Decimal('1000'),
+            estado=Pedido.PAGADO, fecha=hoy,
+        )
+        Pago.objects.create(pedido=pedido, fecha=hoy, monto=Decimal('1000'),
+                            metodo_pago=Pago.EFECTIVO)
+        # Gasto operativo: envio al cliente. NO esta dentro de costo_producto.
+        Gasto.objects.create(fecha=hoy, descripcion='Guia al cliente',
+                             monto=Decimal('50'), categoria=Gasto.ENVIO)
+        Gasto.objects.create(fecha=hoy, descripcion='Papeleria',
+                             monto=Decimal('30'), categoria=Gasto.OTRO)
+        # Compra de inventario: ES la mercaderia, ya contada en costo_producto.
+        Gasto.objects.create(fecha=hoy, descripcion='Lote gorras',
+                             monto=Decimal('900'), categoria=Gasto.COMPRA_PROVEEDOR)
+
+    def test_ganancia_neta_no_resta_la_compra_al_proveedor(self):
+        res = self.client.get('/panel/negocio/')
+        # 600 de ganancia - 80 de gastos operativos = 520. NO 600-980=-380.
+        self.assertEqual(res.context['total_ganancia'], Decimal('600'))
+        self.assertEqual(res.context['gastos_operativos'], Decimal('80'))
+        self.assertEqual(res.context['ganancia_neta'], Decimal('520'))
+
+    def test_flujo_de_caja_si_cuenta_la_compra_al_proveedor(self):
+        """La compra de inventario no desaparece del panel: se mira en el
+        flujo, que es la pregunta que si la incluye."""
+        res = self.client.get('/panel/negocio/')
+        self.assertEqual(res.context['total_cobrado'], Decimal('1000'))
+        self.assertEqual(res.context['total_gastos'], Decimal('980'))
+        self.assertEqual(res.context['flujo_caja'], Decimal('20'))
+
+    def test_las_dos_series_de_tendencia_cierran_con_su_card(self):
+        """Los graficos tienen que contar la misma historia que los numeros de
+        arriba. Si la serie del mes no coincide con el card, uno de los dos
+        miente y no hay forma de saber cual."""
+        import json as _json
+        res = self.client.get('/panel/negocio/')
+        neta = _json.loads(res.context['trend_neta'])
+        flujo = _json.loads(res.context['trend_flujo'])
+        oper = _json.loads(res.context['trend_gastos_oper'])
+        inv = _json.loads(res.context['trend_inventario'])
+        cobrado = _json.loads(res.context['trend_cobrado'])
+        self.assertEqual(neta[-1], float(res.context['ganancia_neta']))
+        self.assertEqual(flujo[-1], float(res.context['flujo_caja']))
+        self.assertEqual(oper[-1], float(res.context['gastos_operativos']))
+        self.assertEqual(inv[-1], float(res.context['gastos_inventario']))
+        self.assertEqual(cobrado[-1], float(res.context['total_cobrado']))
+
+    def test_la_serie_de_margen_y_la_de_caja_no_son_la_misma(self):
+        """El punto del tercer grafico: separarse es informacion, no error.
+        La brecha del mes es exactamente el inventario comprado."""
+        import json as _json
+        res = self.client.get('/panel/negocio/')
+        neta = _json.loads(res.context['trend_neta'])
+        flujo = _json.loads(res.context['trend_flujo'])
+        inv = _json.loads(res.context['trend_inventario'])
+        ganancia = _json.loads(res.context['trend_ganancia'])
+        gastos = _json.loads(res.context['trend_gastos'])
+        oper = _json.loads(res.context['trend_gastos_oper'])
+        # neta = bruta - operativos ; flujo = cobrado - TODOS los gastos
+        self.assertEqual(neta[-1], ganancia[-1] - oper[-1])
+        self.assertEqual(gastos[-1] - oper[-1], inv[-1])
+        self.assertNotEqual(neta[-1], flujo[-1])
+        self.assertEqual(neta[-1] - flujo[-1], 500.0)  # 520 - 20
+
+    def test_las_seis_series_tienen_un_punto_por_mes(self):
+        import json as _json
+        res = self.client.get('/panel/negocio/')
+        for clave in ('trend_labels', 'trend_vendido', 'trend_ganancia',
+                      'trend_gastos', 'trend_gastos_oper', 'trend_inventario',
+                      'trend_cobrado', 'trend_neta', 'trend_flujo'):
+            self.assertEqual(len(_json.loads(res.context[clave])), 6, clave)
+
+    def test_el_total_de_gastos_sigue_mostrando_todo(self):
+        """El desglose por categoria no se recorta: esconder la compra seria
+        cambiar un numero enganoso por uno incompleto."""
+        res = self.client.get('/panel/negocio/')
+        cats = {r['categoria']: r['total'] for r in res.context['gastos_cat']}
+        self.assertEqual(cats[Gasto.COMPRA_PROVEEDOR], Decimal('900'))
+        self.assertEqual(sum(cats.values()), Decimal('980'))

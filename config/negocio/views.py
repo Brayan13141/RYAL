@@ -331,7 +331,17 @@ def resumen(request):
     total_cobrado = pagos_base.aggregate(t=Sum('monto'))['t'] or Decimal('0')
 
     total_gastos = gastos_base.aggregate(t=Sum('monto'))['t'] or Decimal('0')
-    ganancia_neta = total_ganancia - total_gastos
+    # La compra al proveedor ES la mercadería que `_GANANCIA_EXPR` ya descontó
+    # como `costo_producto`. Restarla otra vez acá contaba el inventario dos
+    # veces y dejaba la ganancia neta en rojo con el negocio en verde: -$42,600
+    # donde había $38,124 de margen. La compra no se esconde — se mira en el
+    # flujo de caja, que es la pregunta que sí la incluye.
+    gastos_inventario = gastos_base.filter(
+        categoria=Gasto.COMPRA_PROVEEDOR
+    ).aggregate(t=Sum('monto'))['t'] or Decimal('0')
+    gastos_operativos = total_gastos - gastos_inventario
+    ganancia_neta = total_ganancia - gastos_operativos
+    flujo_caja = total_cobrado - total_gastos
     margen_pct = round(total_ganancia / total_vendido * 100, 1) if total_vendido > 0 else Decimal('0')
 
     # Cobros por método de pago
@@ -358,8 +368,13 @@ def resumen(request):
     )
     total_por_cobrar = sum(p.balance_pendiente for p in pedidos_pendientes)
 
-    # Tendencia últimos 6 meses
+    # Tendencia últimos 6 meses. Se calculan las DOS lecturas del mismo mes —
+    # margen (sin la compra de inventario) y caja (con ella)— porque los dos
+    # números del hero responden preguntas distintas y hay que poder verlos
+    # discrepar: un mes con compra grande da flujo negativo con margen sano.
     trend_labels, trend_vendido, trend_ganancia_list, trend_gastos_list = [], [], [], []
+    trend_oper_list, trend_inv_list, trend_cobrado_list = [], [], []
+    trend_neta_list, trend_flujo_list = [], []
     for i in range(5, -1, -1):
         tm = hoy.month - i
         ty = hoy.year
@@ -371,10 +386,24 @@ def resumen(request):
         agg = Pedido.objects.filter(
             estado=Pedido.PAGADO, fecha__gte=t_ini, fecha__lt=t_fin
         ).aggregate(v=Sum(_VENDIDO_EXPR), g=Sum(_GANANCIA_EXPR))
-        g_val = Gasto.objects.filter(fecha__gte=t_ini, fecha__lt=t_fin).aggregate(t=Sum('monto'))['t'] or Decimal('0')
+        gastos_mes = Gasto.objects.filter(fecha__gte=t_ini, fecha__lt=t_fin)
+        g_val = gastos_mes.aggregate(t=Sum('monto'))['t'] or Decimal('0')
+        inv_val = gastos_mes.filter(
+            categoria=Gasto.COMPRA_PROVEEDOR
+        ).aggregate(t=Sum('monto'))['t'] or Decimal('0')
+        cobrado_val = Pago.objects.filter(
+            fecha__gte=t_ini, fecha__lt=t_fin
+        ).aggregate(t=Sum('monto'))['t'] or Decimal('0')
+        ganancia_mes = agg['g'] or Decimal('0')
+        oper_val = g_val - inv_val
         trend_vendido.append(float(agg['v'] or 0))
-        trend_ganancia_list.append(float(agg['g'] or 0))
+        trend_ganancia_list.append(float(ganancia_mes))
         trend_gastos_list.append(float(g_val))
+        trend_oper_list.append(float(oper_val))
+        trend_inv_list.append(float(inv_val))
+        trend_cobrado_list.append(float(cobrado_val))
+        trend_neta_list.append(float(ganancia_mes - oper_val))
+        trend_flujo_list.append(float(cobrado_val - g_val))
 
     # Meses disponibles para el selector (12 meses hacia atrás + opción "todo")
     meses_disponibles = []
@@ -392,7 +421,10 @@ def resumen(request):
         'total_cobrado': total_cobrado,
         'total_ganancia': total_ganancia,
         'total_gastos': total_gastos,
+        'gastos_inventario': gastos_inventario,
+        'gastos_operativos': gastos_operativos,
         'ganancia_neta': ganancia_neta,
+        'flujo_caja': flujo_caja,
         'margen_pct': margen_pct,
         'cobros_metodo': cobros_metodo,
         'gastos_cat': gastos_cat,
@@ -406,6 +438,11 @@ def resumen(request):
         'trend_vendido': json.dumps(trend_vendido),
         'trend_ganancia': json.dumps(trend_ganancia_list),
         'trend_gastos': json.dumps(trend_gastos_list),
+        'trend_gastos_oper': json.dumps(trend_oper_list),
+        'trend_inventario': json.dumps(trend_inv_list),
+        'trend_cobrado': json.dumps(trend_cobrado_list),
+        'trend_neta': json.dumps(trend_neta_list),
+        'trend_flujo': json.dumps(trend_flujo_list),
     })
 
 

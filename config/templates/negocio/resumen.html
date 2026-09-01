@@ -36,8 +36,9 @@
       <div style="font-size:22px;font-weight:700;color:#4ade80;">${{ total_ganancia }}</div>
     </div>
     <div style="text-align:right;">
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#555;">Gastos</div>
-      <div style="font-size:22px;font-weight:700;color:#f87171;">${{ total_gastos }}</div>
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#555;">Gastos operativos</div>
+      <div style="font-size:22px;font-weight:700;color:#f87171;">${{ gastos_operativos }}</div>
+      <div style="font-size:10px;color:#444;margin-top:2px;">sin compra al proveedor</div>
     </div>
   </div>
 </div>
@@ -61,6 +62,12 @@
     <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:6px;">Cobrado</div>
     <div style="font-size:22px;font-weight:700;color:#60a5fa;">${{ total_cobrado }}</div>
     <div style="font-size:10px;color:#444;margin-top:4px;">pagos recibidos</div>
+  </div>
+
+  <div class="p-card p-card-body" style="text-align:center;padding:16px 12px;">
+    <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:6px;">Flujo de caja</div>
+    <div style="font-size:22px;font-weight:700;color:{% if flujo_caja >= 0 %}#4ade80{% else %}#f87171{% endif %};">${{ flujo_caja }}</div>
+    <div style="font-size:10px;color:#444;margin-top:4px;">cobrado − gastos ({{ gastos_inventario }} de inventario)</div>
   </div>
 
   <div class="p-card p-card-body" style="text-align:center;padding:16px 12px;border:1px solid rgba(248,113,113,.2);">
@@ -142,11 +149,40 @@
 
 </div>
 
-<!-- ── Gráfica 6 meses ── -->
-<div class="p-card" style="margin-bottom:20px;">
-  <div class="p-card-head"><h2>Tendencia — últimos 6 meses</h2></div>
+<!-- ── Gráfica 1: caja (gastos totales, incluye inventario) ── -->
+<div class="p-card" style="margin-bottom:14px;">
+  <div class="p-card-head">
+    <h2>Tendencia — gastos totales</h2>
+    <span style="font-size:11px;color:#555;">incluye la compra al proveedor · lectura de caja</span>
+  </div>
   <div style="padding:16px;position:relative;height:220px;">
     <canvas id="trendChart"></canvas>
+  </div>
+</div>
+
+<!-- ── Gráfica 2: margen operativo — coherente con el hero ── -->
+<div class="p-card" style="margin-bottom:14px;">
+  <div class="p-card-head">
+    <h2>Margen operativo</h2>
+    <span style="font-size:11px;color:#555;">sin la compra al proveedor · la línea es el número del hero</span>
+  </div>
+  <div style="padding:16px;position:relative;height:220px;">
+    <canvas id="margenChart"></canvas>
+  </div>
+</div>
+
+<!-- ── Gráfica 3: las dos lecturas superpuestas ── -->
+<div class="p-card" style="margin-bottom:20px;">
+  <div class="p-card-head">
+    <h2>Ganancia neta vs Flujo de caja</h2>
+    <span style="font-size:11px;color:#555;">las barras son lo que separa a las dos líneas</span>
+  </div>
+  <div style="padding:16px;position:relative;height:240px;">
+    <canvas id="ambosChart"></canvas>
+  </div>
+  <div class="p-card-body" style="padding-top:0;font-size:11px;color:#555;line-height:1.5;">
+    Cuando las dos líneas se separan, la diferencia es inventario comprado y todavía no vendido.
+    Un mes puede tener margen sano y caja negativa: no es lo mismo ganar que tener.
   </div>
 </div>
 
@@ -164,19 +200,19 @@
       labels: {{ trend_labels|safe }},
       datasets: [
         {
-          label: 'Ganancia',
+          label: 'Ganancia bruta',
           data: {{ trend_ganancia|safe }},
-          backgroundColor: 'rgba(212,175,55,.35)',
-          borderColor: '#D4AF37',
+          backgroundColor: 'rgba(59,130,246,.35)',
+          borderColor: '#3b82f6',
           borderWidth: 1,
           borderRadius: 4,
           order: 1
         },
         {
-          label: 'Gastos',
+          label: 'Gastos totales',
           data: {{ trend_gastos|safe }},
-          backgroundColor: 'rgba(248,113,113,.25)',
-          borderColor: '#f87171',
+          backgroundColor: 'rgba(239,68,68,.25)',
+          borderColor: '#ef4444',
           borderWidth: 1,
           borderRadius: 4,
           order: 2
@@ -218,6 +254,138 @@
       }
     }
   });
+
+  // Ejes y tooltip son idénticos en los tres: un solo eje en pesos. Nunca un
+  // segundo eje Y — dos escalas dejan cruzarse a series que no se cruzan.
+  function moneda(v) { return '$' + v.toLocaleString('es-MX'); }
+  function opcionesComunes() {
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#666', font: { size: 11 }, boxWidth: 12, usePointStyle: true } },
+        tooltip: {
+          callbacks: {
+            label: function (c) {
+              return ' ' + c.dataset.label + ': $' +
+                c.parsed.y.toLocaleString('es-MX', { minimumFractionDigits: 2 });
+            }
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#555', font: { size: 11 } }, grid: { color: '#1a1a1a' } },
+        y: {
+          ticks: { color: '#555', font: { size: 11 }, callback: moneda },
+          grid: { color: '#1a1a1a' },
+          border: { color: '#2a2a2a' }
+        }
+      }
+    };
+  }
+
+  // ── 2. Margen operativo: la misma ganancia bruta, pero restando SOLO los
+  //    gastos operativos. La línea dorada es exactamente el número del hero.
+  var ctxMargen = document.getElementById('margenChart');
+  if (ctxMargen) {
+    new Chart(ctxMargen, {
+      type: 'bar',
+      data: {
+        labels: {{ trend_labels|safe }},
+        datasets: [
+          {
+            type: 'line',
+            label: 'Ganancia neta',
+            data: {{ trend_neta|safe }},
+            borderColor: '#b09029',
+            backgroundColor: '#b09029',
+            borderWidth: 2,
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            pointBorderColor: '#111',
+            pointBorderWidth: 2,
+            tension: .25,
+            order: 0
+          },
+          {
+            label: 'Ganancia bruta',
+            data: {{ trend_ganancia|safe }},
+            backgroundColor: 'rgba(59,130,246,.35)',
+            borderColor: '#3b82f6',
+            borderWidth: 1,
+            borderRadius: 4,
+            order: 1
+          },
+          {
+            label: 'Gastos operativos',
+            data: {{ trend_gastos_oper|safe }},
+            backgroundColor: 'rgba(194,65,12,.30)',
+            borderColor: '#c2410c',
+            borderWidth: 1,
+            borderRadius: 4,
+            order: 2
+          }
+        ]
+      },
+      options: opcionesComunes()
+    });
+  }
+
+  // ── 3. Las dos lecturas juntas. Las barras violetas son la compra de
+  //    inventario: es LO QUE separa a las dos líneas, así que va detrás de
+  //    ellas y no compite por atención.
+  var ctxAmbos = document.getElementById('ambosChart');
+  if (ctxAmbos) {
+    new Chart(ctxAmbos, {
+      type: 'bar',
+      data: {
+        labels: {{ trend_labels|safe }},
+        datasets: [
+          {
+            type: 'line',
+            label: 'Ganancia neta',
+            data: {{ trend_neta|safe }},
+            borderColor: '#b09029',
+            backgroundColor: '#b09029',
+            borderWidth: 2,
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            pointBorderColor: '#111',
+            pointBorderWidth: 2,
+            tension: .25,
+            order: 0
+          },
+          {
+            type: 'line',
+            label: 'Flujo de caja',
+            data: {{ trend_flujo|safe }},
+            borderColor: '#0891b2',
+            backgroundColor: '#0891b2',
+            borderWidth: 2,
+            borderDash: [5, 4],
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            pointStyle: 'rectRot',
+            pointBorderColor: '#111',
+            pointBorderWidth: 2,
+            tension: .25,
+            order: 1
+          },
+          {
+            label: 'Compra al proveedor',
+            data: {{ trend_inventario|safe }},
+            backgroundColor: 'rgba(168,85,247,.22)',
+            borderColor: '#a855f7',
+            borderWidth: 1,
+            borderRadius: 4,
+            order: 2
+          }
+        ]
+      },
+      options: opcionesComunes()
+    });
+  }
 })();
 </script>
 {% endblock %}
