@@ -77,11 +77,25 @@ def resolver_tipo(texto, tipos, aliases):
     El alias va adelante porque es una decisión humana explícita para ese
     texto exacto; la keyword es una regla general.
     """
+    return resolver_tipo_con_origen(texto, tipos, aliases)[0]
+
+
+def resolver_tipo_con_origen(texto, tipos, aliases):
+    """Igual que `resolver_tipo`, pero ademas dice DE DONDE salio el tipo:
+    devuelve `(tipo, origen)` con origen `'alias'`, `'keyword'` o `None`.
+
+    Es la misma regla, no una copia — `resolver_tipo` delega aca. El origen
+    hace falta para verificar un alias recien creado: un texto que cae en el
+    tipo correcto de casualidad, por keyword, se ve identico a uno asignado a
+    mano, y esa ambiguedad es justo lo que hace que un alias parezca guardado
+    sin estarlo.
+    """
     from catalog.services import buscar_tipo_articulo, normalizar_texto
     alias_tipo = aliases.get(normalizar_texto(texto))
     if alias_tipo is not None:
-        return alias_tipo
-    return buscar_tipo_articulo(texto, tipos=tipos)
+        return alias_tipo, 'alias'
+    tipo = buscar_tipo_articulo(texto, tipos=tipos)
+    return (tipo, 'keyword') if tipo is not None else (None, None)
 
 
 @transaction.atomic
@@ -396,6 +410,57 @@ def ranking_por_tipo(fecha_ini=None, fecha_fin=None):
         filas.append(fila)
 
     return ordenar_ranking(filas, 'piezas')
+
+
+def auditar_textos():
+    """Textos de venta que SI resuelven, con lo que la regla dice hoy.
+
+    Es el complemento de `textos_sin_tipo()`, que solo caza los textos que no
+    matchean NADA. El que matchea al tipo EQUIVOCADO no falla, no avisa y el
+    dashboard suma bien lo que tiene grabado — asi `new balance` cargo el
+    costo de una gorra durante meses sin que nada lo delatara. Aca se ve.
+
+    Sirve para dos cosas: verificar que un alias recien creado resuelve como
+    creias (por eso viene el `origen`), y detectar textos mal ruteados antes
+    de que se acumulen.
+
+    SOLO LECTURA — no escribe ni una fila. `costo_unitario` es una columna
+    guardada y no se re-costea: es una decision de negocio ya tomada.
+    """
+    tipos = list(TipoArticulo.objects.all())
+    aliases = cargar_aliases()
+    acumulado = {}
+
+    for pedido in Pedido.objects.filter(estado=Pedido.PAGADO).prefetch_related('items'):
+        for item in pedido.items.all():
+            texto = (item.nombre_snapshot or '').strip()
+            if not texto:
+                continue
+            tipo, origen = resolver_tipo_con_origen(texto, tipos, aliases)
+            if tipo is None:
+                # Ya los lista `textos_sin_tipo()`. Repetirlos aca seria una
+                # segunda forma de calcular lo mismo, que es justo el patron
+                # que dejo 4 New Balance con costo de gorra.
+                continue
+            fila = acumulado.setdefault(texto, {
+                'texto': texto, 'tipo': tipo, 'origen': origen,
+                'costo_regla': tipo.costo, 'piezas': 0,
+                'pedidos': set(), 'costos_grabados': set(),
+            })
+            fila['piezas'] += item.cantidad
+            fila['pedidos'].add(pedido.pk)
+            fila['costos_grabados'].add(item.costo_unitario)
+
+    filas = []
+    for fila in acumulado.values():
+        fila['pedidos'] = len(fila['pedidos'])
+        fila['costos_grabados'] = sorted(fila['costos_grabados'])
+        fila['coincide'] = fila['costos_grabados'] == [fila['costo_regla']]
+        filas.append(fila)
+
+    # Divergentes primero; dentro de cada grupo, lo que mas piezas mueve.
+    filas.sort(key=lambda f: (f['coincide'], -f['piezas'], f['texto']))
+    return filas
 
 
 def textos_sin_tipo():

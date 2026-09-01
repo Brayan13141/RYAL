@@ -5,6 +5,10 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from io import StringIO
+
+from django.core.management import call_command
+
 from negocio.models import Cliente, Pedido, Pago, Gasto, PedidoItem
 from catalog.models import Category, Product, TipoArticulo, CodigoDescuento, AliasTexto
 from negocio.services import crear_venta_tienda, VentaInvalida, crear_pedido_tienda_bot, VentaSinTipo
@@ -2496,7 +2500,8 @@ class GananciaWebEnCajaTests(TestCase):
 
 
 from catalog.models import AliasTexto
-from negocio.services import VentaSinTipo
+from negocio.services import (VentaSinTipo, resolver_tipo, resolver_tipo_con_origen,
+                              cargar_aliases, auditar_textos)
 
 
 class VentaBloqueadaSinTipoTests(TestCase):
@@ -2858,3 +2863,192 @@ class GananciaNetaVsFlujoTest(TestCase):
         cats = {r['categoria']: r['total'] for r in res.context['gastos_cat']}
         self.assertEqual(cats[Gasto.COMPRA_PROVEEDOR], Decimal('900'))
         self.assertEqual(sum(cats.values()), Decimal('980'))
+
+
+class ResolverTipoConOrigenTests(TestCase):
+    """`resolver_tipo` dice a QUE tipo resuelve un texto, pero no POR QUE.
+
+    Sin el origen no se puede verificar un alias recien creado: un texto que
+    cae en el tipo correcto por casualidad de keyword se ve idéntico a uno que
+    cae ahi porque alguien lo asigno a mano. Es la diferencia entre "quedo
+    guardado" y "parece que quedo guardado".
+    """
+
+    def setUp(self):
+        self.gorra = TipoArticulo.objects.create(
+            nombre='Gorra', keywords='gorra', costo=Decimal('150'))
+        self.cajas = TipoArticulo.objects.create(
+            nombre='Cajas', keywords='caja', costo=Decimal('20'))
+
+    def test_origen_alias_cuando_el_texto_tiene_alias(self):
+        AliasTexto.objects.create(texto='cajas gorras', tipo=self.cajas)
+        tipo, origen = resolver_tipo_con_origen(
+            'cajas gorras', [self.gorra, self.cajas], cargar_aliases())
+        self.assertEqual(tipo, self.cajas)
+        self.assertEqual(origen, 'alias')
+
+    def test_origen_keyword_cuando_matchea_por_substring(self):
+        tipo, origen = resolver_tipo_con_origen(
+            'gorra negra', [self.gorra, self.cajas], cargar_aliases())
+        self.assertEqual(tipo, self.gorra)
+        self.assertEqual(origen, 'keyword')
+
+    def test_sin_match_devuelve_none_en_ambos(self):
+        tipo, origen = resolver_tipo_con_origen(
+            'perfume', [self.gorra, self.cajas], cargar_aliases())
+        self.assertIsNone(tipo)
+        self.assertIsNone(origen)
+
+    def test_resolver_tipo_sigue_dando_el_mismo_tipo(self):
+        """`resolver_tipo` no puede volverse una segunda implementacion: la
+        regla vive en un solo lugar y la vieja firma delega en la nueva."""
+        AliasTexto.objects.create(texto='cajas gorras', tipo=self.cajas)
+        tipos, aliases = [self.gorra, self.cajas], cargar_aliases()
+        for texto in ('cajas gorras', 'gorra negra', 'perfume'):
+            self.assertEqual(
+                resolver_tipo(texto, tipos, aliases),
+                resolver_tipo_con_origen(texto, tipos, aliases)[0],
+                f'divergencia en {texto!r}')
+
+
+class AuditarTextosTests(TestCase):
+    """Un texto que resuelve al tipo EQUIVOCADO es hoy invisible.
+
+    `textos_sin_tipo()` solo caza los textos que no matchean NADA. El que
+    matchea al tipo incorrecto se graba sin error y el dashboard suma bien lo
+    que tiene grabado — es exactamente como `new balance` se llevo el costo de
+    una gorra durante meses. Esta funcion es de SOLO LECTURA: reporta, no
+    corrige.
+    """
+
+    def setUp(self):
+        self.gorra = TipoArticulo.objects.create(
+            nombre='Gorras New Era', keywords='new', costo=Decimal('150'))
+        self.nb = TipoArticulo.objects.create(
+            nombre='New balance', keywords='new balance', costo=Decimal('680'))
+        self.cajas = TipoArticulo.objects.create(
+            nombre='Cajas', keywords='caja', costo=Decimal('20'))
+        self.cliente = Cliente.objects.create(telefono='555', nombre='Test')
+
+    def _venta(self, texto, costo_grabado, cantidad=1, precio=Decimal('900')):
+        pedido = Pedido.objects.create(
+            cliente=self.cliente, descripcion='', costo_producto=Decimal('0'),
+            precio_venta=precio * cantidad, estado=Pedido.PAGADO,
+            origen=Pedido.TIENDA)
+        PedidoItem.objects.create(
+            pedido=pedido, sku_snapshot='TIENDA-BOT', nombre_snapshot=texto,
+            cantidad=cantidad, costo_unitario=Decimal(costo_grabado),
+            precio_unitario=precio)
+        return pedido
+
+    def _fila(self, texto):
+        return next(f for f in auditar_textos() if f['texto'] == texto)
+
+    def test_marca_divergente_el_texto_grabado_con_otro_costo(self):
+        self._venta('new balance', '150')
+        fila = self._fila('new balance')
+        self.assertFalse(fila['coincide'])
+        self.assertEqual(fila['tipo'], self.nb)
+        self.assertEqual(fila['costo_regla'], Decimal('680'))
+        self.assertEqual(fila['costos_grabados'], [Decimal('150')])
+
+    def test_marca_coincidente_el_texto_grabado_con_el_costo_de_la_regla(self):
+        self._venta('gorra new era', '150')
+        self.assertTrue(self._fila('gorra new era')['coincide'])
+
+    def test_reporta_el_origen_alias_para_verificar_una_asignacion(self):
+        AliasTexto.objects.create(texto='cajas gorras', tipo=self.cajas)
+        self._venta('cajas gorras', '20')
+        fila = self._fila('cajas gorras')
+        self.assertEqual(fila['origen'], 'alias')
+        self.assertEqual(fila['tipo'], self.cajas)
+        self.assertTrue(fila['coincide'])
+
+    def test_el_texto_sin_alias_reporta_origen_keyword(self):
+        self._venta('cajas gorras', '20')
+        self.assertEqual(self._fila('cajas gorras')['origen'], 'keyword')
+
+    def test_los_textos_sin_tipo_no_aparecen(self):
+        """Ya los lista `textos_sin_tipo()`; duplicarlos seria una segunda
+        forma de calcular lo mismo."""
+        self._venta('perfume carolina', '0')
+        self.assertEqual([f['texto'] for f in auditar_textos()], [])
+
+    def test_agrupa_las_piezas_y_los_pedidos_del_mismo_texto(self):
+        self._venta('new balance', '150', cantidad=2)
+        self._venta('new balance', '150', cantidad=3)
+        fila = self._fila('new balance')
+        self.assertEqual(fila['piezas'], 5)
+        self.assertEqual(fila['pedidos'], 2)
+
+    def test_lista_cada_costo_grabado_distinto_del_mismo_texto(self):
+        self._venta('new balance', '150')
+        self._venta('new balance', '680')
+        self.assertEqual(
+            self._fila('new balance')['costos_grabados'],
+            [Decimal('150'), Decimal('680')])
+
+    def test_las_divergencias_van_primero(self):
+        self._venta('gorra new era', '150')
+        self._venta('new balance', '150')
+        self.assertEqual([f['texto'] for f in auditar_textos()][0], 'new balance')
+
+    def test_no_escribe_nada_en_la_base(self):
+        """El candado: este reporte no puede mover una cuenta ni por accidente."""
+        self._venta('new balance', '150')
+        antes = list(PedidoItem.objects.values_list('pk', 'costo_unitario'))
+        costos_pedido_antes = list(Pedido.objects.values_list('pk', 'costo_producto'))
+        auditar_textos()
+        self.assertEqual(list(PedidoItem.objects.values_list('pk', 'costo_unitario')), antes)
+        self.assertEqual(
+            list(Pedido.objects.values_list('pk', 'costo_producto')), costos_pedido_antes)
+
+
+class AuditarTiposCommandTests(TestCase):
+    """El comando solo imprime `auditar_textos()`. No tiene `--apply` ni un
+    solo `.save()`: es de solo lectura por construccion, no por disciplina."""
+
+    def setUp(self):
+        TipoArticulo.objects.create(
+            nombre='Gorras New Era', keywords='new', costo=Decimal('150'))
+        TipoArticulo.objects.create(
+            nombre='New balance', keywords='new balance', costo=Decimal('680'))
+        self.cliente = Cliente.objects.create(telefono='555', nombre='Test')
+
+    def _venta(self, texto, costo_grabado):
+        pedido = Pedido.objects.create(
+            cliente=self.cliente, descripcion='', costo_producto=Decimal('0'),
+            precio_venta=Decimal('900'), estado=Pedido.PAGADO, origen=Pedido.TIENDA)
+        PedidoItem.objects.create(
+            pedido=pedido, sku_snapshot='TIENDA-BOT', nombre_snapshot=texto,
+            cantidad=1, costo_unitario=Decimal(costo_grabado),
+            precio_unitario=Decimal('900'))
+
+    def _correr(self, *args):
+        out = StringIO()
+        call_command('auditar_tipos', *args, stdout=out)
+        return out.getvalue()
+
+    def test_imprime_el_texto_divergente_con_los_dos_costos(self):
+        self._venta('new balance', '150')
+        salida = self._correr()
+        self.assertIn('new balance', salida)
+        self.assertIn('150', salida)
+        self.assertIn('680', salida)
+
+    def test_solo_divergentes_oculta_los_que_coinciden(self):
+        self._venta('new balance', '150')
+        self._venta('gorra new era', '150')
+        self.assertNotIn('gorra new era', self._correr('--solo-divergentes'))
+        self.assertIn('gorra new era', self._correr())
+
+    def test_avisa_cuando_no_hay_divergencias(self):
+        self._venta('gorra new era', '150')
+        self.assertIn('Sin divergencias', self._correr('--solo-divergentes'))
+
+    def test_el_comando_no_escribe_nada_en_la_base(self):
+        self._venta('new balance', '150')
+        antes = list(PedidoItem.objects.values_list('pk', 'costo_unitario'))
+        self._correr()
+        self.assertEqual(
+            list(PedidoItem.objects.values_list('pk', 'costo_unitario')), antes)
