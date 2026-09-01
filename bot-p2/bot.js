@@ -43,7 +43,19 @@ const logger = pino({ level: 'info' })
 const batch = createBatchBuffer()
 const orders = createOrderSessionStore()
 // JIDs privados ya saludados — persiste junto a la sesión de esta instancia
+// Numeros propios que NUNCA reciben bienvenida ni menu. Va por LID exacto y
+// no por telefono: en un chat privado la key del mensaje trae solo el `@lid`
+// (verificado: {remoteJid:'154211253772535@lid', fromMe, id}) y el numero no
+// aparece por ningun lado.
+const INTERNAL_JIDS = new Set(
+    (process.env.INTERNAL_JIDS || '').split(',').map(s => s.trim()).filter(Boolean))
+
 const welcome = createWelcomeStore({ filePath: '.welcome_seen.json' })
+if (welcome.isSealed()) {
+    logger.error({},
+        'welcome store ILEGIBLE: no se saluda a nadie para no repetir cientos de ' +
+        'bienvenidas. Sembrar con markSeenBulk() o restaurar .welcome_seen.json')
+}
 
 // Pausa entre imágenes al reenviar un lote: sin ella, hasta 50 descargas+resubidas
 // en ráfaga saturan el socket (keepalive perdido → 408 / stream errored → reconexión,
@@ -194,7 +206,7 @@ async function handleClientMessage(sock, msg) {
     const jid = msg.key.remoteJid
 
     // Bienvenida + menú para clientes nuevos (primer chat privado con este número)
-    if (isGreetableJid(jid) && !welcome.hasSeen(jid)) {
+    if (isGreetableJid(jid, INTERNAL_JIDS) && !welcome.hasSeen(jid)) {
         welcome.markSeen(jid)
         try {
             await sock.sendMessage(jid, { text: WELCOME_MESSAGE })

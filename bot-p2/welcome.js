@@ -65,8 +65,16 @@ const MENU_RESPONSES = {
 // JIDs que nunca deben recibir bienvenida (no son chats de personas)
 const IGNORED_JID_SUFFIXES = ['@broadcast', '@newsletter', '@g.us']
 
-function isGreetableJid(jid) {
+function isGreetableJid(jid, internalJids) {
     if (!jid) return false
+    // Los privados llegan como `@lid` y la key del mensaje no trae el telefono,
+    // asi que los numeros propios se excluyen por LID exacto, no por numero.
+    // `typeof ... === 'function'` no es paranoia: bot.js hace
+    // `.filter(isGreetableJid)`, y Array.filter pasa el INDICE como segundo
+    // argumento. Sin esta guarda, el indice 1 en adelante revienta con
+    // "internalJids.has is not a function".
+    if (internalJids && typeof internalJids.has === 'function'
+        && internalJids.has(jid)) return false
     return !IGNORED_JID_SUFFIXES.some(sfx => jid.endsWith(sfx))
 }
 
@@ -88,13 +96,22 @@ function menuReply(text) {
  */
 function createWelcomeStore({ filePath, maxEntries = 20000 } = {}) {
     let seen = new Set()
+    // Un archivo que EXISTE pero no se puede leer no es una instalacion nueva:
+    // es una que perdio sus datos. Arrancar vacio ahi significa volver a
+    // saludar a todos los contactos ya conocidos — con 523 en el store, un
+    // spam masivo. Sellado, el bot no saluda a nadie hasta que alguien siembre
+    // a proposito con markSeenBulk(). Un archivo AUSENTE si arranca vacio: esa
+    // si es una instalacion nueva.
+    let sealed = false
 
     if (filePath && fs.existsSync(filePath)) {
         try {
             const data = JSON.parse(fs.readFileSync(filePath, 'utf8'))
             if (Array.isArray(data)) seen = new Set(data)
+            else sealed = true
         } catch (_) {
             seen = new Set()
+            sealed = true
         }
     }
 
@@ -117,7 +134,14 @@ function createWelcomeStore({ filePath, maxEntries = 20000 } = {}) {
 
     return {
         hasSeen(jid) {
+            // Sellado = no sabemos a quien ya saludamos. Decir "ya lo vi" de
+            // todos es el lado seguro: se pierde una bienvenida, no se manda
+            // spam a cientos.
+            if (sealed) return true
             return seen.has(jid)
+        },
+        isSealed() {
+            return sealed
         },
         markSeen(jid) {
             addWithoutPersist(jid)
@@ -130,6 +154,8 @@ function createWelcomeStore({ filePath, maxEntries = 20000 } = {}) {
          */
         markSeenBulk(jids) {
             if (!jids || jids.length === 0) return
+            // Sembrar a proposito es la unica forma de levantar el sello.
+            sealed = false
             for (const jid of jids) addWithoutPersist(jid)
             persist()
         },
