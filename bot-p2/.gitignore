@@ -4,6 +4,8 @@ node_modules/
 .baileys_auth*
 .env
 .env.*
+# ...pero el ejemplo SI se versiona: solo nombres de variables, sin valores.
+!.env.example
 # Estado de runtime. `.welcome_seen.json` ademas guarda cientos de LIDs de
 # clientes: son datos personales y el repo es publico.
 .welcome_seen.json
