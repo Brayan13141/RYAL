@@ -135,6 +135,45 @@
     </select>
     <button class="btn btn-sm btn-outline-warning" type="submit">Asignar directo</button>
   </form>
+
+  <div class="mt-4 pt-3" style="border-top:1px solid var(--pl)">
+    <div style="font-weight:600;font-size:14px;color:var(--pt)">
+      <i class="bi bi-check2-square me-1"></i>Alias ya asignados
+      <span class="badge rounded-pill" style="background:rgba(212,175,55,.15);color:var(--pg)">{{ aliases|length }}</span>
+    </div>
+    <div class="small mt-1 mb-2" style="color:var(--pm)">
+      Coincidencia exacta, y le gana a cualquier keyword. Si asignaste un texto y no aparece
+      ac&aacute;, no se guard&oacute;.
+    </div>
+    {% if aliases %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" style="color:var(--pt)">
+        <thead><tr style="color:var(--pm);font-size:12px">
+          <th>Texto</th><th>Resuelve a</th><th class="text-end">Costo</th><th></th>
+        </tr></thead>
+        <tbody>
+        {% for a in aliases %}
+          <tr>
+            <td><code style="color:var(--pg)">{{ a.texto }}</code></td>
+            <td>{{ a.tipo.nombre }}</td>
+            <td class="text-end">${{ a.tipo.costo }}</td>
+            <td class="text-end">
+              <form method="post" action="{% url 'negocio:tipo_alias_delete' a.pk %}"
+                    onsubmit="return confirm('Quitar el alias {{ a.texto|escapejs }}? Ese texto vuelve a resolverse por keyword. Las ventas ya grabadas no cambian.')">
+                {% csrf_token %}
+                <button class="btn btn-sm btn-outline-danger py-0 px-2" type="submit"
+                        title="Quitar alias"><i class="bi bi-x-lg"></i></button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="small" style="color:var(--pm)"><em>Todav&iacute;a no hay ninguno.</em></div>
+    {% endif %}
+  </div>
 </div>
 
 {% if tipos %}

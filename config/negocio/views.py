@@ -750,13 +750,40 @@ def tipo_asignar_alias(request):
 
 
 @staff_member_required
+@require_POST
+def tipo_alias_delete(request, pk):
+    """Borra un alias. `require_POST` porque es destructivo: un link o un
+    prefetch del navegador no puede disparar el borrado.
+
+    No toca las ventas ya grabadas — `costo_unitario` es un snapshot. Lo unico
+    que cambia es como se resuelven las ventas futuras con ese texto.
+    """
+    from django.contrib import messages
+    from catalog.models import AliasTexto
+
+    alias = get_object_or_404(AliasTexto, pk=pk)
+    texto, tipo_nombre = alias.texto, alias.tipo.nombre
+    alias.delete()
+    messages.success(
+        request,
+        f'Alias «{texto}» → {tipo_nombre} eliminado. Ese texto vuelve a '
+        f'resolverse por keyword; las ventas ya grabadas conservan su costo.')
+    return redirect('negocio:tipos_list')
+
+
+@staff_member_required
 def tipos_list(request):
+    from catalog.models import AliasTexto
     from .services import textos_sin_tipo
 
     tipos = TipoArticulo.objects.all()
     sin_tipo = textos_sin_tipo()
     return render(request, 'negocio/tipo_articulo_list.html', {
         'tipos': tipos,
+        # Sin esta lista la pantalla dejaba crear alias y no mostraba ninguno:
+        # el unico rastro era un mensaje de exito que se va al recargar, asi
+        # que un alias guardado y uno que nunca se guardo se veian identicos.
+        'aliases': AliasTexto.objects.select_related('tipo'),
         'sin_tipo': sin_tipo,
         'sin_tipo_piezas': sum(f['piezas'] for f in sin_tipo),
         'sin_tipo_ingreso': sum((f['ingreso'] for f in sin_tipo), Decimal('0')),

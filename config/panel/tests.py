@@ -1,3 +1,5 @@
+from unittest.mock import patch
+import datetime
 from datetime import date
 from decimal import Decimal
 from uuid import uuid4
@@ -883,3 +885,46 @@ class OrdersListMarkSeenTests(TestCase):
         self.client.get(reverse('panel:order_detail', args=[self.order.pk]))
         otro.refresh_from_db()
         self.assertIsNotNone(otro.seen_at)
+
+
+class DashboardFechaLocalTests(TestCase):
+    """El dashboard fecha en la zona de la tienda, no en la del servidor.
+
+    Los servidores corren en UTC y la tienda esta en Mexico (UTC-6). Con
+    `timezone.now()` la medianoche que calcula el dashboard es la de UTC, asi
+    que despues de las 18:00 hora de Mexico `hoy` ya es el dia siguiente: las
+    ventas del dia en curso desaparecen del card 'hoy'. No falla ni avisa —
+    solo muestra cero, que es un numero plausible a esa hora.
+    """
+
+    # 01:00 UTC del 2 = 19:00 del 1 en Mexico. El dia local sigue siendo el 1.
+    AHORA_UTC = datetime.datetime(2026, 9, 2, 1, 0, tzinfo=datetime.timezone.utc)
+
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            username='staff_tz', password='pass', is_staff=True)
+        self.client.login(username='staff_tz', password='pass')
+        self.cliente = Cliente.objects.create(telefono='5550009999', nombre='TZ')
+
+    def _dashboard(self):
+        with patch('django.utils.timezone.now', return_value=self.AHORA_UTC):
+            return self.client.get('/panel/')
+
+    def test_la_venta_de_hoy_cuenta_aunque_en_utc_ya_sea_manana(self):
+        Pedido.objects.create(
+            cliente=self.cliente, descripcion='', costo_producto=Decimal('100'),
+            precio_venta=Decimal('500'), estado=Pedido.PAGADO,
+            origen=Pedido.TIENDA, fecha=datetime.date(2026, 9, 1))
+        self.assertEqual(self._dashboard().context['rev_hoy'], 500)
+
+    def test_el_borde_de_la_semana_tambien_se_corre_con_la_fecha_local(self):
+        """`semana` se deriva de `hoy`, asi que el desfase las movia a todas.
+
+        Con la fecha local el rango es 26-ago..1-sep; con la de UTC era
+        27-ago..2-sep, y la venta del 26 caia fuera de 'ultimos 7 dias'.
+        """
+        Pedido.objects.create(
+            cliente=self.cliente, descripcion='', costo_producto=Decimal('100'),
+            precio_venta=Decimal('700'), estado=Pedido.PAGADO,
+            origen=Pedido.TIENDA, fecha=datetime.date(2026, 8, 26))
+        self.assertEqual(self._dashboard().context['rev_semana'], 700)

@@ -229,7 +229,12 @@ def _stats_pedido(pedido_qs):
 @_staff
 def dashboard(request):
     from negocio.models import Gasto, Pedido, PedidoItem
-    now    = timezone.now()
+    # `localtime()`, no `now()`: los servidores corren en UTC y la tienda esta
+    # en Mexico (UTC-6), asi que la medianoche de `now()` es la de UTC y
+    # despues de las 18:00 hora local `hoy` ya era el dia siguiente — las
+    # ventas del dia en curso desaparecian del card 'hoy' sin avisar. Todas
+    # las fechas de abajo se derivan de esta, asi que se corrigen juntas.
+    now    = timezone.localtime()
     hoy    = now.replace(hour=0, minute=0, second=0, microsecond=0)
     semana = hoy - timedelta(days=6)
     mes    = hoy.replace(day=1)

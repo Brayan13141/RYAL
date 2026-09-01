@@ -3052,3 +3052,52 @@ class AuditarTiposCommandTests(TestCase):
         self._correr()
         self.assertEqual(
             list(PedidoItem.objects.values_list('pk', 'costo_unitario')), antes)
+
+
+class AliasVisiblesEnPantallaTests(TestCase):
+    """La pantalla de tipos deja crear alias pero nunca los mostraba.
+
+    El unico rastro de que un alias quedo guardado era un mensaje de exito que
+    desaparece al recargar. Uno guardado y uno que nunca se guardo se veian
+    IDENTICOS desde ahi — el unico lugar donde mirarlos era el admin. Por eso
+    Bryan reporto haber asignado un texto "y que no se agrego".
+    """
+
+    def setUp(self):
+        User.objects.create_user(username='staff_alias', password='pass', is_staff=True)
+        self.client.login(username='staff_alias', password='pass')
+        self.cajas = TipoArticulo.objects.create(
+            nombre='Cajas', keywords='caja', costo=Decimal('20'))
+
+    def test_la_pantalla_lista_los_alias_existentes(self):
+        AliasTexto.objects.create(texto='cajas gorras', tipo=self.cajas)
+        res = self.client.get('/panel/negocio/tipos/')
+        self.assertContains(res, 'cajas gorras')
+        self.assertEqual([a.texto for a in res.context['aliases']], ['cajas gorras'])
+
+    def test_muestra_el_tipo_y_el_costo_de_cada_alias(self):
+        AliasTexto.objects.create(texto='cajas gorras', tipo=self.cajas)
+        alias = self.client.get('/panel/negocio/tipos/').context['aliases'][0]
+        self.assertEqual(alias.tipo, self.cajas)
+        self.assertEqual(alias.tipo.costo, Decimal('20'))
+
+    def test_sin_alias_la_lista_va_vacia(self):
+        self.assertEqual(list(self.client.get('/panel/negocio/tipos/').context['aliases']), [])
+
+    def test_borrar_un_alias_lo_elimina(self):
+        alias = AliasTexto.objects.create(texto='cajas gorras', tipo=self.cajas)
+        res = self.client.post(f'/panel/negocio/tipos/alias/{alias.pk}/eliminar/')
+        self.assertEqual(res.status_code, 302)
+        self.assertEqual(AliasTexto.objects.count(), 0)
+
+    def test_un_get_no_borra_el_alias(self):
+        """Borrar es destructivo: un link o un prefetch del navegador no puede
+        disparar el borrado."""
+        alias = AliasTexto.objects.create(texto='cajas gorras', tipo=self.cajas)
+        self.client.get(f'/panel/negocio/tipos/alias/{alias.pk}/eliminar/')
+        self.assertEqual(AliasTexto.objects.count(), 1)
+
+    def test_borrar_el_alias_no_toca_el_tipo(self):
+        alias = AliasTexto.objects.create(texto='cajas gorras', tipo=self.cajas)
+        self.client.post(f'/panel/negocio/tipos/alias/{alias.pk}/eliminar/')
+        self.assertEqual(TipoArticulo.objects.filter(pk=self.cajas.pk).count(), 1)
