@@ -1,0 +1,12 @@
+node_modules/
+# Credenciales de sesion de WhatsApp: equivalen a la cuenta. Nunca al repo.
+.baileys_auth/
+.baileys_auth*
+.env
+.env.*
+# Estado de runtime. `.welcome_seen.json` ademas guarda cientos de LIDs de
+# clientes: son datos personales y el repo es publico.
+.welcome_seen.json
+.qr_state.json
+# Respaldos manuales que deja el deploy a mano
+*.bak-*
