@@ -52,27 +52,30 @@ def _parse_precio(valor):
 MOSTRADOR_TELEFONO = 'TIENDA-MOSTRADOR'
 
 
-def _resolver_tipo(nombre_snap, tipos, aliases):
-    """Alias exacto primero, keyword después.
-
-    El alias es una decisión humana explícita para ese texto exacto; la
-    keyword es una regla general. Cuando las dos aplican, gana la decisión.
-    """
-    from catalog.services import normalizar_texto
-    alias_tipo = aliases.get(normalizar_texto(nombre_snap))
-    if alias_tipo is not None:
-        return alias_tipo
-    return next((t for t in tipos if t.matches(nombre_snap)), None)
+def cargar_aliases():
+    """`{texto normalizado: TipoArticulo}` — el mapa que espera `resolver_tipo`."""
+    from catalog.models import AliasTexto
+    return {a.texto: a.tipo for a in AliasTexto.objects.select_related('tipo')}
 
 
-def _tipo_para_reporte(texto, tipos, aliases):
-    """Alias exacto primero, después la regla del reporte (keyword más larga).
+def resolver_tipo(texto, tipos, aliases):
+    """Alias exacto primero, después la keyword MÁS LARGA (la más específica).
 
-    El alias se antepone SIN tocar `buscar_tipo_articulo`: esa función también
-    la usa la validación de códigos de descuento. Y ojo, el reporte usa la
-    regla de keyword MÁS LARGA mientras el bot usa la del primero alfabético;
-    esa divergencia es un bug conocido que se ataca en su propia sesión, así
-    que acá NO se unifica nada — solo se agrega el alias adelante.
+    Es la ÚNICA regla del sistema: la usan el camino que graba el costo de una
+    venta, los reportes y el lookup del bot. Antes eran dos —la venta se
+    quedaba con el primer tipo en orden alfabético (`Meta.ordering =
+    ['nombre']`) y el reporte con la keyword más larga—, y esa divergencia
+    grabó 4 pares de New Balance con costo de gorra: `'new'` (de `Gorras New
+    Era`) está contenido en `'new balance'` y la G le ganaba a la T. Nada lo
+    delataba: la venta se registra sin error y el dashboard suma bien lo que
+    tiene grabado.
+
+    Si algún día hace falta otra regla, que sea un parámetro de ESTA función y
+    no una segunda copia. Dos formas de calcular lo mismo es la firma del
+    problema.
+
+    El alias va adelante porque es una decisión humana explícita para ese
+    texto exacto; la keyword es una regla general.
     """
     from catalog.services import buscar_tipo_articulo, normalizar_texto
     alias_tipo = aliases.get(normalizar_texto(texto))
@@ -90,11 +93,10 @@ def crear_pedido_tienda_bot(*, items, envio=Decimal('0')):
     if not items:
         raise VentaInvalida('La venta no tiene ítems.')
 
-    from catalog.models import AliasTexto
     from catalog.services import sugerencias_de_tipo
 
     tipos = list(TipoArticulo.objects.all())
-    aliases = {a.texto: a.tipo for a in AliasTexto.objects.select_related('tipo')}
+    aliases = cargar_aliases()
 
     # Resolver TODO antes de crear nada. Registrar con costo $0 lo que no
     # matchea es lo que dejó $14,710 con 100% de margen declarado: cero es un
@@ -105,7 +107,7 @@ def crear_pedido_tienda_bot(*, items, envio=Decimal('0')):
         nombre_snap = (str(item.get('description') or '').strip() or 'ítem tienda')[:200]
         qty = int(item['qty'])
         precio_u = Decimal(str(item['price']))
-        tipo = _resolver_tipo(nombre_snap, tipos, aliases)
+        tipo = resolver_tipo(nombre_snap, tipos, aliases)
         if tipo is None and not any(f['texto'] == nombre_snap for f in faltantes):
             faltantes.append({
                 'texto': nombre_snap,
@@ -333,8 +335,6 @@ def ranking_por_tipo(fecha_ini=None, fecha_fin=None):
     ingreso, costo, ganancia y sin_desglose. Sin clasificar va siempre al
     final: esconderlo descuadraría los totales sin que se note.
     """
-    from catalog.models import AliasTexto
-
     pedidos = Pedido.objects.filter(estado=Pedido.PAGADO)
     if fecha_ini is not None:
         pedidos = pedidos.filter(fecha__gte=fecha_ini)
@@ -342,7 +342,7 @@ def ranking_por_tipo(fecha_ini=None, fecha_fin=None):
         pedidos = pedidos.filter(fecha__lt=fecha_fin)
 
     tipos = list(TipoArticulo.objects.all())
-    aliases = {a.texto: a.tipo for a in AliasTexto.objects.select_related('tipo')}
+    aliases = cargar_aliases()
     acumulado = {}
 
     def fila_de(tipo):
@@ -362,7 +362,7 @@ def ranking_por_tipo(fecha_ini=None, fecha_fin=None):
             # vive dentro del texto. Cuenta 1 pieza y se declara en pantalla;
             # parsear prosa para afinar eso cambia un error chico por un
             # riesgo permanente.
-            fila = fila_de(_tipo_para_reporte(pedido.descripcion, tipos, aliases))
+            fila = fila_de(resolver_tipo(pedido.descripcion, tipos, aliases))
             fila['piezas'] += 1
             fila['ingreso'] += pedido.precio_venta - pedido.descuento_aplicado
             fila['costo'] += pedido.costo_producto
@@ -385,7 +385,7 @@ def ranking_por_tipo(fecha_ini=None, fecha_fin=None):
             else:
                 parte = Decimal('0')
 
-            fila = fila_de(_tipo_para_reporte(item.nombre_snapshot, tipos, aliases))
+            fila = fila_de(resolver_tipo(item.nombre_snapshot, tipos, aliases))
             fila['piezas'] += item.cantidad
             fila['ingreso'] += subtotal - parte
             fila['costo'] += item.costo_unitario * item.cantidad
@@ -401,18 +401,18 @@ def ranking_por_tipo(fecha_ini=None, fecha_fin=None):
 def textos_sin_tipo():
     """Textos de venta que hoy no matchean ningún TipoArticulo.
 
-    Cuando ninguna keyword coincide, `crear_pedido_tienda_bot` resuelve el
-    costo con `next((...), Decimal('0'))` y la venta se graba con costo CERO,
-    o sea 100% de margen. No falla, no avisa y no deja rastro: el único
-    síntoma es que la ganancia iguala al ingreso. Esta lista es lo que hace
-    visible qué keyword falta, antes de que siga pasando.
+    Hoy una venta sin tipo se RECHAZA (`VentaSinTipo`), así que esta lista es
+    histórica: son las que entraron cuando el costo se resolvía con
+    `next((...), Decimal('0'))` y la venta quedaba grabada con costo CERO, o
+    sea 100% de margen. No fallaba, no avisaba y no dejaba rastro: el único
+    síntoma es que la ganancia iguala al ingreso, y son $14,710 así. Sirve
+    para saber qué keyword hay que nombrar y qué costo hay que corregir a
+    mano — agregar la keyword ahora NO repara lo ya grabado.
 
     Ordena por ingreso: lo que más dinero mueve es lo que más urge nombrar.
     """
-    from catalog.models import AliasTexto
-
     tipos = list(TipoArticulo.objects.all())
-    aliases = {a.texto: a.tipo for a in AliasTexto.objects.select_related('tipo')}
+    aliases = cargar_aliases()
     acumulado = {}
 
     def fila_de(texto):
@@ -428,7 +428,7 @@ def textos_sin_tipo():
 
         if not items:
             texto = (pedido.descripcion or '').strip()
-            if not texto or _tipo_para_reporte(texto, tipos, aliases):
+            if not texto or resolver_tipo(texto, tipos, aliases):
                 continue
             fila = fila_de(texto)
             fila['piezas'] += 1
@@ -439,7 +439,7 @@ def textos_sin_tipo():
 
         for item in items:
             texto = (item.nombre_snapshot or '').strip()
-            if not texto or _tipo_para_reporte(texto, tipos, aliases):
+            if not texto or resolver_tipo(texto, tipos, aliases):
                 continue
             fila = fila_de(texto)
             fila['piezas'] += item.cantidad
@@ -477,14 +477,6 @@ def _textos_de_venta():
     return {t.strip() for t in textos if t and t.strip()}
 
 
-def _tipo_del_bot(texto, tipos):
-    """La regla que usa `crear_pedido_tienda_bot` para elegir el costo: el
-    PRIMER tipo que matchea, en orden alfabético. No es la misma que
-    `buscar_tipo_articulo` (keyword más larga), y esa diferencia es la que
-    grabó 4 New Balance con costo de gorra."""
-    return next((t for t in tipos if t.matches(texto)), None)
-
-
 def conflictos_de_keyword(tipo, keyword):
     """Textos que hoy resuelven bien y se romperían si `tipo` sumara `keyword`.
 
@@ -492,34 +484,34 @@ def conflictos_de_keyword(tipo, keyword):
     todo lo que la contenga: 'new' (de Gorras New Era) se quedó con
     'new balance'. Simular antes de escribir es lo único que lo impide.
 
-    Se comprueban LAS DOS reglas: la del reporte (keyword más larga) y la del
-    bot (primero alfabético). Una keyword puede ser inocua para una y
-    destructiva para la otra — y la del bot es la que decide el costo.
+    Se simula con `resolver_tipo`, la misma regla que va a grabar el costo —
+    antes se probaban dos reglas distintas porque el bot y el reporte no
+    coincidían. Los alias entran en la simulación: a un texto con alias no lo
+    puede romper ninguna keyword, así que reportarlo sería ruido.
     """
-    from catalog.services import buscar_tipo_articulo
-
     tipos = list(TipoArticulo.objects.all())
+    aliases = cargar_aliases()
     simulados = [
         TipoArticulo(pk=t.pk, nombre=t.nombre, costo=t.costo,
                      keywords=f'{t.keywords},{keyword}' if t.pk == tipo.pk else t.keywords)
         for t in tipos
     ]
+    # El orden sigue importando: ante dos keywords que matchean con la MISMA
+    # longitud, `buscar_tipo_articulo` se queda con la primera que ve.
     simulados.sort(key=lambda t: t.nombre)
 
     conflictos = []
     for texto in sorted(_textos_de_venta()):
-        for resolver in (buscar_tipo_articulo, _tipo_del_bot):
-            antes = resolver(texto, tipos)
-            if antes is None:
-                continue
-            despues = resolver(texto, simulados)
-            if despues is None or despues.pk != antes.pk:
-                conflictos.append({
-                    'texto': texto,
-                    'antes': antes.nombre,
-                    'despues': despues.nombre if despues else None,
-                })
-                break
+        antes = resolver_tipo(texto, tipos, aliases)
+        if antes is None:
+            continue
+        despues = resolver_tipo(texto, simulados, aliases)
+        if despues is None or despues.pk != antes.pk:
+            conflictos.append({
+                'texto': texto,
+                'antes': antes.nombre,
+                'despues': despues.nombre if despues else None,
+            })
 
     return conflictos
 

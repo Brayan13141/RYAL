@@ -154,8 +154,12 @@ def api_articulo_buscar(request):
     except (json.JSONDecodeError, ValueError):
         return JsonResponse({'error': 'json inválido'}, status=400)
     descripcion = str(payload.get('descripcion', ''))
-    from catalog.services import buscar_tipo_articulo
-    tipo = buscar_tipo_articulo(descripcion)
+    # Misma regla que graba el costo de la venta, alias incluidos. Cuando esto
+    # respondía con `buscar_tipo_articulo` a secas, el bot podía mostrar un
+    # costo distinto del que después se grababa.
+    from catalog.models import TipoArticulo
+    from .services import cargar_aliases, resolver_tipo
+    tipo = resolver_tipo(descripcion, list(TipoArticulo.objects.all()), cargar_aliases())
     if tipo:
         return JsonResponse({'match': True, 'nombre': tipo.nombre, 'costo': float(tipo.costo), 'id': tipo.pk})
     return JsonResponse({'match': False, 'nombre': None, 'costo': 0, 'id': None})

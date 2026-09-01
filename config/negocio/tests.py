@@ -2217,17 +2217,41 @@ class AsignarKeywordTests(TestCase):
         self.assertContains(res, 'no aparece en')
 
     def test_rechaza_la_keyword_que_le_roba_un_texto_a_otro_tipo(self):
-        """El caso real: 'Gorras New Era' ordena antes que 'New balance', así
-        que si se le da la keyword 'new', el matcher del bot (primero
-        alfabético) le asigna a 'new balance' el costo de una gorra."""
+        """El riesgo que queda con la regla unificada: una keyword MÁS LARGA
+        que la del dueño legítimo sí se lleva el texto puesto. 'new balance
+        550' (15) le gana a 'new balance' (11) y la venta pasaría a costo de
+        gorra."""
+        gorras = TipoArticulo.objects.create(
+            nombre='Gorras New Era', keywords='new era', costo=Decimal('150'))
+        self._venta('new balance 550')
+        self._venta('gorra new balance 550')
+        res = self._post(texto='gorra new balance 550',
+                         keyword='new balance 550', tipo_id=gorras.pk)
+        gorras.refresh_from_db()
+        self.assertNotIn('new balance 550', gorras.keywords_list)
+        self.assertContains(
+            res, '«new balance 550» pasaría de New balance a Gorras New Era')
+
+    def test_una_keyword_mas_corta_ya_no_le_roba_el_texto_al_tipo_especifico(self):
+        """Antes esto se rechazaba: con el matcher del bot (primer tipo en
+        orden alfabético) darle 'new' a 'Gorras New Era' le arrancaba
+        'new balance' a New balance, porque G ordena antes que N. Con una sola
+        regla —keyword más larga— 'new balance' (11) le gana a 'new' (3), no
+        hay conflicto y la keyword se puede asignar."""
         gorras = TipoArticulo.objects.create(
             nombre='Gorras New Era', keywords='new era', costo=Decimal('150'))
         self._venta('new balance')
         self._venta('gorra new')
-        res = self._post(texto='gorra new', keyword='new', tipo_id=gorras.pk)
+        self._post(texto='gorra new', keyword='new', tipo_id=gorras.pk)
         gorras.refresh_from_db()
-        self.assertNotIn('new', gorras.keywords_list)
-        self.assertContains(res, 'new balance')
+        self.assertIn('new', gorras.keywords_list)
+        # Y lo que importa: la venta de New Balance sigue con SU costo.
+        from negocio.services import cargar_aliases, resolver_tipo
+        tipos = list(TipoArticulo.objects.all())
+        self.assertEqual(
+            resolver_tipo('new balance', tipos, cargar_aliases()), self.nb)
+        self.assertEqual(
+            resolver_tipo('gorra new', tipos, cargar_aliases()), gorras)
 
     def test_permite_la_keyword_que_no_toca_a_nadie(self):
         self._venta('yezzy')
@@ -2689,3 +2713,54 @@ class TipoAsignarAliasTests(TestCase):
         alias = AliasTexto.objects.get()
         self.assertEqual(alias.texto, 'zapatilla nueva')
         self.assertEqual(alias.tipo, self.j4)
+
+
+class MatcherUnicoTest(TestCase):
+    """El camino que graba el costo y el que arma el reporte tienen que
+    resolver un texto al MISMO tipo.
+
+    Divergian: la venta se quedaba con el primer tipo en orden alfabetico
+    (`Meta.ordering = ['nombre']`) y el reporte con la keyword mas larga. Eso
+    grabo 4 pares de New Balance con costo de gorra: $2,960 de ganancia
+    declarada de mas, sin un solo error en los logs.
+    """
+
+    def setUp(self):
+        # 'Gorras New Era' < 'Tenis New Balance' alfabeticamente, y su keyword
+        # 'new' esta contenida en 'new balance'. Es la forma exacta del bug.
+        self.gorra = TipoArticulo.objects.create(
+            nombre='Gorras New Era', keywords='new', costo=Decimal('150'))
+        self.tenis = TipoArticulo.objects.create(
+            nombre='Tenis New Balance', keywords='new balance', costo=Decimal('680'))
+
+    def test_la_venta_graba_el_costo_del_tipo_mas_especifico(self):
+        pedido = crear_pedido_tienda_bot(items=[
+            {'description': 'New Balance 550 talla 27', 'price': '1200', 'qty': 4},
+        ])
+        item = pedido.items.get()
+        self.assertEqual(item.costo_unitario, Decimal('680'))
+        self.assertEqual(pedido.costo_producto, Decimal('2720'))
+
+    def test_el_reporte_atribuye_el_mismo_tipo_que_grabo_la_venta(self):
+        """El invariante que impide que la divergencia vuelva: lo que se
+        grabo y lo que se reporta tienen que hablar del mismo tipo."""
+        from negocio.services import ranking_por_tipo
+        crear_pedido_tienda_bot(items=[
+            {'description': 'New Balance 550 talla 27', 'price': '1200', 'qty': 4},
+        ])
+        filas = {f['tipo']: f for f in ranking_por_tipo()}
+        self.assertIn('Tenis New Balance', filas)
+        self.assertNotIn('Gorras New Era', filas)
+        # Y la ganancia del reporte usa el costo que quedo grabado.
+        self.assertEqual(filas['Tenis New Balance']['costo'], Decimal('2720'))
+        self.assertEqual(filas['Tenis New Balance']['ganancia'], Decimal('2080'))
+
+    def test_el_alias_le_sigue_ganando_a_la_keyword(self):
+        """La unificacion toca la regla de fallback, no la precedencia del
+        alias: una decision humana explicita sigue mandando."""
+        AliasTexto.objects.create(texto='new balance 550 talla 27', tipo=self.gorra)
+        pedido = crear_pedido_tienda_bot(items=[
+            {'description': 'New Balance 550 talla 27', 'price': '1200', 'qty': 1},
+        ])
+        self.assertEqual(pedido.items.get().costo_unitario, Decimal('150'))
+
