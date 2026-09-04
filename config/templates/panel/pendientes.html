@@ -89,6 +89,53 @@
   }
   .btn-bulk-approve:hover { background: rgba(40,167,69,.35); }
   .btn-bulk-approve:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* ── Switch "Aprobar como": activo (verde) u oculto (ámbar) ── */
+  .modo-switch {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .modo-switch > span {
+    font-size: 12px;
+    color: #666;
+  }
+  .modo-opts {
+    display: flex;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .modo-opts label {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 12px;
+    color: #666;
+    background: #0f0f0f;
+    transition: background .15s, color .15s;
+  }
+  .modo-opts input { position: absolute; opacity: 0; pointer-events: none; }
+  .modo-opts input:checked + label { color: #5cb85c; background: rgba(40,167,69,.18); }
+  .modo-opts input[value="0"]:checked + label { color: #e0a63c; background: rgba(224,166,60,.18); }
+  .modo-opts input:focus-visible + label { outline: 2px solid #D4AF37; outline-offset: -2px; }
+
+  /* En modo oculto TODO lo que aprueba cambia de color, no solo el switch */
+  .sel-bar.modo-oculto { border-color: rgba(224,166,60,.45); background: rgba(224,166,60,.06); }
+  .btn-approve.modo-oculto,
+  .btn-bulk-approve.modo-oculto {
+    background: rgba(224,166,60,.15);
+    border-color: rgba(224,166,60,.45);
+    color: #e0a63c;
+  }
+  .btn-approve.modo-oculto:hover,
+  .btn-bulk-approve.modo-oculto:hover { background: rgba(224,166,60,.3); }
+  #btn-approve-all.modo-oculto {
+    background: #e0a63c;
+    border-color: #e0a63c;
+    color: #1a1a1a;
+  }
   .btn-bulk-reject {
     background: rgba(220,53,69,.15);
     border: 1px solid rgba(220,53,69,.4);
@@ -319,6 +366,17 @@
     <button id="bulk-approve-btn" class="btn-bulk-approve">✓ Aprobar</button>
     <button id="bulk-reject-btn" class="btn-bulk-reject">✗ Rechazar</button>
   </div>
+
+  {# Aplica a los tres caminos: tarjeta, selección múltiple y "Aprobar página" #}
+  <div class="modo-switch" id="aprobar-modo">
+    <span>Aprobar como:</span>
+    <div class="modo-opts">
+      <input type="radio" name="modo_aprobar" id="modo-activo" value="1" checked>
+      <label for="modo-activo" title="El producto sale a la tienda al aprobarlo">Activo</label>
+      <input type="radio" name="modo_aprobar" id="modo-oculto" value="0">
+      <label for="modo-oculto" title="Se aprueba pero NO sale a la tienda: lo ves después en Productos → Inactivos">🚫 Desactivado</label>
+    </div>
+  </div>
 </div>
 {% endif %}
 
@@ -355,6 +413,8 @@
         <input type="hidden" name="_cat" value="{{ cat_filter }}">
         <input type="hidden" name="_per_page" value="{{ per_page }}">
         <input type="hidden" name="_page" value="{{ page_obj.number }}">
+        {# Lo sincroniza el switch "Aprobar como" de la barra de arriba #}
+        <input type="hidden" name="activar" value="1" class="activar-field">
         {% endif %}
 
         <div class="pcard-mv-name" title="{{ pp.modaverse_name }}">{{ pp.modaverse_name|truncatechars:40 }}</div>
@@ -483,6 +543,56 @@ function rejectProduct(pk, btn) {
   form.submit();
 }
 
+// ─── Switch "Aprobar como" ───────────────────────────────────────────────────
+// Vive en sessionStorage: sobrevive el paginado (sin recargar, así no se
+// pierden ediciones de nombre/precio a medio hacer) y se resetea solo a
+// "Activo" al cerrar la pestaña, para no aprobar un lote oculto sin querer.
+const AprobarModo = (function(){
+  const KEY   = 'ryal_pendientes_modo_aprobar';
+  const box   = document.getElementById('aprobar-modo');
+  const selBar = document.getElementById('sel-bar');
+  const btnAll = document.getElementById('btn-approve-all');
+  const bulkBtn = document.getElementById('bulk-approve-btn');
+
+  function get() {
+    if (!box) return '1';                     // sin switch (pestaña de aprobados)
+    const on = box.querySelector('input:checked');
+    return on && on.value === '0' ? '0' : '1';
+  }
+
+  function paint() {
+    const oculto = get() === '0';
+
+    document.querySelectorAll('.activar-field').forEach(f => f.value = oculto ? '0' : '1');
+    document.querySelectorAll('.btn-approve').forEach(b => {
+      b.classList.toggle('modo-oculto', oculto);
+      b.textContent = oculto ? '✓ Aprobar oculto' : '✓ Aprobar';
+    });
+    if (selBar)  selBar.classList.toggle('modo-oculto', oculto);
+    if (bulkBtn) bulkBtn.classList.toggle('modo-oculto', oculto);
+    if (btnAll) {
+      btnAll.classList.toggle('modo-oculto', oculto);
+      btnAll.textContent = oculto
+        ? '✓ Aprobar página oculta ({{ page_obj|length }})'
+        : '✓ Aprobar página ({{ page_obj|length }})';
+    }
+  }
+
+  if (box) {
+    let guardado = null;
+    try { guardado = sessionStorage.getItem(KEY); } catch(e) {}
+    if (guardado === '0') box.querySelector('input[value="0"]').checked = true;
+
+    box.querySelectorAll('input').forEach(r => r.addEventListener('change', () => {
+      try { sessionStorage.setItem(KEY, get()); } catch(e) {}
+      paint();
+    }));
+    paint();
+  }
+
+  return { get, paint, oculto: () => get() === '0' };
+})();
+
 // ─── Aprobar página completa ──────────────────────────────────────────────────
 (function(){
   const btn = document.getElementById('btn-approve-all');
@@ -494,7 +604,10 @@ function rejectProduct(pk, btn) {
   const csrf = document.querySelector('[name=csrfmiddlewaretoken]').value;
 
   btn.addEventListener('click', async () => {
-    if (!confirm(`¿Aprobar los ${pks.length} productos de esta página con sus valores actuales?`)) return;
+    const destino = AprobarModo.oculto()
+      ? 'DESACTIVADOS (no salen a la tienda)'
+      : 'activos';
+    if (!confirm(`¿Aprobar los ${pks.length} productos de esta página como ${destino}, con sus valores actuales?`)) return;
     btn.disabled = true;
     btn.textContent = 'Aprobando…';
 
@@ -502,6 +615,7 @@ function rejectProduct(pk, btn) {
     body.append('csrfmiddlewaretoken', csrf);
     pks.forEach(pk => body.append('pks', pk));
     body.append('action', 'approve');
+    body.append('activar', AprobarModo.get());
 
     try {
       const res = await fetch('{% url "panel:pendientes_approve_all" %}', { method: 'POST', body });
@@ -516,7 +630,7 @@ function rejectProduct(pk, btn) {
     } catch(e) {
       alert('Error de red al aprobar. Intenta de nuevo.');
       btn.disabled = false;
-      btn.textContent = '✓ Aprobar página ({{ page_obj|length }})';
+      AprobarModo.paint();
     }
   });
 })();
@@ -548,7 +662,9 @@ function rejectProduct(pk, btn) {
       selBadge.style.display    = 'inline';
       bulkActions.style.display = 'flex';
       selBadge.textContent      = `${sel.length} seleccionado${sel.length !== 1 ? 's' : ''}`;
-      approveBtn.textContent    = `✓ Aprobar (${sel.length})`;
+      approveBtn.textContent    = AprobarModo.oculto()
+        ? `✓ Aprobar ocultos (${sel.length})`
+        : `✓ Aprobar (${sel.length})`;
       rejectBtn.textContent     = `✗ Rechazar (${sel.length})`;
       checkAll.checked      = sel.length === all.length;
       checkAll.indeterminate = sel.length > 0 && sel.length < all.length;
@@ -579,7 +695,10 @@ function rejectProduct(pk, btn) {
     const sel = getSelected();
     if (!sel.length) return;
     const label = action === 'approve' ? 'aprobar' : 'rechazar';
-    if (!confirm(`¿${label.charAt(0).toUpperCase() + label.slice(1)} los ${sel.length} producto${sel.length !== 1 ? 's' : ''} seleccionado${sel.length !== 1 ? 's' : ''}?`)) return;
+    const destino = (action === 'approve' && AprobarModo.oculto())
+      ? ' como DESACTIVADOS (no salen a la tienda)'
+      : '';
+    if (!confirm(`¿${label.charAt(0).toUpperCase() + label.slice(1)} los ${sel.length} producto${sel.length !== 1 ? 's' : ''} seleccionado${sel.length !== 1 ? 's' : ''}${destino}?`)) return;
 
     approveBtn.disabled = true;
     rejectBtn.disabled  = true;
@@ -587,6 +706,7 @@ function rejectProduct(pk, btn) {
     const body = new FormData();
     body.append('csrfmiddlewaretoken', csrf);
     body.append('action', action);
+    body.append('activar', AprobarModo.get());
     sel.forEach(c => body.append('pks', c.value));
 
     try {
@@ -603,6 +723,7 @@ function rejectProduct(pk, btn) {
       alert('Error de red. Intenta de nuevo.');
       approveBtn.disabled = false;
       rejectBtn.disabled  = false;
+      AprobarModo.paint();
     }
   }
 

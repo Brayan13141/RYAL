@@ -720,9 +720,9 @@ class WhatsappStateReadingTests(TestCase):
     def test_get_instance_desconocida(self):
         self.assertIsNone(get_instance('no-existe'))
 
-    def test_tres_instancias_configuradas(self):
+    def test_dos_instancias_configuradas(self):
         keys = {i['key'] for i in WHATSAPP_INSTANCES}
-        self.assertEqual(keys, {'persona1', 'persona2', 'bot-4451076015'})
+        self.assertEqual(keys, {'persona1', 'persona2'})
 
     def test_read_qr_state_json_null(self):
         """JSON null is valid JSON pero no es un dict — debe retornar no_data sin lanzar."""
@@ -758,12 +758,11 @@ class WhatsappQrListViewTests(TestCase):
         res = self.client.get('/panel/whatsapp/')
         self.assertEqual(res.status_code, 200)
 
-    def test_muestra_las_tres_instancias(self):
+    def test_muestra_las_dos_instancias(self):
         self.client.login(username='staff_wa_list', password='pass')
         res = self.client.get('/panel/whatsapp/')
         self.assertContains(res, 'Persona 1')
         self.assertContains(res, 'Persona 2')
-        self.assertContains(res, '4451076015')
 
     def test_nav_link_presente_en_dashboard(self):
         self.client.login(username='staff_wa_list', password='pass')
@@ -928,3 +927,87 @@ class DashboardFechaLocalTests(TestCase):
             precio_venta=Decimal('700'), estado=Pedido.PAGADO,
             origen=Pedido.TIENDA, fecha=datetime.date(2026, 8, 26))
         self.assertEqual(self._dashboard().context['rev_semana'], 700)
+
+
+class PendientesAprobarDesactivadoTests(TestCase):
+    """El panel puede aprobar pendientes ocultos (`activar=0`), para los que
+    todavia necesitan que les cambien la imagen antes de salir a la tienda."""
+
+    def setUp(self):
+        from catalog.models import PendingProduct
+        self.PendingProduct = PendingProduct
+        self.staff = User.objects.create_user(
+            username='staff_pend', password='pass', is_staff=True
+        )
+        self.client.login(username='staff_pend', password='pass')
+        self.cat = Category.objects.create(
+            name='Gorras Pend', slug='gorras-pend',
+            shipping_cost=Decimal('50'), profit_margin=Decimal('100'),
+        )
+
+    def _pending(self, suffix):
+        return self.PendingProduct.objects.create(
+            supplier_url=f'https://modaverse.vip/#/proinfo/PEND{suffix}',
+            display_name=f'Gorra Pendiente {suffix}',
+            modaverse_name=f'Gorra Pendiente {suffix} Raw',
+            category=self.cat,
+            base_price=Decimal('200'),
+            raw_data={'sku': f'RYL-PND-{suffix}'},
+        )
+
+    def _producto_de(self, pending):
+        return Product.objects.get(supplier_url=pending.supplier_url)
+
+    def test_aprobar_con_activar_0_deja_el_producto_fuera_de_la_tienda(self):
+        pending = self._pending('001')
+        self.client.post(
+            f'/panel/pendientes/{pending.pk}/aprobar/', {'activar': '0'}
+        )
+        self.assertFalse(self._producto_de(pending).is_active)
+
+    def test_aprobar_sin_el_campo_activar_sigue_publicando(self):
+        """Retrocompatibilidad: un POST viejo sin `activar` publica igual."""
+        pending = self._pending('002')
+        self.client.post(f'/panel/pendientes/{pending.pk}/aprobar/', {})
+        self.assertTrue(self._producto_de(pending).is_active)
+
+    def test_aprobar_con_activar_1_publica(self):
+        pending = self._pending('003')
+        self.client.post(
+            f'/panel/pendientes/{pending.pk}/aprobar/', {'activar': '1'}
+        )
+        self.assertTrue(self._producto_de(pending).is_active)
+
+    def test_aprobar_todos_con_activar_0_deja_el_lote_oculto(self):
+        a, b = self._pending('004'), self._pending('005')
+        res = self.client.post('/panel/pendientes/aprobar-todos/', {
+            'pks': [a.pk, b.pk], 'action': 'approve', 'activar': '0',
+        })
+        self.assertEqual(res.json()['approved'], 2)
+        self.assertFalse(self._producto_de(a).is_active)
+        self.assertFalse(self._producto_de(b).is_active)
+
+    def test_aprobar_todos_sin_el_campo_activar_sigue_publicando(self):
+        a = self._pending('006')
+        self.client.post('/panel/pendientes/aprobar-todos/', {
+            'pks': [a.pk], 'action': 'approve',
+        })
+        self.assertTrue(self._producto_de(a).is_active)
+
+    def test_la_pestana_de_pendientes_muestra_el_switch_de_modo(self):
+        self._pending('007')
+        html = self.client.get('/panel/pendientes/?status=pending').content.decode()
+        self.assertIn('id="aprobar-modo"', html)
+        self.assertIn('Aprobar como', html)
+
+    def test_las_tarjetas_llevan_el_campo_activar(self):
+        self._pending('008')
+        html = self.client.get('/panel/pendientes/?status=pending').content.decode()
+        self.assertIn('name="activar"', html)
+
+    def test_la_pestana_de_aprobados_no_muestra_el_switch(self):
+        """El switch vive en la barra de seleccion, que es solo de pendientes."""
+        pending = self._pending('009')
+        pending.approve()
+        html = self.client.get('/panel/pendientes/?status=approved').content.decode()
+        self.assertNotIn('id="aprobar-modo"', html)

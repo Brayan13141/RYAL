@@ -346,8 +346,13 @@ class PendingProduct(models.Model):
         )
         return bp + root.shipping_cost + margin
 
-    def approve(self):
-        """Crea el Product en catálogo y marca como aprobado."""
+    def approve(self, activate=True):
+        """Crea el Product en catálogo y marca como aprobado.
+
+        `activate=False` lo deja fuera de la tienda (`is_active=False`): sirve
+        para aprobar productos que todavía necesitan que les cambien la imagen.
+        Se ven después en `/panel/productos/?active=0`.
+        """
         from django.utils import timezone
 
         sku            = self.raw_data.get('sku', '')
@@ -387,15 +392,17 @@ class PendingProduct(models.Model):
                 size_group=size_group,
                 description=description,
                 status='available',
-                is_active=True,
+                is_active=activate,
             )
         else:
             product.name            = self.display_name
             product.modaverse_name  = self.modaverse_name or self.display_name
             product.base_price      = self.base_price
             product.modaverse_price = self.base_price
+            product.is_active       = activate
             product.save(update_fields=[
                 'name', 'modaverse_name', 'base_price', 'modaverse_price',
+                'is_active',
             ])
 
         if self.cover_image and not product.images.filter(is_cover=True).exists():

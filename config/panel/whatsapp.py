@@ -15,12 +15,6 @@ WHATSAPP_INSTANCES = [
         'phone': '4451129186',
         'state_path': settings.BASE_DIR.parent / 'bot-p2' / '.qr_state.json',
     },
-    {
-        'key': 'bot-4451076015',
-        'label': 'Bot 4451076015 (solo privados)',
-        'phone': '4451076015',
-        'state_path': settings.BASE_DIR.parent / 'bot-4451076015' / '.qr_state.json',
-    },
 ]
 
 

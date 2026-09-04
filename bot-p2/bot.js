@@ -21,7 +21,6 @@ const { resolveNotifyJid } = require('./notifyTarget')
 const { matchPromo } = require('./promos')
 const { avisoSinTipo } = require('./avisoSinTipo')
 const { mensajeSinTipo } = require('./ventaSinTipo')
-const { describeUndecryptable } = require('./undecryptable')
 
 const AUTH_DIR = '.baileys_auth'
 const QR_STATE_FILE = '.qr_state.json'
@@ -899,9 +898,9 @@ async function connect() {
         // ninguna terminaba — 113 desconexiones en 7 días (69 `Stream Errored
         // (ack)` 500) y un `Timeout in AwaitingInitialSync` detrás de cada
         // reconexión, sin excepción. Las claves de grupo que los participantes
-        // reparten dentro de esas ventanas se pierden, y así el bot quedó sin la
-        // sender key del 4451076015: sus mensajes en el Grupo Pedidos morían en
-        // `No session found to decrypt message` mientras el privado funcionaba.
+        // reparten dentro de esas ventanas se pierden, y el bot se queda sin la
+        // sender key de esos participantes: sus mensajes en un grupo mueren en
+        // `No session found to decrypt message` mientras el privado funciona.
         //
         // El sembrado incompleto solo afecta al próximo login por QR, y se paga
         // con alguna bienvenida repetida. Perder comandos no se paga con nada.
@@ -962,17 +961,7 @@ async function connect() {
         if (type !== 'notify') return
 
         for (const msg of messages) {
-            if (!msg.message) {
-                // Sin `message` no hay nada que procesar, pero si venía de un grupo
-                // que el bot atiende hay que dejar rastro: es un comando perdido.
-                const noDescifrado = describeUndecryptable(
-                    msg, { orders: ORDERS_GID, supplier: SUPPLIER_GID, ryal: RYAL_GID })
-                if (noDescifrado) {
-                    logger.warn(noDescifrado,
-                        'Mensaje no descifrado en un grupo operativo — ignorado (falta su sender key)')
-                }
-                continue
-            }
+            if (!msg.message) continue
 
             const jid     = msg.key.remoteJid
             const isGroup = jid?.endsWith('@g.us')

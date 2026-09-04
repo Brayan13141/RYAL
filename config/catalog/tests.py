@@ -1143,6 +1143,44 @@ class PendingProductApproveTests(TestCase):
         self.pending.approve()
         self.assertEqual(Product.objects.filter(sku='RYL-TST-001').count(), 1)
 
+    def test_approve_por_defecto_deja_producto_activo(self):
+        """Sin argumento, approve() sigue publicando: los llamadores viejos
+        (revive_pending, comandos, el panel antes del switch) no cambian."""
+        product = self.pending.approve()
+        self.assertTrue(product.is_active)
+
+    def test_approve_activate_false_deja_producto_inactivo(self):
+        """Aprobar en modo oculto crea el producto fuera de la tienda, para
+        los que todavía necesitan que les cambien la imagen."""
+        product = self.pending.approve(activate=False)
+        self.assertFalse(product.is_active)
+
+    def test_approve_activate_false_desactiva_producto_existente(self):
+        """La elección explícita gana también en la rama idempotente: si el
+        Product ya existía y se aprueba oculto, se desactiva."""
+        product = self.pending.approve()
+        self.assertTrue(product.is_active)
+
+        self.pending.status = 'pending'
+        self.pending.save(update_fields=['status'])
+        self.pending.approve(activate=False)
+
+        product.refresh_from_db()
+        self.assertFalse(product.is_active)
+
+    def test_approve_activate_true_reactiva_producto_existente(self):
+        """Simétrico del anterior: aprobar activo vuelve a publicar uno que
+        estaba oculto, sin tener que ir a /panel/productos/."""
+        product = self.pending.approve(activate=False)
+        self.assertFalse(product.is_active)
+
+        self.pending.status = 'pending'
+        self.pending.save(update_fields=['status'])
+        self.pending.approve(activate=True)
+
+        product.refresh_from_db()
+        self.assertTrue(product.is_active)
+
     def test_reject_marca_como_rechazado(self):
         self.pending.reject(notes='No aplica por ahora')
         self.pending.refresh_from_db()

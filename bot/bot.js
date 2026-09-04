@@ -875,11 +875,24 @@ async function connect() {
         // sin afectar la recepción ni el envío del bot.
         markOnlineOnConnect: false,
         getMessage: async (key) => sentMsgCache.get(key?.id),
-        // Sin esto WA solo manda un snapshot de unos pocos chats recientes en
-        // messaging-history.set (verificado: 8-13 chats en un número con muchos
-        // más contactos reales) — el sembrado del filtro anti-spam de bienvenida
-        // quedaba incompleto y clientes viejos recibían la bienvenida de nuevo.
-        syncFullHistory: true,
+        // APAGADO 2026-09-01. Estaba en `true` para sembrar completo el filtro
+        // anti-spam de bienvenida: sin eso WA solo manda un snapshot de unos
+        // pocos chats en messaging-history.set (verificado: 8-13 chats en un
+        // número con muchos más contactos reales) y clientes viejos recibían la
+        // bienvenida de nuevo.
+        //
+        // El costo resultó más caro que el beneficio: con `true`, CADA reconexión
+        // arranca una sincronización completa de historial, y en esta cuenta
+        // ninguna terminaba — 113 desconexiones en 7 días (69 `Stream Errored
+        // (ack)` 500) y un `Timeout in AwaitingInitialSync` detrás de cada
+        // reconexión, sin excepción. Las claves de grupo que los participantes
+        // reparten dentro de esas ventanas se pierden, y el bot se queda sin la
+        // sender key de esos participantes: sus mensajes en un grupo mueren en
+        // `No session found to decrypt message` mientras el privado funciona.
+        //
+        // El sembrado incompleto solo afecta al próximo login por QR, y se paga
+        // con alguna bienvenida repetida. Perder comandos no se paga con nada.
+        syncFullHistory: false,
     })
     currentSock = sock
 

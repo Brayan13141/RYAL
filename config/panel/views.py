@@ -1932,6 +1932,15 @@ def pendientes_list(request):
     })
 
 
+def _quiere_activar(request):
+    """Lee el switch "Aprobar como" del panel de pendientes.
+
+    Solo el `'0'` explícito oculta el producto; cualquier otra cosa (incluida
+    la ausencia del campo) publica, que es como se comportaba antes.
+    """
+    return request.POST.get('activar', '1') != '0'
+
+
 @_staff
 @require_POST
 def pendiente_approve(request, pk):
@@ -1955,7 +1964,7 @@ def pendiente_approve(request, pk):
 
     pending.save(update_fields=['display_name', 'base_price', 'category'])
     try:
-        pending.approve()
+        pending.approve(activate=_quiere_activar(request))
     except Exception as e:
         from django.contrib import messages
         messages.error(request, f'Error al aprobar {pending.display_name}: {e}')
@@ -1992,11 +2001,12 @@ def pendientes_approve_all(request):
     if action not in ('approve', 'reject'):
         action = 'approve'
     pks = [int(v) for v in request.POST.getlist('pks') if v.isdigit()]
+    activar = _quiere_activar(request)
     count, errors = 0, []
     for pending in PendingProduct.objects.filter(pk__in=pks, status='pending'):
         try:
             if action == 'approve':
-                pending.approve()
+                pending.approve(activate=activar)
             else:
                 pending.reject()
             count += 1
