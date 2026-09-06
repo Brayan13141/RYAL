@@ -9,6 +9,7 @@ from django.db.models import Q, Count, Sum
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404, redirect
 from django.views.decorators.http import require_POST
+from django.utils import timezone
 
 from django_ratelimit.decorators import ratelimit
 
@@ -961,9 +962,14 @@ def label_print_json(request, sku):
 @staff_member_required
 def mas_vendidos(request):
     """Ranking de lo más vendido en el negocio, agrupado por tipo de artículo."""
-    from .services import ranking_por_tipo, ordenar_ranking, ORDENES_RANKING
+    from .services import (ranking_por_tipo, ordenar_ranking, ORDENES_RANKING,
+                           serie_piezas_por_tipo)
+    from .utils import _mes_previo_comparable
 
-    hoy = datetime.date.today()
+    # `date.today()` da la fecha del SERVIDOR, que corre en UTC: el último día
+    # del mes, después de las 18:00 hora de México, el mes por defecto ya era
+    # el siguiente y la pantalla abría vacía. Mismo defecto que el dashboard.
+    hoy = timezone.localdate()
     mes = request.GET.get('mes', f"{hoy.year}-{hoy.month:02d}")
 
     if mes == 'todo':
@@ -985,6 +991,25 @@ def mas_vendidos(request):
 
     filas = ordenar_ranking(ranking_por_tipo(fecha_ini, fecha_fin), orden)
 
+    # Movimiento contra el periodo previo y serie de los últimos 6 meses. Con
+    # "todo el tiempo" no hay periodo previo contra el cual comparar, así que
+    # el delta se apaga entero en vez de inventar una referencia.
+    if fecha_ini is None:
+        comparativa_label, previas = None, {}
+        serie_year, serie_month = hoy.year, hoy.month
+    else:
+        serie_year, serie_month = fecha_ini.year, fecha_ini.month
+        p_ini, p_fin, comparativa_label = _mes_previo_comparable(
+            serie_year, serie_month, hoy)
+        previas = {f['tipo']: f['piezas'] for f in ranking_por_tipo(p_ini, p_fin)}
+
+    serie_meses, series = serie_piezas_por_tipo(serie_year, serie_month)
+    for fila in filas:
+        previa = previas.get(fila['tipo'])
+        fila['delta_piezas'] = None if previa is None else fila['piezas'] - previa
+        fila['serie'] = series.get(fila['tipo'], [0] * len(serie_meses))
+        fila['serie_max'] = max(fila['serie']) or 1
+
     meses_disponibles = []
     for i in range(11, -1, -1):
         tm, ty = hoy.month - i, hoy.year
@@ -999,6 +1024,8 @@ def mas_vendidos(request):
         'mes': mes,
         'periodo_label': periodo_label,
         'meses_disponibles': meses_disponibles,
+        'comparativa_label': comparativa_label,
+        'serie_meses': serie_meses,
         'total_piezas': sum(f['piezas'] for f in filas),
         'total_ingreso': sum((f['ingreso'] for f in filas), Decimal('0')),
         'total_ganancia': sum((f['ganancia'] for f in filas), Decimal('0')),

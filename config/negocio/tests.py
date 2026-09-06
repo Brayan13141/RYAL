@@ -3101,3 +3101,282 @@ class AliasVisiblesEnPantallaTests(TestCase):
         alias = AliasTexto.objects.create(texto='cajas gorras', tipo=self.cajas)
         self.client.post(f'/panel/negocio/tipos/alias/{alias.pk}/eliminar/')
         self.assertEqual(TipoArticulo.objects.filter(pk=self.cajas.pk).count(), 1)
+
+
+class RankingDetallePorTextoTests(TestCase):
+    """Cada fila del ranking lleva el desglose de los textos que la formaron.
+
+    El tipo agrupa bien, pero esconde CON QUÉ se escribió la venta. Ese texto
+    es lo único que se puede corregir (con una keyword o un alias), así que
+    tiene que estar a la vista sin salir de la pantalla.
+    """
+
+    def setUp(self):
+        self.cli = Cliente.objects.create(nombre='N', telefono='9')
+        self.gorras = TipoArticulo.objects.create(
+            nombre='Gorras', keywords='gorra,gorras', costo=Decimal('240'))
+
+    def _pedido(self, descuento='0', descripcion=''):
+        return Pedido.objects.create(
+            cliente=self.cli, descripcion=descripcion,
+            costo_producto=Decimal('0'), precio_venta=Decimal('0'),
+            descuento_aplicado=Decimal(descuento), estado=Pedido.PAGADO,
+            fecha=datetime.date(2026, 7, 15),
+        )
+
+    def _item(self, pedido, nombre, cantidad=1, precio='300', costo='240'):
+        it = PedidoItem.objects.create(
+            pedido=pedido, sku_snapshot='TIENDA-BOT', nombre_snapshot=nombre,
+            cantidad=cantidad, costo_unitario=Decimal(costo),
+            precio_unitario=Decimal(precio),
+        )
+        pedido.precio_venta = sum(i.precio_unitario * i.cantidad for i in pedido.items.all())
+        pedido.save(update_fields=['precio_venta'])
+        return it
+
+    def test_detalle_separa_los_textos_tal_como_se_teclearon(self):
+        """'gorra' y 'gorras' suman en la misma fila pero se listan aparte:
+        verlos separados es lo que deja elegir la keyword."""
+        from negocio.services import ranking_por_tipo
+        p = self._pedido()
+        self._item(p, 'gorra', cantidad=1)
+        self._item(p, 'gorras', cantidad=10)
+        detalle = ranking_por_tipo()[0]['detalle']
+        self.assertEqual([d['texto'] for d in detalle], ['gorras', 'gorra'])
+        self.assertEqual([d['piezas'] for d in detalle], [10, 1])
+
+    def test_no_normaliza_mayusculas_ni_espacios(self):
+        from negocio.services import ranking_por_tipo
+        p = self._pedido()
+        self._item(p, 'gorra')
+        self._item(p, 'GORRA')
+        detalle = ranking_por_tipo()[0]['detalle']
+        self.assertEqual(sorted(d['texto'] for d in detalle), ['GORRA', 'gorra'])
+
+    def test_el_detalle_suma_exactamente_la_fila(self):
+        """Invariante: si el desglose no cuadra con su fila, la pantalla miente."""
+        from negocio.services import ranking_por_tipo
+        p = self._pedido(descuento='100')
+        self._item(p, 'gorra', cantidad=2, precio='300', costo='240')
+        self._item(p, 'gorras', cantidad=3, precio='400', costo='240')
+        fila = ranking_por_tipo()[0]
+        self.assertEqual(sum(d['piezas'] for d in fila['detalle']), fila['piezas'])
+        self.assertEqual(sum((d['ingreso'] for d in fila['detalle']), Decimal('0')),
+                         fila['ingreso'])
+        self.assertEqual(sum((d['ganancia'] for d in fila['detalle']), Decimal('0')),
+                         fila['ganancia'])
+
+    def test_pedido_sin_desglose_entra_por_su_descripcion(self):
+        from negocio.services import ranking_por_tipo
+        p = self._pedido(descripcion='2 gorras negras')
+        p.precio_venta = Decimal('600')
+        p.costo_producto = Decimal('480')
+        p.save(update_fields=['precio_venta', 'costo_producto'])
+        detalle = ranking_por_tipo()[0]['detalle']
+        self.assertEqual(len(detalle), 1)
+        self.assertEqual(detalle[0]['texto'], '2 gorras negras')
+        self.assertEqual(detalle[0]['sin_desglose'], 1)
+
+    def test_sin_clasificar_lista_los_textos_huerfanos(self):
+        """La fila que destapa dinero mal clasificado es la que más necesita el
+        desglose: sin él hay que ir a otra pantalla a buscar el texto."""
+        from negocio.services import ranking_por_tipo
+        p = self._pedido()
+        self._item(p, 'yezzy', cantidad=4)
+        fila = next(f for f in ranking_por_tipo() if f['tipo'] is None)
+        self.assertEqual([d['texto'] for d in fila['detalle']], ['yezzy'])
+
+
+class SeriePiezasPorTipoTests(TestCase):
+    """Serie mensual de piezas por tipo: la forma de la tendencia, no el último salto."""
+
+    def setUp(self):
+        self.cli = Cliente.objects.create(nombre='N', telefono='9')
+        TipoArticulo.objects.create(nombre='Gorras', keywords='gorra,gorras',
+                                    costo=Decimal('240'))
+
+    def _venta(self, fecha, cantidad):
+        p = Pedido.objects.create(
+            cliente=self.cli, costo_producto=Decimal('0'),
+            precio_venta=Decimal('300') * cantidad, estado=Pedido.PAGADO, fecha=fecha)
+        PedidoItem.objects.create(
+            pedido=p, sku_snapshot='TIENDA-BOT', nombre_snapshot='gorras',
+            cantidad=cantidad, costo_unitario=Decimal('240'),
+            precio_unitario=Decimal('300'))
+
+    def test_devuelve_un_valor_por_mes_contando_los_ceros(self):
+        from negocio.services import serie_piezas_por_tipo
+        self._venta(datetime.date(2026, 7, 10), 5)
+        etiquetas, series = serie_piezas_por_tipo(2026, 7, meses=6)
+        self.assertEqual(len(etiquetas), 6)
+        self.assertEqual(series['Gorras'], [0, 0, 0, 0, 0, 5])
+
+    def test_la_serie_termina_en_el_mes_pedido(self):
+        from negocio.services import serie_piezas_por_tipo
+        self._venta(datetime.date(2026, 6, 10), 3)
+        self._venta(datetime.date(2026, 7, 10), 5)
+        etiquetas, series = serie_piezas_por_tipo(2026, 7, meses=3)
+        self.assertEqual(etiquetas, ['May', 'Jun', 'Jul'])
+        self.assertEqual(series['Gorras'], [0, 3, 5])
+
+    def test_cruza_el_cambio_de_ano(self):
+        from negocio.services import serie_piezas_por_tipo
+        self._venta(datetime.date(2025, 12, 10), 2)
+        etiquetas, series = serie_piezas_por_tipo(2026, 1, meses=3)
+        self.assertEqual(etiquetas, ['Nov', 'Dic', 'Ene'])
+        self.assertEqual(series['Gorras'], [0, 2, 0])
+
+    def test_un_tipo_que_nunca_vendio_no_aparece(self):
+        from negocio.services import serie_piezas_por_tipo
+        TipoArticulo.objects.create(nombre='Tenis', keywords='tenis', costo=Decimal('600'))
+        self._venta(datetime.date(2026, 7, 10), 5)
+        _, series = serie_piezas_por_tipo(2026, 7, meses=6)
+        self.assertNotIn('Tenis', series)
+
+
+class MesPrevioComparableTests(TestCase):
+    """Contra qué periodo se compara el mes elegido.
+
+    Comparar 5 días del mes en curso contra un mes anterior completo pinta a
+    todo el catálogo en caída: el número miente por la ventana, no por las
+    ventas. Cuando el mes es el corriente, el previo se recorta al mismo día.
+    """
+
+    def test_mes_cerrado_compara_contra_el_previo_completo(self):
+        from negocio.utils import _mes_previo_comparable
+        ini, fin, label = _mes_previo_comparable(2026, 7, datetime.date(2026, 9, 5))
+        self.assertEqual((ini, fin), (datetime.date(2026, 6, 1), datetime.date(2026, 7, 1)))
+        self.assertEqual(label, 'Jun')
+
+    def test_mes_en_curso_recorta_el_previo_al_mismo_dia(self):
+        from negocio.utils import _mes_previo_comparable
+        ini, fin, label = _mes_previo_comparable(2026, 9, datetime.date(2026, 9, 5))
+        self.assertEqual((ini, fin), (datetime.date(2026, 8, 1), datetime.date(2026, 8, 6)))
+        self.assertEqual(label, '1-5 Ago')
+
+    def test_el_recorte_no_se_pasa_del_fin_del_mes_previo(self):
+        """31 de marzo contra febrero: el recorte se queda en el mes previo."""
+        from negocio.utils import _mes_previo_comparable
+        ini, fin, label = _mes_previo_comparable(2026, 3, datetime.date(2026, 3, 31))
+        self.assertEqual((ini, fin), (datetime.date(2026, 2, 1), datetime.date(2026, 3, 1)))
+        self.assertEqual(label, 'Feb')
+
+    def test_enero_retrocede_a_diciembre_del_ano_anterior(self):
+        from negocio.utils import _mes_previo_comparable
+        ini, fin, _ = _mes_previo_comparable(2026, 1, datetime.date(2026, 5, 5))
+        self.assertEqual((ini, fin), (datetime.date(2025, 12, 1), datetime.date(2026, 1, 1)))
+
+
+class MasVendidosComparativaTests(TestCase):
+    """La vista anota cada fila con su movimiento contra el periodo previo."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user('mvc', password='x', is_staff=True)
+        self.client.force_login(self.staff)
+        self.cli = Cliente.objects.create(nombre='N', telefono='9')
+        TipoArticulo.objects.create(nombre='Gorras', keywords='gorra,gorras',
+                                    costo=Decimal('240'))
+        TipoArticulo.objects.create(nombre='Tenis', keywords='tenis', costo=Decimal('600'))
+        self._venta(datetime.date(2026, 6, 10), 'gorras', 10)
+        self._venta(datetime.date(2026, 7, 10), 'gorras', 4)
+        self._venta(datetime.date(2026, 7, 12), 'tenis', 2)
+
+    def _venta(self, fecha, nombre, cantidad):
+        p = Pedido.objects.create(
+            cliente=self.cli, costo_producto=Decimal('0'),
+            precio_venta=Decimal('300') * cantidad, estado=Pedido.PAGADO, fecha=fecha)
+        PedidoItem.objects.create(
+            pedido=p, sku_snapshot='TIENDA-BOT', nombre_snapshot=nombre,
+            cantidad=cantidad, costo_unitario=Decimal('240'),
+            precio_unitario=Decimal('300'))
+
+    def _fila(self, res, nombre):
+        return next(f for f in res.context['filas'] if f['tipo'] == nombre)
+
+    def test_delta_negativo_cuando_el_tipo_baja(self):
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07')
+        self.assertEqual(self._fila(res, 'Gorras')['delta_piezas'], -6)
+
+    def test_tipo_que_no_vendio_el_mes_previo_no_tiene_delta(self):
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07')
+        self.assertIsNone(self._fila(res, 'Tenis')['delta_piezas'])
+
+    def test_la_vista_dice_contra_que_periodo_compara(self):
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07')
+        self.assertEqual(res.context['comparativa_label'], 'Jun')
+
+    def test_todo_el_tiempo_no_compara_contra_nada(self):
+        """Sin periodo no hay periodo previo: la columna se apaga entera."""
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=todo')
+        self.assertIsNone(res.context['comparativa_label'])
+        self.assertTrue(all(f['delta_piezas'] is None for f in res.context['filas']))
+
+    def test_cada_fila_trae_su_serie_de_seis_meses(self):
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07')
+        self.assertEqual(len(res.context['serie_meses']), 6)
+        self.assertEqual(self._fila(res, 'Gorras')['serie'], [0, 0, 0, 0, 10, 4])
+
+    def test_la_serie_de_todo_el_tiempo_termina_en_el_mes_de_hoy(self):
+        from django.utils import timezone
+        from negocio.utils import _MESES_ES
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=todo')
+        hoy = timezone.localdate()
+        self.assertEqual(res.context['serie_meses'][-1], _MESES_ES[hoy.month - 1])
+
+
+class MasVendidosRenderTests(TestCase):
+    """Lo que la pantalla muestra de verdad.
+
+    El contexto puede traer el desglose y la pantalla no pintarlo: son dos
+    fallos distintos y el segundo no lo caza ningún test de `res.context`.
+    """
+
+    def setUp(self):
+        self.staff = User.objects.create_user('mvr', password='x', is_staff=True)
+        self.client.force_login(self.staff)
+        self.cli = Cliente.objects.create(nombre='N', telefono='9')
+        TipoArticulo.objects.create(nombre='Gorras', keywords='gorra,gorras',
+                                    costo=Decimal('240'))
+        self._venta(datetime.date(2026, 6, 10), 'gorras', 10)
+        self._venta(datetime.date(2026, 7, 10), 'gorra barbas', 4)
+        self._venta(datetime.date(2026, 7, 11), 'yezzy', 1)
+
+    def _venta(self, fecha, nombre, cantidad):
+        p = Pedido.objects.create(
+            cliente=self.cli, costo_producto=Decimal('0'),
+            precio_venta=Decimal('300') * cantidad, estado=Pedido.PAGADO, fecha=fecha)
+        PedidoItem.objects.create(
+            pedido=p, sku_snapshot='TIENDA-BOT', nombre_snapshot=nombre,
+            cantidad=cantidad, costo_unitario=Decimal('240'),
+            precio_unitario=Decimal('300'))
+
+    def test_pinta_el_texto_tecleado_en_el_desglose(self):
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07')
+        self.assertContains(res, 'gorra barbas')
+
+    def test_el_desglose_arranca_plegado(self):
+        """Sin `collapse` el detalle sale abierto y la tabla se vuelve ilegible."""
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07')
+        self.assertContains(res, '<div class="collapse" id="detalle1">', html=False)
+
+    def test_pinta_la_caida_contra_el_mes_previo(self):
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07')
+        self.assertContains(res, 'delta-baja')
+        self.assertContains(res, '-6')
+        self.assertContains(res, 'vs Jun')
+
+    def test_el_tipo_nuevo_se_marca_como_nuevo_y_no_como_cero(self):
+        """`delta is None` mal resuelto en el template pinta '=' y miente."""
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07')
+        self.assertContains(res, 'delta-nuevo')
+        self.assertNotContains(res, 'delta-igual')
+
+    def test_todo_el_tiempo_no_pinta_comparativa(self):
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=todo')
+        self.assertNotContains(res, 'delta-nuevo')
+        self.assertNotContains(res, 'delta-baja')
+
+    def test_el_sin_clasificar_ofrece_ir_a_tipos(self):
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07')
+        self.assertContains(res, 'yezzy')
+        self.assertContains(res, '/panel/negocio/tipos/')

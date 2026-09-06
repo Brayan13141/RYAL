@@ -346,8 +346,10 @@ def ranking_por_tipo(fecha_ini=None, fecha_fin=None):
     precio de ese día es el que vale.
 
     Devuelve una lista de dicts con tipo (None = sin clasificar), piezas,
-    ingreso, costo, ganancia y sin_desglose. Sin clasificar va siempre al
-    final: esconderlo descuadraría los totales sin que se note.
+    ingreso, costo, ganancia, sin_desglose y `detalle`: el desglose de los
+    textos tal como se teclearon, que es lo único que se puede corregir con
+    una keyword o un alias. Sin clasificar va siempre al final: esconderlo
+    descuadraría los totales sin que se note.
     """
     pedidos = Pedido.objects.filter(estado=Pedido.PAGADO)
     if fecha_ini is not None:
@@ -364,9 +366,32 @@ def ranking_por_tipo(fecha_ini=None, fecha_fin=None):
         if nombre not in acumulado:
             acumulado[nombre] = {
                 'tipo': nombre, 'piezas': 0, 'ingreso': Decimal('0'),
-                'costo': Decimal('0'), 'sin_desglose': 0,
+                'costo': Decimal('0'), 'sin_desglose': 0, 'detalle': {},
             }
         return acumulado[nombre]
+
+    def anotar(fila, texto, piezas, ingreso, costo, sin_desglose=0):
+        """Suma en la fila y en su desglose por texto de un solo lado.
+
+        El desglose se acumula acá y no en un segundo recorrido a propósito:
+        así no puede despegarse de la fila que resume, porque es la misma
+        suma. El texto entra TAL COMO SE TECLEÓ — `playera g5` y `playera G5`
+        son dos formas distintas de escribirlo, y verlas separadas es justo lo
+        que deja elegir la keyword que las arregla.
+        """
+        fila['piezas'] += piezas
+        fila['ingreso'] += ingreso
+        fila['costo'] += costo
+        fila['sin_desglose'] += sin_desglose
+
+        linea = fila['detalle'].setdefault(texto, {
+            'texto': texto, 'piezas': 0, 'ingreso': Decimal('0'),
+            'costo': Decimal('0'), 'sin_desglose': 0,
+        })
+        linea['piezas'] += piezas
+        linea['ingreso'] += ingreso
+        linea['costo'] += costo
+        linea['sin_desglose'] += sin_desglose
 
     for pedido in pedidos.prefetch_related('items'):
         items = list(pedido.items.all())
@@ -377,10 +402,11 @@ def ranking_por_tipo(fecha_ini=None, fecha_fin=None):
             # parsear prosa para afinar eso cambia un error chico por un
             # riesgo permanente.
             fila = fila_de(resolver_tipo(pedido.descripcion, tipos, aliases))
-            fila['piezas'] += 1
-            fila['ingreso'] += pedido.precio_venta - pedido.descuento_aplicado
-            fila['costo'] += pedido.costo_producto
-            fila['sin_desglose'] += 1
+            anotar(
+                fila, pedido.descripcion, 1,
+                pedido.precio_venta - pedido.descuento_aplicado,
+                pedido.costo_producto, sin_desglose=1,
+            )
             continue
 
         # El descuento vive en el pedido, no en la línea: se reparte a
@@ -400,16 +426,49 @@ def ranking_por_tipo(fecha_ini=None, fecha_fin=None):
                 parte = Decimal('0')
 
             fila = fila_de(resolver_tipo(item.nombre_snapshot, tipos, aliases))
-            fila['piezas'] += item.cantidad
-            fila['ingreso'] += subtotal - parte
-            fila['costo'] += item.costo_unitario * item.cantidad
+            anotar(
+                fila, item.nombre_snapshot, item.cantidad,
+                subtotal - parte, item.costo_unitario * item.cantidad,
+            )
 
     filas = []
     for fila in acumulado.values():
         fila['ganancia'] = fila['ingreso'] - fila['costo']
+        detalle = []
+        for linea in fila['detalle'].values():
+            linea['ganancia'] = linea['ingreso'] - linea['costo']
+            detalle.append(linea)
+        fila['detalle'] = sorted(detalle, key=lambda d: (-d['piezas'], -d['ingreso']))
         filas.append(fila)
 
     return ordenar_ranking(filas, 'piezas')
+
+
+def serie_piezas_por_tipo(year, month, meses=6):
+    """Piezas por tipo, mes a mes, para los `meses` que terminan en (year, month).
+
+    Devuelve `(etiquetas, {tipo: [piezas]})`, con el mes pedido al final y
+    `tipo` None para la fila sin clasificar, igual que `ranking_por_tipo`. Un
+    mes sin ventas de ese tipo vale 0 y NO se salta: la forma de la serie es
+    el dato, y una serie con huecos la deformaría.
+
+    Corre la misma agregación una vez por mes en lugar de estrenar una query
+    agrupada: son ~125 líneas en total, y dos formas de calcular lo mismo es
+    exactamente cómo se despegan los números de una pantalla de la otra.
+    """
+    from .utils import _mes_range, _MESES_ES
+
+    etiquetas, series = [], {}
+    for pos in range(meses):
+        corrido = (year * 12 + month - 1) - (meses - 1 - pos)
+        y, m = corrido // 12, corrido % 12 + 1
+        etiquetas.append(_MESES_ES[m - 1])
+
+        ini, fin = _mes_range(y, m)
+        for fila in ranking_por_tipo(ini, fin):
+            series.setdefault(fila['tipo'], [0] * meses)[pos] = fila['piezas']
+
+    return etiquetas, series
 
 
 def auditar_textos():

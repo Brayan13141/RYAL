@@ -4,12 +4,24 @@
 
 {% block content %}
 
+<style>
+  .fila-tipo { cursor: pointer; }
+  .fila-tipo:hover { background: rgba(255,255,255,.03); }
+  .fila-tipo .caret { transition: transform .15s ease; display: inline-block; }
+  .fila-tipo[aria-expanded="true"] .caret { transform: rotate(90deg); }
+  .spark { display: flex; align-items: flex-end; gap: 3px; height: 26px; width: 96px; }
+  .spark div { flex: 1; background: var(--pl); border-radius: 1px; min-height: 2px; }
+  .spark div.ultimo { background: var(--pg); }
+  .spark-head { display: flex; gap: 3px; width: 96px; }
+  .spark-head span { flex: 1; text-align: center; }
+</style>
+
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <div>
     <h4 class="mb-0" style="font-family:var(--f-display)">Más vendidos por tipo</h4>
     <p class="small mb-0 mt-1" style="color:var(--pm)">
       <i class="bi bi-upc-scan me-1"></i>Ventas del negocio agrupadas por tipo de artículo.
-      Solo pedidos pagados.
+      Solo pedidos pagados. Clic en una fila para ver los textos que la formaron.
     </p>
   </div>
   <form method="get" class="d-flex align-items-center gap-2">
@@ -59,6 +71,15 @@
             <a href="?mes={{ mes }}&orden=piezas" style="text-decoration:none;font-size:11px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;color:{% if orden == 'piezas' %}var(--pg){% else %}var(--pm){% endif %}">
               Piezas{% if orden == 'piezas' %} <i class="bi bi-caret-down-fill"></i>{% endif %}
             </a>
+            {% if comparativa_label %}
+            <div style="font-size:10px;color:var(--pm);text-transform:none;letter-spacing:0;font-weight:400;margin-top:2px">vs {{ comparativa_label }}</div>
+            {% endif %}
+          </th>
+          <th class="d-none d-lg-table-cell" style="background:transparent;padding:12px 18px;">
+            <div style="font-size:11px;color:var(--pm);text-transform:uppercase;letter-spacing:.5px;font-weight:600;">Tendencia</div>
+            <div class="spark-head" style="font-size:9px;color:var(--pm);margin-top:4px">
+              {% for etiqueta in serie_meses %}<span>{{ etiqueta }}</span>{% endfor %}
+            </div>
           </th>
           <th class="text-end" style="background:transparent;padding:12px 18px;">
             <a href="?mes={{ mes }}&orden=ingreso" style="text-decoration:none;font-size:11px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;color:{% if orden == 'ingreso' %}var(--pg){% else %}var(--pm){% endif %}">
@@ -74,9 +95,11 @@
       </thead>
       <tbody>
         {% for fila in filas %}
-        <tr style="border-bottom:1px solid var(--pl)">
+        <tr class="fila-tipo" style="border-bottom:1px solid var(--pl)"
+            data-bs-toggle="collapse" data-bs-target="#detalle{{ forloop.counter }}"
+            aria-expanded="false" aria-controls="detalle{{ forloop.counter }}">
           <td style="background:transparent;color:var(--pm);font-size:12px;padding:12px 18px;vertical-align:middle;">
-            {% if fila.tipo %}{{ forloop.counter }}{% else %}—{% endif %}
+            <i class="bi bi-chevron-right caret me-1" style="font-size:10px"></i>{% if fila.tipo %}{{ forloop.counter }}{% else %}—{% endif %}
           </td>
           <td style="background:transparent;padding:12px 18px;vertical-align:middle;">
             {% if fila.tipo %}
@@ -98,15 +121,81 @@
               <div style="height:3px;background:var(--pg);border-radius:2px;width:{% widthratio fila.piezas total_piezas 100 %}%"></div>
             </div>
           </td>
-          <td class="text-end" style="background:transparent;color:var(--pt);font-size:16px;font-weight:600;padding:12px 18px;vertical-align:middle;">{{ fila.piezas }}</td>
+          <td class="text-end" style="background:transparent;color:var(--pt);font-size:16px;font-weight:600;padding:12px 18px;vertical-align:middle;">
+            {{ fila.piezas }}
+            {% if comparativa_label %}
+            <div style="font-size:11px;font-weight:600;margin-top:2px">
+              {% if fila.delta_piezas is None %}
+              <span class="delta-nuevo" style="color:#4da3ff"><i class="bi bi-dot"></i>nuevo</span>
+              {% elif fila.delta_piezas > 0 %}
+              <span class="delta-sube" style="color:var(--pg)"><i class="bi bi-caret-up-fill"></i>+{{ fila.delta_piezas }}</span>
+              {% elif fila.delta_piezas < 0 %}
+              <span class="delta-baja" style="color:#e05555"><i class="bi bi-caret-down-fill"></i>{{ fila.delta_piezas }}</span>
+              {% else %}
+              <span class="delta-igual" style="color:var(--pm)">=</span>
+              {% endif %}
+            </div>
+            {% endif %}
+          </td>
+          <td class="d-none d-lg-table-cell" style="background:transparent;padding:12px 18px;vertical-align:middle;">
+            <div class="spark" title="Piezas por mes: {{ fila.serie|join:' · ' }}">
+              {% for v in fila.serie %}
+              <div class="{% if forloop.last %}ultimo{% endif %}" style="height:{% widthratio v fila.serie_max 100 %}%"></div>
+              {% endfor %}
+            </div>
+          </td>
           <td class="text-end" style="background:transparent;color:var(--pt);font-size:14px;padding:12px 18px;vertical-align:middle;">${{ fila.ingreso|floatformat:2 }}</td>
           <td class="text-end" style="background:transparent;font-size:14px;font-weight:600;padding:12px 18px;vertical-align:middle;color:{% if fila.ganancia < 0 %}#e05555{% else %}var(--pg){% endif %}">${{ fila.ganancia|floatformat:2 }}</td>
+        </tr>
+        <tr>
+          <td colspan="6" class="p-0" style="background:transparent;border:0">
+            <div class="collapse" id="detalle{{ forloop.counter }}">
+              <div style="background:#0d0d0d;border-bottom:1px solid var(--pl);padding:10px 18px 14px 48px;">
+                <div style="font-size:10px;color:var(--pm);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">
+                  Textos tecleados, tal como se escribieron en el grupo
+                </div>
+                <table class="table table-dark table-borderless mb-0" style="background:transparent;">
+                  <tbody>
+                    {% for linea in fila.detalle %}
+                    <tr>
+                      <td style="background:transparent;padding:4px 0;font-size:13px;color:var(--pt);">
+                        <span style="font-family:monospace">{{ linea.texto }}</span>
+                        {% if linea.sin_desglose %}
+                        <span style="font-size:10px;color:var(--pm);margin-left:6px">
+                          <i class="bi bi-pencil me-1"></i>capturado a mano
+                        </span>
+                        {% endif %}
+                      </td>
+                      <td class="text-end" style="background:transparent;padding:4px 12px;font-size:13px;color:var(--pt);width:90px;">{{ linea.piezas }} pz{{ linea.piezas|pluralize:"a,as" }}</td>
+                      <td class="text-end" style="background:transparent;padding:4px 12px;font-size:13px;color:var(--pm);width:130px;">${{ linea.ingreso|floatformat:2 }}</td>
+                      <td class="text-end" style="background:transparent;padding:4px 0;font-size:13px;width:130px;color:{% if linea.ganancia < 0 %}#e05555{% else %}var(--pg){% endif %}">${{ linea.ganancia|floatformat:2 }}</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+                {% if not fila.tipo %}
+                <a href="{% url 'negocio:tipos_list' %}" style="font-size:12px;color:#e0a800;text-decoration:none">
+                  <i class="bi bi-arrow-right-short"></i>Asignarles keyword o alias en Tipos
+                </a>
+                {% endif %}
+              </div>
+            </div>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
+
+{% if comparativa_label %}
+<p class="small mt-3 mb-0" style="color:var(--pm)">
+  <i class="bi bi-graph-up-arrow me-1"></i>
+  El movimiento compara contra <strong>{{ comparativa_label }}</strong>.
+  Cuando el mes elegido es el que está en curso, el periodo anterior se recorta al mismo día
+  para que la comparación mida ventas y no días.
+</p>
+{% endif %}
 
 {% if total_sin_desglose %}
 <p class="small mt-3 mb-0" style="color:var(--pm)">
