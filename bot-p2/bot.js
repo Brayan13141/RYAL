@@ -21,6 +21,7 @@ const { resolveNotifyJid } = require('./notifyTarget')
 const { matchPromo } = require('./promos')
 const { avisoSinTipo } = require('./avisoSinTipo')
 const { mensajeSinTipo } = require('./ventaSinTipo')
+const { avisoTipoItem } = require('./avisoTipoItem')
 
 const AUTH_DIR = '.baileys_auth'
 const QR_STATE_FILE = '.qr_state.json'
@@ -386,6 +387,32 @@ async function enviarVentaTienda(sock, { endpoint, payload }) {
     }
 }
 
+/**
+ * Consulta a Django si la descripción del ítem cae en algún TipoArticulo y
+ * devuelve el aviso (o `''`). Usa la MISMA regla que después graba el costo
+ * de la venta —`/api/negocio/articulo/buscar/` resuelve con `resolver_tipo`—,
+ * así que lo que se avisa acá es exactamente lo que va a pasar al cerrar.
+ *
+ * Nunca lanza: si Django no responde, la carga del ítem sigue su curso sin
+ * aviso. Trabar el mostrador por un timeout sería peor que no avisar, y un
+ * aviso inventado sobre una consulta fallida sería directamente falso.
+ */
+async function avisarSiNoTieneTipo(descripcion) {
+    const texto = String(descripcion || '').trim()
+    if (!texto) return ''
+    try {
+        const { data } = await axios.post(
+            `${DJANGO_URL}/api/negocio/articulo/buscar/`,
+            { descripcion: texto },
+            { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 5000 },
+        )
+        return data && data.match ? '' : avisoTipoItem(texto)
+    } catch (err) {
+        logger.warn({ err: err.message, texto }, 'No se pudo consultar el tipo del ítem')
+        return ''
+    }
+}
+
 async function handleOrdersMessage(sock, msg) {
     const image = msg.message?.imageMessage
     const text = getText(msg)
@@ -409,8 +436,10 @@ async function handleOrdersMessage(sock, msg) {
                 const sess2 = orders.getSession(ORDERS_GID)
                 const total = sess2.items.reduce((s, i) => s + i.price * i.qty, 0)
                 const desc = parsed.description ? ` — ${parsed.description}` : ''
+                const aviso = await avisarSiNoTieneTipo(parsed.description)
                 await sock.sendMessage(ORDERS_GID, {
-                    text: `✅ Ítem ${result.index}: ${parsed.qty}× $${parsed.price}${desc} — Total: $${total} MXN`,
+                    text: `✅ Ítem ${result.index}: ${parsed.qty}× $${parsed.price}${desc} — Total: $${total} MXN`
+                        + aviso,
                 })
             }
             return

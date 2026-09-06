@@ -1571,6 +1571,41 @@ class BuscarTipoArticuloEspecificidadTest(TestCase):
         self.assertEqual(result, self.barbas)
 
 
+class BuscarTipoArticuloLimiteDePalabraTest(TestCase):
+    """Una keyword no debe colarse en MEDIO de otra palabra.
+
+    `on` (de Oncloud) estaba contenida en `metcon`: el texto se llevaba un tipo
+    ajeno con su costo, la venta se grababa `200` y el aviso de «sin tipo» del
+    bot no podia dispararse nunca, porque para el sistema si habia tipo.
+
+    La regla elegida es PREFIJO DE PALABRA: la keyword tiene que arrancar
+    palabra, pero admite sufijo, para que `gorra` siga tomando `gorras`.
+    """
+
+    def setUp(self):
+        self.oncloud = TipoArticulo.objects.create(
+            nombre='Oncloud', keywords='oncloud,on cloud,on', costo=Decimal('660')
+        )
+        self.gorras = TipoArticulo.objects.create(
+            nombre='Gorras', keywords='gorra', costo=Decimal('280')
+        )
+
+    def test_keyword_no_matchea_dentro_de_otra_palabra(self):
+        self.assertIsNone(buscar_tipo_articulo('metcon'))
+
+    def test_keyword_numerica_no_matchea_dentro_de_otro_numero(self):
+        TipoArticulo.objects.create(
+            nombre='Nike 270', keywords='270', costo=Decimal('616')
+        )
+        self.assertIsNone(buscar_tipo_articulo('12700'))
+
+    def test_keyword_sigue_matcheando_como_palabra_suelta(self):
+        self.assertEqual(buscar_tipo_articulo('tenis on 42'), self.oncloud)
+
+    def test_keyword_admite_sufijo_en_la_misma_palabra(self):
+        self.assertEqual(buscar_tipo_articulo('gorras negras'), self.gorras)
+
+
 class ValidarCodigoTest(TestCase):
     def setUp(self):
         self.gorras = TipoArticulo.objects.create(

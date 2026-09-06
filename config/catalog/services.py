@@ -1,4 +1,5 @@
 import datetime
+import re
 from decimal import Decimal
 
 
@@ -27,6 +28,23 @@ def normalizar_texto(texto: str) -> str:
     return ' '.join((texto or '').lower().split())
 
 
+def _arranca_palabra(kw_norm: str, texto_norm: str) -> bool:
+    """`kw_norm` aparece en `texto_norm` ARRANCANDO palabra, con sufijo permitido.
+
+    Era un `in` pelado y eso dejaba que una keyword se colara en medio de otra
+    palabra: `on` (de Oncloud) esta dentro de `metcon`, asi que un texto sin
+    tipo propio se llevaba el tipo y el costo de Oncloud. La venta se grababa
+    con `200` y el aviso de «sin tipo» del bot no podia dispararse, porque
+    para el sistema si habia tipo.
+
+    El sufijo se admite a proposito: `gorra` tiene que seguir tomando
+    `gorras`. Solo se corta el arranque en medio de palabra.
+    """
+    if not kw_norm:
+        return False
+    return re.search(r'(?<!\w)' + re.escape(kw_norm), texto_norm) is not None
+
+
 def buscar_tipo_articulo(texto: str, tipos=None):
     """Devuelve el TipoArticulo cuya keyword coincidente más larga (más
     específica) aparezca en texto, o None si ninguna coincide.
@@ -52,7 +70,7 @@ def buscar_tipo_articulo(texto: str, tipos=None):
     for tipo in tipos:
         for kw in tipo.keywords_list:
             kw_norm = ' '.join(kw.split()).lower()
-            if kw_norm in texto_norm and len(kw_norm) > mejor_len:
+            if _arranca_palabra(kw_norm, texto_norm) and len(kw_norm) > mejor_len:
                 mejor_tipo = tipo
                 mejor_len = len(kw_norm)
     return mejor_tipo
