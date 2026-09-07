@@ -2020,7 +2020,11 @@ def resumen_global(request):
     from negocio.models import Pedido
     from negocio.utils import _mes_range, _MESES_ES, _GANANCIA_EXPR, _VENDIDO_EXPR
 
-    hoy = timezone.now().date()
+    # `localdate()`, no `now().date()`: el servidor corre en UTC y la tienda
+    # esta en Mexico, asi que despues de las 18:00 el dia de UTC ya es el
+    # siguiente. El ultimo dia del mes eso abria la pantalla en el mes que
+    # todavia no empezo, vacia, justo cuando se la mira para cerrar el mes.
+    hoy = timezone.localdate()
     mes = request.GET.get('mes', f"{hoy.year}-{hoy.month:02d}")
     todo = (mes == 'todo')
 

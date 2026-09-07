@@ -929,6 +929,50 @@ class DashboardFechaLocalTests(TestCase):
         self.assertEqual(self._dashboard().context['rev_semana'], 700)
 
 
+class ResumenGlobalFechaLocalTests(TestCase):
+    """El resumen global fecha en la zona de la tienda, no en la del servidor.
+
+    Mismo defecto que ya se cerro en el dashboard (`92020c7`) y en Mas
+    vendidos (`86995f7`): con `timezone.now().date()` el servidor, que corre
+    en UTC, adelanta el dia despues de las 18:00 de Mexico. El ultimo dia del
+    mes eso mueve el mes por defecto al SIGUIENTE, y la pantalla abre vacia
+    justo cuando alguien la mira para cerrar el mes.
+    """
+
+    # 01:00 UTC del 1-sep = 19:00 del 31-ago en Mexico. El mes local sigue
+    # siendo agosto; el de UTC ya es septiembre. La ventana va en el PASADO
+    # a proposito: con `timezone.now()` parcheado al futuro la sesion del
+    # cliente de test queda expirada y la vista redirige al login, asi que el
+    # test mediria un 302 en vez del comportamiento.
+    AHORA_UTC = datetime.datetime(2026, 9, 1, 1, 0, tzinfo=datetime.timezone.utc)
+
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            username='staff_rg_tz', password='pass', is_staff=True)
+        self.client.login(username='staff_rg_tz', password='pass')
+        self.cliente = Cliente.objects.create(telefono='5550008888', nombre='RG')
+
+    def _resumen(self):
+        with patch('django.utils.timezone.now', return_value=self.AHORA_UTC):
+            return self.client.get(reverse('panel:resumen_global'))
+
+    def test_abre_en_el_mes_local_no_en_el_de_utc(self):
+        self.assertEqual(self._resumen().context['mes'], '2026-08')
+
+    def test_la_venta_del_ultimo_dia_del_mes_sigue_contando(self):
+        Pedido.objects.create(
+            cliente=self.cliente, descripcion='', costo_producto=Decimal('100'),
+            precio_venta=Decimal('900'), estado=Pedido.PAGADO,
+            origen=Pedido.TIENDA, fecha=datetime.date(2026, 8, 31))
+        self.assertEqual(self._resumen().context['vendido_negocio'], 900)
+
+    def test_el_selector_de_meses_termina_en_el_mes_local(self):
+        """`meses_disponibles` se deriva de `hoy`, asi que el desfase ofrecia
+        un septiembre que todavia no empezo y se comia el agosto del final."""
+        meses = self._resumen().context['meses_disponibles']
+        self.assertEqual(meses[-1]['valor'], '2026-08')
+
+
 class PendientesAprobarDesactivadoTests(TestCase):
     """El panel puede aprobar pendientes ocultos (`activar=0`), para los que
     todavia necesitan que les cambien la imagen antes de salir a la tienda."""
