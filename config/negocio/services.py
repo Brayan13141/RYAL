@@ -444,17 +444,42 @@ def ranking_por_tipo(fecha_ini=None, fecha_fin=None):
     return ordenar_ranking(filas, 'piezas')
 
 
-def serie_piezas_por_tipo(year, month, meses=6):
-    """Piezas por tipo, mes a mes, para los `meses` que terminan en (year, month).
+_METRICAS_SERIE = ('piezas', 'ingreso', 'ganancia')
 
-    Devuelve `(etiquetas, {tipo: [piezas]})`, con el mes pedido al final y
-    `tipo` None para la fila sin clasificar, igual que `ranking_por_tipo`. Un
-    mes sin ventas de ese tipo vale 0 y NO se salta: la forma de la serie es
-    el dato, y una serie con huecos la deformaría.
+SIN_CLASIFICAR = 'Sin clasificar'
 
-    Corre la misma agregación una vez por mes en lugar de estrenar una query
-    agrupada: son ~125 líneas en total, y dos formas de calcular lo mismo es
-    exactamente cómo se despegan los números de una pantalla de la otra.
+
+def ventana_meses_disponibles(year, month, tope=12):
+    """Cuantos meses de historia hay para dibujar hasta (year, month).
+
+    Cuenta desde la primera venta pagada, con tope. Estirar el eje hasta el
+    tope siempre pintaria columnas vacias a la izquierda: eso no es historia
+    del negocio, es ruido que aplasta la escala de lo que si vendio.
+    """
+    primera = (Pedido.objects.filter(estado=Pedido.PAGADO)
+               .order_by('fecha').values_list('fecha', flat=True).first())
+    if primera is None:
+        return 0
+    corridos = (year * 12 + month) - (primera.year * 12 + primera.month) + 1
+    return max(1, min(tope, corridos))
+
+
+def serie_por_tipo(year, month, meses=6):
+    """Piezas, ingreso y ganancia por tipo, mes a mes, para los `meses` que
+    terminan en (year, month).
+
+    Devuelve `(etiquetas, {tipo: {'piezas': [...], 'ingreso': [...],
+    'ganancia': [...]}})`, con el mes pedido al final y `tipo` None para la
+    fila sin clasificar, igual que `ranking_por_tipo`. Un mes sin ventas de
+    ese tipo vale 0 y NO se salta: la forma de la serie es el dato, y una
+    serie con huecos la deformaria.
+
+    Corre la misma agregacion una vez por mes en lugar de estrenar una query
+    agrupada: son ~125 lineas en total, y dos formas de calcular lo mismo es
+    exactamente como se despegan los numeros de una pantalla de la otra. Por
+    esa misma razon devuelve las tres metricas de un tiron: `ranking_por_tipo`
+    ya las calculo en este mismo recorrido, y quedarse solo con las piezas
+    obligaria a recorrer otra vez para dibujar el dinero.
     """
     from .utils import _mes_range, _MESES_ES
 
@@ -466,9 +491,70 @@ def serie_piezas_por_tipo(year, month, meses=6):
 
         ini, fin = _mes_range(y, m)
         for fila in ranking_por_tipo(ini, fin):
-            series.setdefault(fila['tipo'], [0] * meses)[pos] = fila['piezas']
+            serie = series.setdefault(fila['tipo'], {
+                'piezas':   [0] * meses,
+                'ingreso':  [Decimal('0')] * meses,
+                'ganancia': [Decimal('0')] * meses,
+            })
+            for metrica in _METRICAS_SERIE:
+                serie[metrica][pos] = fila[metrica]
 
     return etiquetas, series
+
+
+def serie_piezas_por_tipo(year, month, meses=6):
+    """Solo la serie de piezas: lo que dibuja la sparkline de cada fila.
+
+    Envoltorio de `serie_por_tipo` a proposito. La sparkline de la tabla y el
+    grafico de arriba miran el mismo mes en la misma pantalla: si salieran de
+    dos calculos distintos, tarde o temprano se contradicen a la vista.
+    """
+    etiquetas, series = serie_por_tipo(year, month, meses)
+    return etiquetas, {tipo: serie['piezas'] for tipo, serie in series.items()}
+
+
+def serie_top_con_otros(series, n=6):
+    """Deja las `n` series mas grandes por piezas y apila el resto en 'Otros'.
+
+    Seis series apiladas se leen; veinte son una mancha. El resto no se
+    esconde: se suma en una fila propia, para que el total de cada mes del
+    grafico siga siendo el mismo que el de la tabla de abajo.
+
+    `tipo` None se llama 'Sin clasificar' y compite como una serie mas: NO es
+    lo mismo que 'Otros'. 'Otros' es cola larga que ya esta bien contada;
+    'Sin clasificar' es dinero que el clasificador no supo leer, que es justo
+    lo unico que hay que ir a arreglar. Fundirlos lo esconderia.
+    """
+    def nombre_de(tipo):
+        return SIN_CLASIFICAR if tipo is None else tipo
+
+    ordenadas = sorted(
+        series.items(),
+        key=lambda par: (-sum(par[1]['piezas']), nombre_de(par[0])),
+    )
+
+    filas = [
+        dict({'nombre': nombre_de(tipo)},
+             **{metrica: list(serie[metrica]) for metrica in _METRICAS_SERIE})
+        for tipo, serie in ordenadas[:n]
+    ]
+
+    resto = ordenadas[n:]
+    if resto:
+        largo = len(ordenadas[0][1]['piezas'])
+        otros = {
+            'nombre':   'Otros',
+            'piezas':   [0] * largo,
+            'ingreso':  [Decimal('0')] * largo,
+            'ganancia': [Decimal('0')] * largo,
+        }
+        for _, serie in resto:
+            for metrica in _METRICAS_SERIE:
+                for pos in range(largo):
+                    otros[metrica][pos] += serie[metrica][pos]
+        filas.append(otros)
+
+    return filas
 
 
 def auditar_textos():

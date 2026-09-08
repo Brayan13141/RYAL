@@ -3234,6 +3234,108 @@ class SeriePiezasPorTipoTests(TestCase):
         self.assertNotIn('Tenis', series)
 
 
+class SeriePorTipoTests(TestCase):
+    """La serie mensual en las tres metricas que la pantalla ya sabe ordenar.
+
+    `serie_piezas_por_tipo` recorria los meses y tiraba el dinero que
+    `ranking_por_tipo` acababa de calcular en el mismo recorrido.
+    """
+
+    def setUp(self):
+        self.cli = Cliente.objects.create(nombre='N', telefono='9')
+        TipoArticulo.objects.create(nombre='Gorras', keywords='gorra,gorras',
+                                    costo=Decimal('240'))
+
+    def _venta(self, fecha, cantidad, nombre='gorras', precio='300', costo='240'):
+        p = Pedido.objects.create(
+            cliente=self.cli, costo_producto=Decimal('0'),
+            precio_venta=Decimal(precio) * cantidad, estado=Pedido.PAGADO,
+            fecha=fecha)
+        PedidoItem.objects.create(
+            pedido=p, sku_snapshot='TIENDA-BOT', nombre_snapshot=nombre,
+            cantidad=cantidad, costo_unitario=Decimal(costo),
+            precio_unitario=Decimal(precio))
+
+    def test_devuelve_piezas_ingreso_y_ganancia_por_mes(self):
+        from negocio.services import serie_por_tipo
+        self._venta(datetime.date(2026, 7, 10), 5)
+        etiquetas, series = serie_por_tipo(2026, 7, meses=3)
+        self.assertEqual(etiquetas, ['May', 'Jun', 'Jul'])
+        self.assertEqual(series['Gorras']['piezas'], [0, 0, 5])
+        self.assertEqual(series['Gorras']['ingreso'],
+                         [Decimal('0'), Decimal('0'), Decimal('1500')])
+        self.assertEqual(series['Gorras']['ganancia'],
+                         [Decimal('0'), Decimal('0'), Decimal('300')])
+
+    def test_el_ultimo_mes_cuadra_con_el_ranking_de_ese_mes(self):
+        """Dos formas de calcular lo mismo es exactamente como se despegan los
+        numeros de una pantalla de la otra."""
+        from negocio.services import ranking_por_tipo, serie_por_tipo
+        self._venta(datetime.date(2026, 7, 3), 4)
+        self._venta(datetime.date(2026, 7, 20), 6)
+        _, series = serie_por_tipo(2026, 7, meses=2)
+        fila = next(f for f in ranking_por_tipo(datetime.date(2026, 7, 1),
+                                                datetime.date(2026, 8, 1))
+                    if f['tipo'] == 'Gorras')
+        self.assertEqual(series['Gorras']['piezas'][-1], fila['piezas'])
+        self.assertEqual(series['Gorras']['ingreso'][-1], fila['ingreso'])
+        self.assertEqual(series['Gorras']['ganancia'][-1], fila['ganancia'])
+
+    def test_un_mes_sin_ventas_vale_cero_en_las_tres(self):
+        from negocio.services import serie_por_tipo
+        self._venta(datetime.date(2026, 5, 10), 2)
+        _, series = serie_por_tipo(2026, 7, meses=3)
+        self.assertEqual(series['Gorras']['piezas'], [2, 0, 0])
+        self.assertEqual(series['Gorras']['ingreso'],
+                         [Decimal('600'), Decimal('0'), Decimal('0')])
+        self.assertEqual(series['Gorras']['ganancia'],
+                         [Decimal('120'), Decimal('0'), Decimal('0')])
+
+
+class SerieTopConOtrosTests(TestCase):
+    """Seis series se leen; veinte son una mancha. El resto no se tira: se apila."""
+
+    def _serie(self, piezas):
+        return {'piezas': list(piezas),
+                'ingreso': [Decimal(p) * 10 for p in piezas],
+                'ganancia': [Decimal(p) for p in piezas]}
+
+    def test_deja_los_seis_mas_grandes_y_apila_el_resto(self):
+        from negocio.services import serie_top_con_otros
+        series = {f'T{i}': self._serie([i, i]) for i in range(1, 9)}
+        filas = serie_top_con_otros(series, n=6)
+        self.assertEqual([f['nombre'] for f in filas],
+                         ['T8', 'T7', 'T6', 'T5', 'T4', 'T3', 'Otros'])
+        self.assertEqual(filas[-1]['piezas'], [3, 3])
+
+    def test_la_suma_por_mes_no_cambia_al_agrupar(self):
+        """Si 'Otros' no cierra, el grafico contradice a la tabla de al lado."""
+        from negocio.services import serie_top_con_otros
+        series = {f'T{i}': self._serie([i, i]) for i in range(1, 9)}
+        filas = serie_top_con_otros(series, n=6)
+        for pos in range(2):
+            self.assertEqual(sum(f['piezas'][pos] for f in filas),
+                             sum(s['piezas'][pos] for s in series.values()))
+            self.assertEqual(sum((f['ingreso'][pos] for f in filas), Decimal('0')),
+                             sum((s['ingreso'][pos] for s in series.values()), Decimal('0')))
+            self.assertEqual(sum((f['ganancia'][pos] for f in filas), Decimal('0')),
+                             sum((s['ganancia'][pos] for s in series.values()), Decimal('0')))
+
+    def test_con_seis_o_menos_no_inventa_la_fila_otros(self):
+        from negocio.services import serie_top_con_otros
+        series = {f'T{i}': self._serie([i, i]) for i in range(1, 4)}
+        filas = serie_top_con_otros(series, n=6)
+        self.assertEqual([f['nombre'] for f in filas], ['T3', 'T2', 'T1'])
+
+    def test_el_sin_clasificar_conserva_su_nombre_propio(self):
+        """`tipo` None es 'Sin clasificar', no 'Otros': son cosas distintas, y
+        fundirlas esconde justo lo unico que hay que ir a arreglar."""
+        from negocio.services import serie_top_con_otros
+        series = {None: self._serie([9, 9]), 'Gorras': self._serie([1, 1])}
+        filas = serie_top_con_otros(series, n=6)
+        self.assertEqual([f['nombre'] for f in filas], ['Sin clasificar', 'Gorras'])
+
+
 class MesPrevioComparableTests(TestCase):
     """Contra qué periodo se compara el mes elegido.
 
@@ -3380,3 +3482,107 @@ class MasVendidosRenderTests(TestCase):
         res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07')
         self.assertContains(res, 'yezzy')
         self.assertContains(res, '/panel/negocio/tipos/')
+
+
+class MasVendidosGraficoTests(TestCase):
+    """Las series que alimentan el grafico apilado de arriba de la tabla."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user('mvg', password='x', is_staff=True)
+        self.client.force_login(self.staff)
+        self.cli = Cliente.objects.create(nombre='N', telefono='9')
+        TipoArticulo.objects.create(nombre='Gorras', keywords='gorra,gorras',
+                                    costo=Decimal('240'))
+        TipoArticulo.objects.create(nombre='Tenis', keywords='tenis',
+                                    costo=Decimal('600'))
+        # Gorras mueve mas piezas y deja menos; Tenis al reves. Asi el orden
+        # de la tabla y el del grafico se pueden distinguir.
+        self._venta(datetime.date(2026, 6, 10), 'gorras', 3, '260', '240')
+        self._venta(datetime.date(2026, 7, 15), 'gorras', 5, '260', '240')
+        self._venta(datetime.date(2026, 7, 15), 'tenis', 1, '1400', '600')
+
+    def _venta(self, fecha, nombre, cantidad, precio, costo):
+        p = Pedido.objects.create(
+            cliente=self.cli, costo_producto=Decimal('0'),
+            precio_venta=Decimal(precio) * cantidad, estado=Pedido.PAGADO,
+            fecha=fecha)
+        PedidoItem.objects.create(
+            pedido=p, sku_snapshot='TIENDA-BOT', nombre_snapshot=nombre,
+            cantidad=cantidad, costo_unitario=Decimal(costo),
+            precio_unitario=Decimal(precio))
+        return p
+
+    def _serie(self, res, nombre):
+        return next(s for s in res.context['chart_series'] if s['nombre'] == nombre)
+
+    def test_trae_una_serie_por_tipo_con_las_tres_metricas(self):
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07')
+        meses = res.context['chart_meses']
+        for serie in res.context['chart_series']:
+            for metrica in ('piezas', 'ingreso', 'ganancia'):
+                self.assertEqual(len(serie[metrica]), len(meses))
+        gorras = self._serie(res, 'Gorras')
+        self.assertEqual(gorras['piezas'], [3, 5])
+        self.assertEqual(gorras['ingreso'], [780.0, 1300.0])
+        self.assertEqual(gorras['ganancia'], [60.0, 100.0])
+
+    def test_el_dinero_viaja_como_numero_y_no_como_texto(self):
+        """`DjangoJSONEncoder` serializa Decimal como string, y Chart.js apila
+        strings concatenando: se veria un grafico plausible y mal sumado."""
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07')
+        gorras = self._serie(res, 'Gorras')
+        self.assertIsInstance(gorras['ingreso'][-1], float)
+        self.assertIsInstance(gorras['ganancia'][-1], float)
+
+    def test_la_ventana_arranca_en_la_primera_venta(self):
+        """Doce columnas vacias a la izquierda no son historia, son ruido."""
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07')
+        self.assertEqual(res.context['chart_meses'], ['Jun', 'Jul'])
+
+    def test_la_ventana_se_topa_en_doce_meses(self):
+        self._venta(datetime.date(2024, 1, 5), 'gorras', 1, '260', '240')
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07')
+        self.assertEqual(len(res.context['chart_meses']), 12)
+
+    def test_el_orden_de_la_tabla_no_repinta_el_grafico(self):
+        """El color sigue al tipo, no a su puesto: si ordenar por ganancia
+        reordenara las series, cada tipo cambiaria de color al hacer clic."""
+        por_piezas = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07&orden=piezas')
+        por_ganancia = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07&orden=ganancia')
+        self.assertEqual([f['tipo'] for f in por_ganancia.context['filas']],
+                         ['Tenis', 'Gorras'])
+        self.assertEqual([s['nombre'] for s in por_piezas.context['chart_series']],
+                         [s['nombre'] for s in por_ganancia.context['chart_series']])
+
+    def test_la_sparkline_de_la_tabla_sigue_siendo_de_seis_meses(self):
+        """El grafico estira su ventana; la columna 'Tendencia' no."""
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07')
+        self.assertEqual(len(res.context['serie_meses']), 6)
+        fila = next(f for f in res.context['filas'] if f['tipo'] == 'Gorras')
+        self.assertEqual(len(fila['serie']), 6)
+
+    def test_la_pagina_entrega_el_canvas_y_sus_datos(self):
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07')
+        self.assertContains(res, 'id="chartTipos"')
+        self.assertContains(res, 'id="chart-series"')
+        self.assertContains(res, '/static/js/chart.min.js')
+        self.assertContains(res, 'data-metrica="ganancia"')
+        self.assertContains(res, 'data-vista="pct"')
+
+    def test_un_nombre_de_tipo_con_html_no_se_escapa_del_script(self):
+        """Los nombres salen de la BD y aterrizan dentro de un <script>. Con
+        `|safe` un tipo llamado '</script>' cerraria el bloque y lo que
+        siguiera correria como HTML; `json_script` lo escapa."""
+        TipoArticulo.objects.create(nombre='</script><b>x', keywords='xyzzy',
+                                    costo=Decimal('1'))
+        self._venta(datetime.date(2026, 7, 16), 'xyzzy', 1, '100', '50')
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07')
+        self.assertNotContains(res, '</script><b>x')
+
+
+class MasVendidosGraficoSinVentasTests(TestCase):
+    def test_sin_ventas_no_hay_series_que_dibujar(self):
+        staff = User.objects.create_user('mvg2', password='x', is_staff=True)
+        self.client.force_login(staff)
+        res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07')
+        self.assertEqual(res.context['chart_series'], [])

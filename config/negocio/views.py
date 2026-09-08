@@ -959,11 +959,19 @@ def label_print_json(request, sku):
     return JsonResponse(_build_label_json(product, image_url=image_url))
 
 
+# La columna "Tendencia" de la tabla siempre muestra 6 meses; el grafico de
+# arriba llega hasta 12 y apila los tipos fuera del top en una sola serie.
+SPARKLINE_MESES = 6
+CHART_MESES_MAX = 12
+CHART_TIPOS = 6
+
+
 @staff_member_required
 def mas_vendidos(request):
     """Ranking de lo más vendido en el negocio, agrupado por tipo de artículo."""
     from .services import (ranking_por_tipo, ordenar_ranking, ORDENES_RANKING,
-                           serie_piezas_por_tipo)
+                           serie_por_tipo, serie_top_con_otros,
+                           ventana_meses_disponibles)
     from .utils import _mes_previo_comparable
 
     # `date.today()` da la fecha del SERVIDOR, que corre en UTC: el último día
@@ -1003,12 +1011,40 @@ def mas_vendidos(request):
             serie_year, serie_month, hoy)
         previas = {f['tipo']: f['piezas'] for f in ranking_por_tipo(p_ini, p_fin)}
 
-    serie_meses, series = serie_piezas_por_tipo(serie_year, serie_month)
+    # La sparkline de cada fila mira SPARKLINE_MESES fijos; el grafico de
+    # arriba estira su ventana hasta CHART_MESES_MAX, pero nunca mas atras de
+    # la primera venta. Se calcula UNA sola vez con la ventana mas larga de las
+    # dos y cada quien se lleva su recorte: recalcular por separado es como se
+    # despegan dos numeros que estan uno al lado del otro en la misma pantalla.
+    ventana = ventana_meses_disponibles(serie_year, serie_month, CHART_MESES_MAX)
+    meses_calculo = max(SPARKLINE_MESES, ventana)
+    etiquetas, series = serie_por_tipo(serie_year, serie_month, meses_calculo)
+
+    serie_meses = etiquetas[-SPARKLINE_MESES:]
     for fila in filas:
         previa = previas.get(fila['tipo'])
         fila['delta_piezas'] = None if previa is None else fila['piezas'] - previa
-        fila['serie'] = series.get(fila['tipo'], [0] * len(serie_meses))
+        serie = series.get(fila['tipo'])
+        fila['serie'] = (serie['piezas'][-SPARKLINE_MESES:] if serie
+                         else [0] * SPARKLINE_MESES)
         fila['serie_max'] = max(fila['serie']) or 1
+
+    # Recorte por indice y no por `[-ventana:]`: con ventana 0 (negocio sin una
+    # sola venta) el slice negativo devuelve la lista ENTERA en vez de vacia.
+    desde = meses_calculo - ventana
+    chart_meses = etiquetas[desde:]
+    chart_series = [
+        {
+            'nombre':   s['nombre'],
+            'piezas':   s['piezas'][desde:],
+            # A float en la vista: `DjangoJSONEncoder` serializa Decimal como
+            # string, y Chart.js apila strings concatenando — saldria un
+            # grafico plausible y mal sumado, que es lo peor de los dos mundos.
+            'ingreso':  [float(v) for v in s['ingreso'][desde:]],
+            'ganancia': [float(v) for v in s['ganancia'][desde:]],
+        }
+        for s in serie_top_con_otros(series, n=CHART_TIPOS)
+    ]
 
     meses_disponibles = []
     for i in range(11, -1, -1):
@@ -1026,6 +1062,8 @@ def mas_vendidos(request):
         'meses_disponibles': meses_disponibles,
         'comparativa_label': comparativa_label,
         'serie_meses': serie_meses,
+        'chart_meses': chart_meses,
+        'chart_series': chart_series,
         'total_piezas': sum(f['piezas'] for f in filas),
         'total_ingreso': sum((f['ingreso'] for f in filas), Decimal('0')),
         'total_ganancia': sum((f['ganancia'] for f in filas), Decimal('0')),

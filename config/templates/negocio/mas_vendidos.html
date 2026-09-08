@@ -14,6 +14,14 @@
   .spark div.ultimo { background: var(--pg); }
   .spark-head { display: flex; gap: 3px; width: 96px; }
   .spark-head span { flex: 1; text-align: center; }
+  .mv-chart-card { background: var(--ps); border: 1px solid var(--pl); border-radius: 10px; margin-bottom: 16px; }
+  .mv-chart-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; padding: 14px 18px 0; }
+  .mv-chart-body { padding: 10px 12px 14px; height: 300px; }
+  .mv-chart-foot { font-size: 11px; color: var(--pm); line-height: 1.5; margin: 0; padding: 0 18px 14px; }
+  .mv-seg { display: inline-flex; background: var(--pb); border: 1px solid var(--pl); border-radius: 7px; overflow: hidden; }
+  .mv-seg button { background: transparent; border: 0; color: var(--pm); font-size: 12px; padding: 5px 12px; cursor: pointer; }
+  .mv-seg button:hover { color: var(--pt); }
+  .mv-seg button[aria-pressed="true"] { background: var(--pl); color: var(--pt); font-weight: 600; }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -59,6 +67,39 @@
     </div>
   </div>
 </div>
+
+{% if chart_series %}
+<div class="mv-chart-card">
+  <div class="mv-chart-head">
+    <div>
+      <div style="font-size:11px;color:var(--pm);text-transform:uppercase;letter-spacing:.5px;font-weight:600">Histórico por tipo</div>
+      <div style="font-size:12px;color:var(--pm);margin-top:3px">
+        {{ chart_meses|length }} mes{{ chart_meses|length|pluralize:"es" }} hasta {{ periodo_label|lower }}
+      </div>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <div class="mv-seg" role="group" aria-label="Métrica del gráfico">
+        <button type="button" data-metrica="piezas"   aria-pressed="true">Piezas</button>
+        <button type="button" data-metrica="ingreso"  aria-pressed="false">Ingreso</button>
+        <button type="button" data-metrica="ganancia" aria-pressed="false">Ganancia</button>
+      </div>
+      <div class="mv-seg" role="group" aria-label="Vista del gráfico">
+        <button type="button" data-vista="abs" aria-pressed="true">Absoluto</button>
+        <button type="button" data-vista="pct" aria-pressed="false">% del mes</button>
+      </div>
+    </div>
+  </div>
+  <div class="mv-chart-body">
+    <canvas id="chartTipos" role="img"
+            aria-label="Barras apiladas: piezas vendidas por tipo de artículo, mes a mes. Los mismos números están en la tabla de abajo."></canvas>
+  </div>
+  <p class="mv-chart-foot">
+    Los seis tipos que más piezas movieron en la ventana; el resto se apila en <strong>Otros</strong>,
+    así que el total de cada mes es el mismo que el de la tabla. El orden de las series no cambia
+    al reordenar la tabla: cada tipo conserva su color.
+  </p>
+</div>
+{% endif %}
 
 <div style="background:var(--ps);border:1px solid var(--pl);border-radius:10px;overflow:hidden;">
   <div style="overflow-x:auto;">
@@ -213,4 +254,153 @@
 </div>
 {% endif %}
 
+{% endblock %}
+
+{% block extra_js %}
+{{ chart_meses|json_script:"chart-meses" }}
+{{ chart_series|json_script:"chart-series" }}
+<script src="/static/js/chart.min.js"></script>
+<script>
+(function () {
+  var canvas = document.getElementById('chartTipos');
+  if (!canvas || typeof Chart === 'undefined') return;
+
+  var meses  = JSON.parse(document.getElementById('chart-meses').textContent);
+  var series = JSON.parse(document.getElementById('chart-series').textContent);
+
+  // Seis identidades validadas sobre fondo oscuro: peor par adyacente ΔE 8.4
+  // en protanopia y 19.3 a vision normal, todas >= 3:1 de contraste contra
+  // #111. El orden es fijo y no se cicla. "Otros" va gris A PROPOSITO: es un
+  // residuo, no un tipo, y no debe competir por atencion con los que si lo son.
+  var HUES  = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300'];
+  var OTROS = '#6b6b6b';
+  var SUP   = '#111';   // el color de la superficie: pintado como borde de
+                        // 2px es lo que abre el hueco entre segmentos apilados
+
+  var estado = { metrica: 'piezas', vista: 'abs' };
+
+  var money = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+
+  function esDinero() { return estado.metrica !== 'piezas'; }
+
+  function fmt(v) {
+    if (estado.vista === 'pct') return v.toFixed(1) + '%';
+    return esDinero() ? money.format(v) : v + ' pz';
+  }
+
+  function totalesPorMes() {
+    return meses.map(function (_, pos) {
+      return series.reduce(function (acc, s) { return acc + s[estado.metrica][pos]; }, 0);
+    });
+  }
+
+  function datasets() {
+    var totales = totalesPorMes();
+    return series.map(function (s, i) {
+      var crudos = s[estado.metrica];
+      return {
+        label: s.nombre,
+        crudos: crudos,
+        data: crudos.map(function (v, pos) {
+          if (estado.vista === 'abs') return v;
+          return totales[pos] ? (v * 100 / totales[pos]) : 0;
+        }),
+        backgroundColor: s.nombre === 'Otros' ? OTROS : HUES[i % HUES.length],
+        borderColor: SUP,
+        borderWidth: 2,
+        borderRadius: 3,
+        borderSkipped: false,
+      };
+    });
+  }
+
+  var chart = new Chart(canvas, {
+    type: 'bar',
+    data: { labels: meses, datasets: datasets() },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: {
+          stacked: true,
+          ticks: { color: '#888', font: { size: 11 } },
+          grid: { display: false },
+        },
+        y: {
+          stacked: true,
+          beginAtZero: true,
+          ticks: {
+            color: '#888', font: { size: 11 },
+            callback: function (v) {
+              if (estado.vista === 'pct') return v + '%';
+              return esDinero() ? '$' + v.toLocaleString('es-MX') : v;
+            },
+          },
+          grid: { color: '#1a1a1a' },
+        },
+      },
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: {
+            color: '#b0b0b0', font: { size: 11 },
+            boxWidth: 10, boxHeight: 10,
+            usePointStyle: true, pointStyle: 'rectRounded',
+          },
+        },
+        tooltip: {
+          backgroundColor: '#0a0a0a',
+          borderColor: '#1a1a1a',
+          borderWidth: 1,
+          titleColor: '#e0e0e0',
+          bodyColor: '#e0e0e0',
+          padding: 10,
+          callbacks: {
+            // En vista de porcentaje el numero crudo sigue siendo la pregunta
+            // real ("42% de que"), asi que va entre parentesis en vez de
+            // desaparecer.
+            label: function (ctx) {
+              var d = ctx.dataset;
+              var txt = d.label + ': ' + fmt(ctx.parsed.y);
+              if (estado.vista === 'pct') {
+                var crudo = d.crudos[ctx.dataIndex];
+                txt += ' (' + (esDinero() ? money.format(crudo) : crudo + ' pz') + ')';
+              }
+              return txt;
+            },
+            footer: function (items) {
+              if (!items.length || estado.vista === 'pct') return '';
+              var total = totalesPorMes()[items[0].dataIndex];
+              return 'Total del mes: ' + (esDinero() ? money.format(total) : total + ' pz');
+            },
+          },
+        },
+      },
+    },
+  });
+
+  function pintar() {
+    chart.data.datasets = datasets();
+    chart.options.scales.y.max = estado.vista === 'pct' ? 100 : undefined;
+    chart.update();
+  }
+
+  function grupo(attr, clave) {
+    document.querySelectorAll('[' + attr + ']').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (estado[clave] === btn.getAttribute(attr)) return;
+        estado[clave] = btn.getAttribute(attr);
+        document.querySelectorAll('[' + attr + ']').forEach(function (otro) {
+          otro.setAttribute('aria-pressed', String(otro === btn));
+        });
+        pintar();
+      });
+    });
+  }
+
+  grupo('data-metrica', 'metrica');
+  grupo('data-vista', 'vista');
+})();
+</script>
 {% endblock %}
