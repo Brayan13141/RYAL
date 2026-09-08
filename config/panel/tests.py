@@ -1055,3 +1055,101 @@ class PendientesAprobarDesactivadoTests(TestCase):
         pending.approve()
         html = self.client.get('/panel/pendientes/?status=approved').content.decode()
         self.assertNotIn('id="aprobar-modo"', html)
+
+
+class ResumenGlobalGraficoTests(TestCase):
+    """La serie mensual de los dos frentes: tienda web contra negocio.
+
+    La pantalla comparaba los dos frentes con seis numeros de un mes suelto.
+    Cual de los dos crece era justo lo que no se podia leer.
+    """
+
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            username='staff_rg_chart', password='pass', is_staff=True)
+        self.client.login(username='staff_rg_chart', password='pass')
+
+        self.cat = Category.objects.create(name='Gorras RG', slug='gorras-rg')
+        self.prod = Product.objects.create(
+            name='Gorra RG', sku='GRG-1', category=self.cat,
+            base_price=Decimal('100'), is_active=True)
+        self.cliente = Cliente.objects.create(nombre='RG', telefono='5550009999')
+
+        self._orden(datetime.date(2026, 6, 10), '300', '100')
+        self._orden(datetime.date(2026, 7, 10), '500', '200')
+        self._pedido(datetime.date(2026, 7, 12), '150', '50')
+
+    def _orden(self, fecha, precio, costo):
+        # `order_code` es UNIQUE y se autogenera; dos ordenes seguidas en el
+        # mismo test chocan. Se pasa explicito y derivado de la fecha.
+        o = Order.objects.create(
+            customer_name='C', customer_phone='5551112222',
+            order_code=f'RG-{fecha:%Y%m%d}', status='confirmed', is_paid=True)
+        OrderItem.objects.create(
+            order=o, product=self.prod, quantity=1,
+            price_snapshot=Decimal(precio), cost_snapshot=Decimal(costo),
+            sku_snapshot='GRG-1', name_snapshot='Gorra RG')
+        # `created_at` es auto_now_add: solo se puede mover con un update.
+        Order.objects.filter(pk=o.pk).update(
+            created_at=datetime.datetime.combine(
+                fecha, datetime.time(12, 0), tzinfo=datetime.timezone.utc))
+        return o
+
+    def _pedido(self, fecha, precio, costo):
+        return Pedido.objects.create(
+            cliente=self.cliente, descripcion='', costo_producto=Decimal(costo),
+            precio_venta=Decimal(precio), estado=Pedido.PAGADO, fecha=fecha)
+
+    def _serie(self, res, nombre):
+        return next(s for s in res.context['chart_series'] if s['nombre'] == nombre)
+
+    def test_trae_una_serie_por_frente_con_ingreso_y_ganancia(self):
+        res = self.client.get('/panel/resumen-global/?mes=2026-07')
+        self.assertEqual([s['nombre'] for s in res.context['chart_series']],
+                         ['Tienda online', 'Negocio'])
+        tienda = self._serie(res, 'Tienda online')
+        self.assertEqual(tienda['ingreso'], [300.0, 500.0])
+        self.assertEqual(tienda['ganancia'], [200.0, 300.0])
+        negocio = self._serie(res, 'Negocio')
+        self.assertEqual(negocio['ingreso'], [0.0, 150.0])
+        self.assertEqual(negocio['ganancia'], [0.0, 100.0])
+
+    def test_el_ultimo_mes_del_grafico_cuadra_con_los_cards(self):
+        """El grafico y los cards viven en la misma pantalla: si el ultimo mes
+        no coincide con el card del mes elegido, uno de los dos miente."""
+        res = self.client.get('/panel/resumen-global/?mes=2026-07')
+        tienda, negocio = self._serie(res, 'Tienda online'), self._serie(res, 'Negocio')
+        self.assertEqual(tienda['ingreso'][-1], res.context['rev_tienda'])
+        self.assertEqual(tienda['ganancia'][-1], res.context['gan_tienda'])
+        self.assertEqual(negocio['ingreso'][-1], res.context['vendido_negocio'])
+        self.assertEqual(negocio['ganancia'][-1], res.context['ganancia_negocio'])
+
+    def test_la_ventana_arranca_en_el_primer_movimiento(self):
+        """El primer movimiento es de junio, venga de la tienda o del negocio."""
+        res = self.client.get('/panel/resumen-global/?mes=2026-07')
+        self.assertEqual(res.context['chart_meses'], ['Jun', 'Jul'])
+
+    def test_la_ventana_se_topa_en_doce_meses(self):
+        self._pedido(datetime.date(2024, 3, 4), '10', '5')
+        res = self.client.get('/panel/resumen-global/?mes=2026-07')
+        self.assertEqual(len(res.context['chart_meses']), 12)
+
+    def test_el_dinero_viaja_como_numero_y_no_como_texto(self):
+        res = self.client.get('/panel/resumen-global/?mes=2026-07')
+        self.assertIsInstance(self._serie(res, 'Negocio')['ingreso'][-1], float)
+
+    def test_la_pagina_entrega_el_canvas_y_sus_datos(self):
+        res = self.client.get('/panel/resumen-global/?mes=2026-07')
+        self.assertContains(res, 'id="chartFrentes"')
+        self.assertContains(res, 'id="chart-series"')
+        self.assertContains(res, 'data-metrica="ganancia"')
+        self.assertContains(res, 'data-vista="pct"')
+
+
+class ResumenGlobalGraficoSinMovimientosTests(TestCase):
+    def test_sin_movimientos_no_hay_series_que_dibujar(self):
+        staff = User.objects.create_user(
+            username='staff_rg_vacio', password='pass', is_staff=True)
+        self.client.login(username='staff_rg_vacio', password='pass')
+        res = self.client.get('/panel/resumen-global/?mes=2026-07')
+        self.assertEqual(res.context['chart_meses'], [])

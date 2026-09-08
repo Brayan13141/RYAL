@@ -2015,6 +2015,76 @@ def pendientes_approve_all(request):
     return JsonResponse({'approved': count, 'errors': errors})
 
 
+# El grafico del resumen global mira hasta 12 meses hacia atras, nunca mas
+# alla del primer movimiento de cualquiera de los dos frentes.
+RG_MESES_MAX = 12
+
+
+def _primer_movimiento_global():
+    """Fecha del movimiento mas viejo, venga de la tienda web o del negocio."""
+    from negocio.models import Pedido
+
+    fechas = []
+    primera_orden = (Order.objects.exclude(status='cancelled')
+                     .order_by('created_at')
+                     .values_list('created_at', flat=True).first())
+    if primera_orden is not None:
+        # `localtime()`: `created_at` se guarda en UTC y la tienda esta en
+        # Mexico. Sin convertir, una venta de las 19:00 del 31 caeria en el
+        # mes siguiente y estiraria la ventana un mes de mas.
+        fechas.append(timezone.localtime(primera_orden).date())
+
+    primer_pedido = (Pedido.objects.filter(estado=Pedido.PAGADO)
+                     .order_by('fecha').values_list('fecha', flat=True).first())
+    if primer_pedido is not None:
+        fechas.append(primer_pedido)
+
+    return min(fechas) if fechas else None
+
+
+def _ventana_global(year, month, tope=RG_MESES_MAX):
+    """Cuantos meses hay para dibujar hasta (year, month). 0 = sin historia."""
+    primera = _primer_movimiento_global()
+    if primera is None:
+        return 0
+    corridos = (year * 12 + month) - (primera.year * 12 + primera.month) + 1
+    return max(1, min(tope, corridos))
+
+
+def _serie_mensual_global(year, month, meses):
+    """Ingreso y ganancia mes a mes, separados por frente.
+
+    Reusa `_stats` y `_stats_pedido`, los mismos que alimentan los cards de
+    arriba: dos formas de calcular lo mismo EN LA MISMA PANTALLA terminan
+    contradiciendose, y aca el card del mes elegido y la ultima barra del
+    grafico son, por construccion, el mismo numero — redondeo incluido.
+    """
+    from negocio.models import Pedido
+    from negocio.utils import _mes_range, _MESES_ES
+
+    etiquetas = []
+    tienda  = {'nombre': 'Tienda online', 'ingreso': [], 'ganancia': []}
+    negocio = {'nombre': 'Negocio',       'ingreso': [], 'ganancia': []}
+
+    for pos in range(meses):
+        corrido = (year * 12 + month - 1) - (meses - 1 - pos)
+        y, m = corrido // 12, corrido % 12 + 1
+        etiquetas.append(_MESES_ES[m - 1])
+        ini, fin = _mes_range(y, m)
+
+        rev, gan = _stats(Order.objects.exclude(status='cancelled').filter(
+            created_at__date__gte=ini, created_at__date__lt=fin))
+        tienda['ingreso'].append(float(round(rev)))
+        tienda['ganancia'].append(float(round(gan)))
+
+        vendido, ganancia = _stats_pedido(Pedido.objects.filter(
+            estado=Pedido.PAGADO, fecha__gte=ini, fecha__lt=fin))
+        negocio['ingreso'].append(float(round(vendido)))
+        negocio['ganancia'].append(float(round(ganancia)))
+
+    return etiquetas, [tienda, negocio]
+
+
 @_staff
 def resumen_global(request):
     from negocio.models import Pedido
@@ -2058,6 +2128,16 @@ def resumen_global(request):
             ty -= 1
         meses_disponibles.append({'valor': f"{ty}-{tm:02d}", 'label': f"{_MESES_ES[tm - 1]} {ty}"})
 
+    # La ventana del grafico se ancla en el mes elegido; con "todo el tiempo"
+    # no hay mes que anclar, asi que cuelga del actual. En ese caso el grafico
+    # y los cards miran periodos DISTINTOS a proposito, y el encabezado del
+    # card lo dice para que nadie intente cuadrar una barra contra un total.
+    ancla_y, ancla_m = (hoy.year, hoy.month) if todo else (fecha_ini.year, fecha_ini.month)
+    ventana = _ventana_global(ancla_y, ancla_m)
+    chart_meses, chart_series = _serie_mensual_global(ancla_y, ancla_m, ventana)
+    if not ventana:
+        chart_series = []
+
     rev_tienda, gan_tienda = _stats(orders_qs)
 
     agg_negocio = pedidos_qs.aggregate(
@@ -2074,6 +2154,9 @@ def resumen_global(request):
         'mes':               mes,
         'periodo_label':     periodo_label,
         'meses_disponibles': meses_disponibles,
+        'chart_meses':       chart_meses,
+        'chart_series':      chart_series,
+        'chart_todo':        todo,
         'rev_tienda':        round(rev_tienda),
         'gan_tienda':        round(gan_tienda),
         'vendido_negocio':   round(vendido_negocio),

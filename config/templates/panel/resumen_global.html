@@ -12,6 +12,14 @@
 .kpi-sm .kpi-val { font-size:18px;font-weight:700;font-family:var(--f-mono); }
 .kpi-sm .kpi-sub { font-size:10px;color:#555;font-family:var(--f-mono);margin-top:2px; }
 .section-lbl { font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:#444;font-weight:600;margin-bottom:10px;margin-top:4px; }
+.rg-chart-card { background:var(--ps);border:1px solid var(--pl);border-radius:8px;margin-bottom:20px; }
+.rg-chart-head { display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;padding:16px 18px 0; }
+.rg-chart-body { padding:10px 12px 14px;height:300px; }
+.rg-chart-foot { font-size:11px;color:#555;line-height:1.5;margin:0;padding:0 18px 14px; }
+.rg-seg { display:inline-flex;background:var(--pb);border:1px solid var(--pl);border-radius:7px;overflow:hidden; }
+.rg-seg button { background:transparent;border:0;color:#777;font-size:12px;padding:5px 12px;cursor:pointer; }
+.rg-seg button:hover { color:#ddd; }
+.rg-seg button[aria-pressed="true"] { background:var(--pl);color:#ddd;font-weight:600; }
 </style>
 {% endblock %}
 {% block content %}
@@ -46,4 +54,174 @@
 
 </div>
 
+{% if chart_series %}
+<div class="rg-chart-card">
+  <div class="rg-chart-head">
+    <div>
+      <div class="kpi-lbl" style="margin-bottom:2px">Tienda online vs negocio</div>
+      <div style="font-size:11px;color:#555;">
+        {% if chart_todo %}
+          Últimos {{ chart_meses|length }} mes{{ chart_meses|length|pluralize:"es" }} —
+          los cards de arriba suman <strong>todo el tiempo</strong>, el gráfico no.
+        {% else %}
+          {{ chart_meses|length }} mes{{ chart_meses|length|pluralize:"es" }} hasta {{ periodo_label|lower }}
+        {% endif %}
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <div class="rg-seg" role="group" aria-label="Métrica del gráfico">
+        <button type="button" data-metrica="ingreso"  aria-pressed="true">Ingreso</button>
+        <button type="button" data-metrica="ganancia" aria-pressed="false">Ganancia</button>
+      </div>
+      <div class="rg-seg" role="group" aria-label="Vista del gráfico">
+        <button type="button" data-vista="abs" aria-pressed="true">Absoluto</button>
+        <button type="button" data-vista="pct" aria-pressed="false">% del mes</button>
+      </div>
+    </div>
+  </div>
+  <div class="rg-chart-body">
+    <canvas id="chartFrentes" role="img"
+            aria-label="Barras apiladas por mes con el ingreso de la tienda online y el del negocio. Los valores exactos aparecen al pasar el cursor."></canvas>
+  </div>
+  <p class="rg-chart-foot">
+    Cada barra es un mes; los dos frentes van apilados, así que la altura total es el ingreso
+    combinado. La vista <strong>% del mes</strong> muestra el reparto entre los dos aunque el
+    total suba o baje — que es donde se ve cuál está ganando terreno.
+  </p>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+{{ chart_meses|json_script:"chart-meses" }}
+{{ chart_series|json_script:"chart-series" }}
+<script src="/static/js/chart.min.js"></script>
+<script>
+(function () {
+  var canvas = document.getElementById('chartFrentes');
+  if (!canvas || typeof Chart === 'undefined') return;
+
+  var meses  = JSON.parse(document.getElementById('chart-meses').textContent);
+  var series = JSON.parse(document.getElementById('chart-series').textContent);
+
+  // Dos identidades del set validado para daltonismo sobre fondo oscuro:
+  // el par separa ΔE 26.8 en protanopia y 31.8 a vision normal, ambas >= 3:1
+  // de contraste contra #111. El color sigue al frente, no a su tamaño.
+  var COLORES = ['#3987e5', '#d95926'];
+  var SUP = '#111';   // pintado como borde de 2px es lo que abre el hueco
+                      // entre los dos segmentos apilados
+
+  // Ingreso y ganancia NUNCA comparten eje: son escalas distintas y un doble
+  // eje deja dibujar cualquier conclusion. Se cambia de metrica, no de eje.
+  var estado = { metrica: 'ingreso', vista: 'abs' };
+
+  var money = new Intl.NumberFormat('es-MX',
+    { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+
+  function totalesPorMes() {
+    return meses.map(function (_, pos) {
+      return series.reduce(function (acc, s) { return acc + s[estado.metrica][pos]; }, 0);
+    });
+  }
+
+  function datasets() {
+    var totales = totalesPorMes();
+    return series.map(function (s, i) {
+      var crudos = s[estado.metrica];
+      return {
+        label: s.nombre,
+        crudos: crudos,
+        data: crudos.map(function (v, pos) {
+          if (estado.vista === 'abs') return v;
+          return totales[pos] ? (v * 100 / totales[pos]) : 0;
+        }),
+        backgroundColor: COLORES[i % COLORES.length],
+        borderColor: SUP,
+        borderWidth: 2,
+        borderRadius: 3,
+        borderSkipped: false,
+      };
+    });
+  }
+
+  var chart = new Chart(canvas, {
+    type: 'bar',
+    data: { labels: meses, datasets: datasets() },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { stacked: true, ticks: { color: '#777', font: { size: 11 } }, grid: { display: false } },
+        y: {
+          stacked: true,
+          beginAtZero: true,
+          ticks: {
+            color: '#777', font: { size: 11 },
+            callback: function (v) {
+              return estado.vista === 'pct' ? v + '%' : '$' + v.toLocaleString('es-MX');
+            },
+          },
+          grid: { color: '#1a1a1a' },
+        },
+      },
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: {
+            color: '#b0b0b0', font: { size: 11 },
+            boxWidth: 10, boxHeight: 10,
+            usePointStyle: true, pointStyle: 'rectRounded',
+          },
+        },
+        tooltip: {
+          backgroundColor: '#0a0a0a',
+          borderColor: '#1a1a1a',
+          borderWidth: 1,
+          titleColor: '#e0e0e0',
+          bodyColor: '#e0e0e0',
+          padding: 10,
+          callbacks: {
+            label: function (ctx) {
+              var crudo = ctx.dataset.crudos[ctx.dataIndex];
+              if (estado.vista === 'pct') {
+                // "42% de que" sigue siendo la pregunta: el peso va al lado.
+                return ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(1) + '% (' + money.format(crudo) + ')';
+              }
+              return ctx.dataset.label + ': ' + money.format(crudo);
+            },
+            footer: function (items) {
+              if (!items.length || estado.vista === 'pct') return '';
+              return 'Total del mes: ' + money.format(totalesPorMes()[items[0].dataIndex]);
+            },
+          },
+        },
+      },
+    },
+  });
+
+  function pintar() {
+    chart.data.datasets = datasets();
+    chart.options.scales.y.max = estado.vista === 'pct' ? 100 : undefined;
+    chart.update();
+  }
+
+  function grupo(attr, clave) {
+    document.querySelectorAll('[' + attr + ']').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (estado[clave] === btn.getAttribute(attr)) return;
+        estado[clave] = btn.getAttribute(attr);
+        document.querySelectorAll('[' + attr + ']').forEach(function (otro) {
+          otro.setAttribute('aria-pressed', String(otro === btn));
+        });
+        pintar();
+      });
+    });
+  }
+
+  grupo('data-metrica', 'metrica');
+  grupo('data-vista', 'vista');
+})();
+</script>
 {% endblock %}
