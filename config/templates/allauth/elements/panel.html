@@ -1,0 +1,6 @@
+{% load allauth %}
+<section class="mfa-panel">
+    <h2>{% slot title %}{% endslot %}</h2>
+    {% slot body %}{% endslot %}
+    {% if slots.actions %}<div class="mfa-actions">{% slot actions %}{% endslot %}</div>{% endif %}
+</section>

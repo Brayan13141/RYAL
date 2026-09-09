@@ -1,0 +1,2 @@
+{% comment %}El QR de TOTP llega como data: URI — el CSP ya permite data: en img-src.{% endcomment %}
+<img src="{{ attrs.src }}"{% if attrs.alt %} alt="{{ attrs.alt }}"{% endif %} class="{% if 'qr' in attrs.tags %}mfa-qr{% else %}mfa-img{% endif %}">

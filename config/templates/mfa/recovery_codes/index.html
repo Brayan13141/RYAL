@@ -1,0 +1,42 @@
+{% extends "allauth/layouts/base.html" %}
+{% load allauth %}
+
+{% block head_title %}Códigos de recuperación{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    {% include "allauth/_card_head.html" %}
+
+    <h1>Códigos de recuperación</h1>
+    <p class="auth-p">
+      Te quedan {{ unused_codes|length }} de {{ total_count }} sin usar.
+      Cada uno sirve una sola vez.
+    </p>
+
+    <div class="mfa-note">
+      Guardalos fuera del teléfono. Si perdés el celular con la app de
+      autenticación, esto es lo único que te deja volver a entrar.
+    </div>
+
+    {% if can_view_codes %}
+      <table class="mfa-codes">
+        <tbody>
+          {% for code in unused_codes %}<tr><td>{{ code }}</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    <div class="mfa-actions">
+      {% if can_download_codes %}
+        <a href="{% url 'mfa_download_recovery_codes' %}" class="btn-primary">Descargar</a>
+      {% endif %}
+      {% if can_generate_codes %}
+        <a href="{% url 'mfa_generate_recovery_codes' %}" class="btn-primary btn-outline">Generar nuevos</a>
+      {% endif %}
+    </div>
+
+    <p class="auth-switch"><a href="{% url 'mfa_index' %}">Volver</a></p>
+  </div>
+</div>
+{% endblock %}

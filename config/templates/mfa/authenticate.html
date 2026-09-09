@@ -1,0 +1,50 @@
+{% extends "allauth/layouts/base.html" %}
+{% load allauth %}
+
+{% block head_title %}Verificación en dos pasos{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    {% include "allauth/_card_head.html" %}
+
+    <h1>Verificación en dos pasos</h1>
+    <p class="auth-p">
+      Abrí tu app de autenticación y escribí el código de 6 dígitos.
+      También sirve uno de tus códigos de recuperación.
+    </p>
+
+    {% if form.errors %}
+      <div class="auth-error">
+        {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+        {% if not form.non_field_errors %}Código incorrecto o vencido. Probá con el siguiente.{% endif %}
+      </div>
+    {% endif %}
+
+    <form method="post" action="{% url 'mfa_authenticate' %}">
+      {% csrf_token %}
+      {% for field in form %}
+        <div class="form-group">
+          {{ field.errors }}
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+        </div>
+      {% endfor %}
+      <button type="submit" class="btn-primary btn-full">Entrar</button>
+    </form>
+
+    <p class="auth-switch">
+      <button type="submit" form="logout-from-stage"
+              style="background:none;border:none;color:var(--ink-3);cursor:pointer;font-size:12px;">
+        Cancelar y salir
+      </button>
+    </p>
+
+    {% comment %}Lo define allauth en sus propias plantillas; acá va a mano.{% endcomment %}
+    <form id="logout-from-stage" method="post" action="{% url 'account_logout' %}">
+      <input type="hidden" name="next" value="{% url 'account_login' %}">
+      {% csrf_token %}
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -12,26 +12,34 @@
     Seguimiento<br><em class="text-gold fst-italic">de tu pedido</em>
   </h1>
   <p class="text-white-50 fw-light mb-5" style="font-size:.95rem;">
-    Ingresa el código que recibiste al confirmar tu compra.
+    Ingresa el código que recibiste al confirmar tu compra y el teléfono con el que lo hiciste.
   </p>
 
   <!-- Formulario -->
-  <form method="get" class="d-flex flex-wrap gap-3 mb-5">
-    <input type="text" name="codigo"
-           value="{{ codigo }}"
-           placeholder="Ej. RY2609090001"
-           class="form-control"
-           style="background:#111;border:1px solid var(--ryal-border);color:#fff;border-radius:3px;font-family:var(--font-body);font-size:.95rem;padding:.75rem 1rem;flex:1 1 220px;"
-           autofocus autocomplete="off">
-    <input type="tel" name="telefono"
-           value="{{ telefono }}"
-           placeholder="Teléfono del pedido"
-           class="form-control"
-           style="background:#111;border:1px solid var(--ryal-border);color:#fff;border-radius:3px;font-family:var(--font-body);font-size:.95rem;padding:.75rem 1rem;flex:1 1 220px;"
-           autocomplete="off">
-    <button type="submit" class="btn btn-gold px-4" style="white-space:nowrap;">
-      <i class="bi bi-search"></i> Buscar
-    </button>
+  <form method="get" class="track-form mb-5">
+    <div class="row g-3">
+      <div class="col-12 col-sm-6">
+        <label for="track-codigo">Código del pedido</label>
+        <input type="text" name="codigo" id="track-codigo"
+               value="{{ codigo }}"
+               placeholder="Ej. RY2609090001"
+               class="form-control"
+               autofocus autocomplete="off">
+      </div>
+      <div class="col-12 col-sm-6">
+        <label for="track-telefono">Teléfono</label>
+        <input type="tel" name="telefono" id="track-telefono"
+               value="{{ telefono }}"
+               placeholder="10 dígitos"
+               class="form-control"
+               inputmode="numeric" autocomplete="tel">
+      </div>
+      <div class="col-12">
+        <button type="submit" class="btn btn-gold px-4 w-100" style="white-space:nowrap;">
+          <i class="bi bi-search"></i> Buscar mi pedido
+        </button>
+      </div>
+    </div>
   </form>
 
   <!-- Error -->
@@ -171,6 +179,34 @@
 
 {% block extra_css %}
 <style>
+.track-form label {
+    display: block;
+    font-size: .7rem;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,.45);
+    margin-bottom: .45rem;
+}
+.track-form .form-control {
+    background: #111;
+    border: 1px solid var(--ryal-border);
+    color: #fff;
+    border-radius: 3px;
+    font-family: var(--font-body);
+    font-size: .95rem;
+    padding: .75rem 1rem;
+}
+.track-form .form-control:focus {
+    background: #111;
+    color: #fff;
+    border-color: var(--gold, #c9a84c);
+    box-shadow: none;
+}
+.track-form .form-control::placeholder { color: rgba(255,255,255,.28); }
+@media (min-width: 576px) {
+    .track-form .btn-gold { width: auto; min-width: 190px; }
+}
+
 .track-step {
   display: flex;
   flex-direction: column;

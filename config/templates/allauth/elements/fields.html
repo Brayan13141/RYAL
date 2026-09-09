@@ -1,0 +1,9 @@
+{% comment %}El default es `form.as_p`, que ignora .form-group y rompe el estilo.{% endcomment %}
+{% for field in attrs.form %}
+<div class="form-group">
+    {{ field.errors }}
+    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+    {{ field }}
+    {% if field.help_text %}<span class="help-text">{{ field.help_text }}</span>{% endif %}
+</div>
+{% endfor %}

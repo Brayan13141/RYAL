@@ -1,0 +1,2 @@
+{% load allauth %}
+<div class="{% if 'danger' in attrs.tags or 'error' in attrs.tags %}auth-error{% else %}mfa-note{% endif %}">{% slot message %}{% endslot %}</div>

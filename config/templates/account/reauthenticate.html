@@ -1,0 +1,46 @@
+{% extends "allauth/layouts/base.html" %}
+{% load allauth %}
+
+{% block head_title %}Confirmar acceso{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    {% include "allauth/_card_head.html" %}
+
+    <h1>Confirmá tu identidad</h1>
+    <p class="auth-p">
+      Estás por cambiar algo de la seguridad de tu cuenta.
+      Escribí tu contraseña para continuar.
+    </p>
+
+    {% if form.errors %}
+      <div class="auth-error">
+        {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+        {% if not form.non_field_errors %}Contraseña incorrecta.{% endif %}
+      </div>
+    {% endif %}
+
+    <form method="post" action="{% url 'account_reauthenticate' %}">
+      {% csrf_token %}
+      <div class="form-group">
+        <label for="id_password">Contraseña</label>
+        <input type="password" id="id_password" name="password" required autofocus
+               placeholder="••••••••" autocomplete="current-password">
+      </div>
+      {{ redirect_field }}
+      <button type="submit" class="btn-primary btn-full">Confirmar</button>
+    </form>
+
+    {% if reauthentication_alternatives %}
+      <hr class="mfa-hr">
+      <p class="auth-p">O confirmá de otra forma:</p>
+      <div class="mfa-actions">
+        {% for alt in reauthentication_alternatives %}
+          <a href="{{ alt.url }}" class="btn-primary btn-outline">{{ alt.description }}</a>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,15 @@
+{% load static %}
+<span class="corner c-tl"></span>
+<span class="corner c-tr"></span>
+<span class="corner c-bl"></span>
+<span class="corner c-br"></span>
+
+<div class="auth-logo">
+  <img src="{% static 'img/logo-ryal-white.png' %}" alt="RYAL" height="28">
+</div>
+
+{% if messages %}
+  {% for message in messages %}
+    <div class="{% if 'error' in message.tags %}auth-error{% else %}mfa-note{% endif %}">{{ message }}</div>
+  {% endfor %}
+{% endif %}

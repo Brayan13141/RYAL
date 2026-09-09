@@ -1,0 +1,58 @@
+{% extends "allauth/layouts/base.html" %}
+{% load allauth %}
+
+{% block head_title %}Seguridad de la cuenta{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    {% include "allauth/_card_head.html" %}
+
+    <h1>Seguridad de la cuenta</h1>
+    <p class="auth-p">
+      El panel y el admin exigen un segundo factor además de tu contraseña.
+    </p>
+
+    {% if "totp" in MFA_SUPPORTED_TYPES %}
+    <section class="mfa-panel">
+      <h2>App de autenticación</h2>
+      {% if authenticators.totp %}
+        <p class="auth-p">Activa. Al entrar al panel te vamos a pedir el código de 6 dígitos.</p>
+        <div class="mfa-actions">
+          <a href="{% url 'mfa_deactivate_totp' %}" class="btn-primary btn-danger">Desactivar</a>
+        </div>
+      {% else %}
+        <p class="auth-p">Sin configurar. Hasta que la actives no vas a poder entrar al panel.</p>
+        <div class="mfa-actions">
+          <a href="{% url 'mfa_activate_totp' %}" class="btn-primary">Activar</a>
+        </div>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {% if "recovery_codes" in MFA_SUPPORTED_TYPES %}
+    <section class="mfa-panel">
+      <h2>Códigos de recuperación</h2>
+      {% if authenticators.recovery_codes %}
+        {% with total_count=authenticators.recovery_codes.wrap.generate_codes|length unused_count=authenticators.recovery_codes.wrap.get_unused_codes|length %}
+        <p class="auth-p">Te quedan {{ unused_count }} códigos sin usar.</p>
+        {% endwith %}
+        <div class="mfa-actions">
+          <a href="{% url 'mfa_view_recovery_codes' %}" class="btn-primary btn-outline">Ver códigos</a>
+          <a href="{% url 'mfa_generate_recovery_codes' %}" class="btn-primary btn-outline">Generar nuevos</a>
+        </div>
+      {% else %}
+        <p class="auth-p">
+          Son tu salida si perdés el teléfono. Generalos y guardalos fuera del celular.
+        </p>
+        <div class="mfa-actions">
+          <a href="{% url 'mfa_generate_recovery_codes' %}" class="btn-primary">Generar códigos</a>
+        </div>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    <p class="auth-switch"><a href="{% url 'panel:dashboard' %}">Ir al panel</a></p>
+  </div>
+</div>
+{% endblock %}

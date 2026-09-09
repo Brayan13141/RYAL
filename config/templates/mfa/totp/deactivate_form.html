@@ -1,0 +1,36 @@
+{% extends "allauth/layouts/base.html" %}
+{% load allauth %}
+
+{% block head_title %}Desactivar autenticador{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    {% include "allauth/_card_head.html" %}
+
+    <h1>Desactivar el autenticador</h1>
+    <p class="auth-p">
+      Vas a quitar el segundo factor de tu cuenta. A partir de ahí alcanza con
+      tu contraseña para entrar al panel.
+    </p>
+    <div class="mfa-note">
+      El panel exige segundo factor: si lo desactivás, la próxima vez que entres
+      te va a pedir enrolar uno nuevo.
+    </div>
+
+    <form method="post" action="{% url 'mfa_deactivate_totp' %}">
+      {% csrf_token %}
+      {% for field in form %}
+        <div class="form-group">
+          {{ field.errors }}
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+        </div>
+      {% endfor %}
+      <button type="submit" class="btn-primary btn-danger btn-full">Desactivar</button>
+    </form>
+
+    <p class="auth-switch"><a href="{% url 'mfa_index' %}">Volver</a></p>
+  </div>
+</div>
+{% endblock %}

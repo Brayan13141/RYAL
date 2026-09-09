@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% comment %}
+Todas las pantallas de allauth desembocan aquí. La base que trae allauth es
+HTML pelado, sin hoja de estilo ni navbar, así que salían en blanco.
+
+Esta solo aporta el `base.html` del sitio y los estilos de 2FA. El marco
+(.auth-wrap / .auth-card) NO va aquí: iría dentro de `{% block content %}`, que
+es justo el bloque que cada pantalla de allauth redefine, así que lo borrarían.
+Cada pantalla trae su propio marco, igual que `account/login.html`.
+{% endcomment %}
+
+{% block title %}{% block head_title %}Seguridad{% endblock %} — RYAL{% endblock %}
+
+{% block extra_css %}
+<style>
+  .auth-card h1 {
+    margin: 0 0 10px;
+    font-family: var(--f-serif);
+    font-size: 30px;
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    text-align: center;
+    color: var(--ink);
+  }
+  .auth-card .auth-p {
+    color: var(--ink-3);
+    font-size: 13px;
+    line-height: 1.65;
+    text-align: center;
+    margin: 0 0 22px;
+  }
+  .auth-card .auth-p:last-of-type { margin-bottom: 26px; }
+
+  /* QR de la app de autenticación */
+  .mfa-qr {
+    display: block;
+    width: 190px;
+    height: 190px;
+    margin: 4px auto 24px;
+    padding: 12px;
+    background: #fff;          /* el SVG es negro sobre transparente */
+    border: 1px solid var(--line-2);
+  }
+
+  /* Bloques de la pantalla de gestión */
+  .mfa-panel {
+    border: 1px solid var(--line-2);
+    padding: 20px 22px;
+    margin-bottom: 18px;
+  }
+  .mfa-panel > h2 {
+    margin: 0 0 10px;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--gold);
+    text-align: left;
+    font-family: var(--f-mono);
+  }
+  .mfa-panel .auth-p { text-align: left; margin-bottom: 14px; }
+  .mfa-panel .auth-p:last-of-type { margin-bottom: 16px; }
+
+  .mfa-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 18px;
+  }
+  .mfa-actions .btn-primary { flex: 1 1 auto; }
+
+  .btn-outline {
+    background: transparent;
+    color: var(--ink-2);
+    border: 1px solid var(--line-2);
+  }
+  .btn-outline:hover { border-color: var(--gold); color: var(--gold); background: transparent; }
+
+  .btn-danger { background: transparent; color: #e05560; border: 1px solid rgba(220,53,69,.4); }
+  .btn-danger:hover { background: rgba(220,53,69,.12); border-color: #e05560; color: #e05560; }
+
+  /* Códigos de recuperación */
+  .mfa-codes {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--f-mono);
+    font-size: 14px;
+    letter-spacing: 0.12em;
+    margin: 6px 0 4px;
+  }
+  .mfa-codes td, .mfa-codes th {
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--line);
+    color: var(--ink-2);
+    text-align: left;
+  }
+  .mfa-codes th { color: var(--ink-3); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; }
+
+  .mfa-note {
+    background: rgba(201,168,76,.07);
+    border: 1px solid rgba(201,168,76,.25);
+    color: var(--ink-2);
+    font-size: 12.5px;
+    line-height: 1.6;
+    padding: 12px 14px;
+    margin-bottom: 22px;
+  }
+
+  .mfa-hr { border: none; border-top: 1px solid var(--line); margin: 26px 0 22px; }
+
+  .auth-card .form-group input[disabled] {
+    opacity: .75;
+    font-family: var(--f-mono);
+    letter-spacing: 0.1em;
+  }
+  .auth-card .form-group .help-text {
+    display: block;
+    color: var(--ink-3);
+    font-size: 11.5px;
+    line-height: 1.55;
+    margin-top: 6px;
+  }
+  .auth-card .errorlist {
+    list-style: none;
+    margin: 0 0 8px;
+    padding: 0;
+    color: #e05560;
+    font-size: 12px;
+  }
+</style>
+{% endblock %}

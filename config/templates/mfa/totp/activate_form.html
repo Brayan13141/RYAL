@@ -1,0 +1,51 @@
+{% extends "allauth/layouts/base.html" %}
+{% load allauth %}
+
+{% block head_title %}Activar autenticador{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    {% include "allauth/_card_head.html" %}
+
+    <h1>Activá tu autenticador</h1>
+    <p class="auth-p">
+      Escaneá el código con Google Authenticator, Authy o 1Password.
+      Después escribí abajo el código de 6 dígitos que te muestre la app.
+    </p>
+
+    {% if form.errors %}
+      <div class="auth-error">
+        {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+        {% if not form.non_field_errors %}El código no coincide. Probá con el siguiente que genere tu app.{% endif %}
+      </div>
+    {% endif %}
+
+    <img src="{{ totp_svg_data_uri }}" alt="Código QR para tu app de autenticación" class="mfa-qr">
+
+    <form method="post" action="{% url 'mfa_activate_totp' %}">
+      {% csrf_token %}
+
+      <div class="form-group">
+        <label for="authenticator_secret">Clave manual</label>
+        <input type="text" id="authenticator_secret" value="{{ form.secret }}" disabled>
+        <span class="help-text">
+          Si no podés escanear el QR, cargá esta clave a mano en tu app.
+          Guardala: te sirve para reinstalar el autenticador más adelante.
+        </span>
+      </div>
+
+      {% for field in form %}
+        <div class="form-group">
+          {{ field.errors }}
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% if field.help_text %}<span class="help-text">{{ field.help_text }}</span>{% endif %}
+        </div>
+      {% endfor %}
+
+      <button type="submit" class="btn-primary btn-full">Activar</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

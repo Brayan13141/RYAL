@@ -1,0 +1,36 @@
+{% extends "allauth/layouts/base.html" %}
+{% load allauth %}
+
+{% block head_title %}Generar códigos de recuperación{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    {% include "allauth/_card_head.html" %}
+
+    <h1>Generar códigos nuevos</h1>
+    <p class="auth-p">Vas a generar un juego nuevo de códigos de recuperación.</p>
+
+    {% if unused_code_count %}
+      <div class="mfa-note">
+        Los {{ unused_code_count }} códigos que tenés ahora dejan de servir en
+        cuanto confirmes.
+      </div>
+    {% endif %}
+
+    <form method="post" action="{% url 'mfa_generate_recovery_codes' %}">
+      {% csrf_token %}
+      {% for field in form %}
+        <div class="form-group">
+          {{ field.errors }}
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+        </div>
+      {% endfor %}
+      <button type="submit" class="btn-primary{% if unused_code_count %} btn-danger{% endif %} btn-full">Generar</button>
+    </form>
+
+    <p class="auth-switch"><a href="{% url 'mfa_index' %}">Cancelar</a></p>
+  </div>
+</div>
+{% endblock %}
