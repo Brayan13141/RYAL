@@ -7,20 +7,9 @@ from django.shortcuts import render, redirect
 from django.utils.decorators import method_decorator
 from django.views.decorators.http import require_POST
 from django_ratelimit.decorators import ratelimit
+
+from core.ratelimit import client_ip as _client_ip
 from orders.models import Order
-
-
-def _client_ip(group, request):
-    """IP real del cliente. django-ratelimit 4.x pasa (group, request).
-    X-Real-IP (seteado por Nginx desde $remote_addr) no es spoofeable.
-    X-Forwarded-For puede ser falsificado — NO usar el primer elemento."""
-    real_ip = request.META.get('HTTP_X_REAL_IP', '').strip()
-    if real_ip:
-        return real_ip
-    xff = request.META.get('HTTP_X_FORWARDED_FOR', '')
-    if xff:
-        return xff.split(',')[-1].strip()
-    return request.META.get('REMOTE_ADDR', '127.0.0.1')
 
 
 # ─── Magic bytes validation ──────────────────────────────────────────────────
@@ -109,14 +98,12 @@ def profile_view(request):
                 profile.save()
                 success = True
 
-    q = Q(user=request.user)
-    if profile.phone:
-        q |= Q(customer_phone=profile.phone)
+    # Igual que en `my_orders`: nada de cruzar por `profile.phone`, que el
+    # usuario edita a mano y nadie verifica.
     recent_orders = (
         Order.objects
-        .filter(q)
+        .filter(user=request.user)
         .prefetch_related('items')
-        .distinct()
         .order_by('-created_at')[:3]
     )
 

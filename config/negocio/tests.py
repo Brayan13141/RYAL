@@ -3586,3 +3586,44 @@ class MasVendidosGraficoSinVentasTests(TestCase):
         self.client.force_login(staff)
         res = self.client.get('/panel/negocio/mas-vendidos/?mes=2026-07')
         self.assertEqual(res.context['chart_series'], [])
+
+
+@override_settings(NEGOCIO_API_KEY='test-key')
+class ApiPedidoCreateNoFiltraExcepcionesTests(TestCase):
+    """`except (VentaInvalida, Exception) as e: ... str(e)` devuelve al llamante
+    el texto de CUALQUIER excepción interna. Un IntegrityError de Postgres
+    filtraría nombres de tabla y de columna.
+    """
+
+    AUTH = {'HTTP_AUTHORIZATION': 'Bearer test-key'}
+
+    def _post(self, payload):
+        return self.client.post(
+            reverse('api_negocio_pedido_create'),
+            data=json.dumps(payload), content_type='application/json', **self.AUTH
+        )
+
+    def test_un_fallo_interno_no_devuelve_el_texto_de_la_excepcion(self):
+        """El escenario real: Postgres rechaza el INSERT y el texto del error
+        nombra la tabla y la constraint."""
+        from unittest.mock import patch
+        from django.db import IntegrityError
+
+        detalle_interno = (
+            'duplicate key value violates unique constraint '
+            '"negocio_pedido_folio_key" DETAIL: Key (folio)=(4471) already exists.'
+        )
+        with patch('negocio.api_views.crear_pedido_bot',
+                   side_effect=IntegrityError(detalle_interno)):
+            resp = self._post({'nombre': 'Ana', 'telefono': '5512345678',
+                               'items': [{'descripcion': 'tenis', 'precio': 500}]})
+
+        cuerpo = resp.content.decode()
+        for rastro in ('negocio_pedido', 'unique constraint', 'DETAIL', 'folio'):
+            self.assertNotIn(rastro, cuerpo,
+                             f'La respuesta filtra detalle interno: {rastro}')
+
+    def test_un_error_de_negocio_si_conserva_su_mensaje(self):
+        """VentaInvalida lleva un texto escrito para el bot — ese sí debe pasar."""
+        resp = self._post({'nombre': 'Ana', 'telefono': '5512345678', 'items': []})
+        self.assertEqual(resp.status_code, 400)

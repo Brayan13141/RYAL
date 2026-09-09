@@ -11,23 +11,13 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from django_ratelimit.decorators import ratelimit
+
+from core.ratelimit import client_ip as _client_ip
+
+from negocio.phone import normalize_telefono
 from catalog.models import Product, ProductVariant, ProductImage
 from .models import Order, OrderItem, SavedCartItem
 from .notifications import notify_new_order_async
-
-
-def _client_ip(group, request):
-    """IP real del cliente. django-ratelimit 4.x pasa (group, request).
-    X-Real-IP (seteado por Nginx desde $remote_addr) no es spoofeable.
-    X-Forwarded-For puede ser falsificado — NO usar el primer elemento."""
-    real_ip = request.META.get('HTTP_X_REAL_IP', '').strip()
-    if real_ip:
-        return real_ip
-    xff = request.META.get('HTTP_X_FORWARDED_FOR', '')
-    if xff:
-        # Tomar el último IP (agregado por el proxy de confianza, no por el cliente)
-        return xff.split(',')[-1].strip()
-    return request.META.get('REMOTE_ADDR', '127.0.0.1')
 
 
 # ─── Helpers de carrito en sesión ───────────────────────────────────────────
@@ -152,6 +142,10 @@ def _get_category_violations(cart):
     ]
 
     return violations
+
+
+# Mismo texto para "código inexistente" y "teléfono que no coincide".
+_TRACK_NO_MATCH = 'No encontramos ningún pedido con ese código y ese teléfono.'
 
 
 def _generate_order_code():
@@ -652,19 +646,13 @@ def order_confirmation(request, token):
 
 @login_required
 def my_orders(request):
-    from django.db.models import Q
-    q = Q(user=request.user)
-    try:
-        phone = request.user.profile.phone
-        if phone:
-            q |= Q(customer_phone=phone)
-    except Exception:
-        pass
+    # Solo los pedidos ligados a la cuenta. Antes esto se cruzaba además con
+    # `profile.phone`, un campo que el propio usuario escribe a mano y que nadie
+    # verifica: bastaba poner el teléfono de otra clienta para ver sus pedidos.
     orders = (
         Order.objects
-        .filter(q)
+        .filter(user=request.user)
         .prefetch_related('items')
-        .distinct()
         .order_by('-created_at')
     )
     return render(request, 'orders/my_orders.html', {'orders': orders})
@@ -678,12 +666,28 @@ def order_track(request):
             'error': 'Demasiados intentos. Espera un minuto antes de volver a buscar.',
             'codigo': '',
         })
-    code  = request.GET.get('codigo', '').strip().upper()
+    code     = request.GET.get('codigo', '').strip().upper()
+    telefono = request.GET.get('telefono', '').strip()
     order = None
     error = None
-    if code:
-        try:
-            order = Order.objects.prefetch_related('items__product', 'items__variant').get(order_code=code)
-        except Order.DoesNotExist:
-            error = f'No encontramos ningún pedido con el código "{code}".'
-    return render(request, 'orders/track.html', {'order': order, 'error': error, 'codigo': code})
+    if code or telefono:
+        if not (code and telefono):
+            error = 'Ingresa el código del pedido y el teléfono con el que lo hiciste.'
+        else:
+            try:
+                candidato = (Order.objects
+                             .prefetch_related('items__product', 'items__variant')
+                             .get(order_code=code))
+            except Order.DoesNotExist:
+                candidato = None
+            # `order_code` es RY+fecha+consecutivo, o sea adivinable. El teléfono
+            # es el segundo factor que impide enumerar la base de pedidos.
+            if candidato and normalize_telefono(candidato.customer_phone) == normalize_telefono(telefono):
+                order = candidato
+            else:
+                # Un mismo mensaje para "no existe" y "el teléfono no coincide":
+                # distinguirlos convertiría el rastreo en un oráculo de códigos.
+                error = _TRACK_NO_MATCH
+    return render(request, 'orders/track.html', {
+        'order': order, 'error': error, 'codigo': code, 'telefono': telefono,
+    })

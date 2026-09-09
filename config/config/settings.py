@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 import dj_database_url
 from dotenv import load_dotenv
@@ -27,6 +28,7 @@ INSTALLED_APPS = [
     # Allauth
     'allauth',
     'allauth.account',
+    'allauth.mfa',
     'django_ratelimit',
     # Third-party
     'rest_framework',
@@ -58,6 +60,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'allauth.account.middleware.AccountMiddleware',
+    'core.middleware.RequireStaffMFAMiddleware',
     'core.middleware.ContentSecurityPolicyMiddleware',
 ]
 
@@ -145,6 +148,17 @@ ACCOUNT_EMAIL_VERIFICATION  = 'none'
 ACCOUNT_LOGOUT_ON_GET       = False  # Require POST — prevents CSRF logout via GET
 ACCOUNT_SIGNUP_FORM_CLASS   = 'accounts.forms.CustomSignupForm'
 ACCOUNT_ADAPTER             = 'accounts.adapters.AccountAdapter'
+
+# Segundo factor para staff. Solo TOTP + códigos de recuperación: WebAuthn
+# arrastraría la dependencia `fido2` y aquí no hace falta.
+MFA_SUPPORTED_TYPES = ['totp', 'recovery_codes']
+
+# Segundo factor obligatorio para staff en /panel/ y /admin/. Se apaga
+# durante la suite: esos tests ejercitan las vistas, no esta política —
+# que tiene su propio test activándola con override_settings.
+REQUIRE_STAFF_MFA = 'test' not in sys.argv
+
+
 
 # WhatsApp business number (without + or spaces)
 WHATSAPP_NUMBER = '521XXXXXXXXXX'

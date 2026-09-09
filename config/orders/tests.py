@@ -805,3 +805,86 @@ class OrderCodeZonaHorariaTests(TestCase):
         self.assertEqual(o1.order_code, 'RY2608260001')
         # Y el consecutivo avanza en vez de chocar y caer al fallback de UUID
         self.assertEqual(o2.order_code, 'RY2608260002')
+
+
+class RastreoExigeTelefonoTests(TestCase):
+    """`order_code` es RY+YYMMDD+contador diario: se adivina solo. El rastreo es
+    público, así que sin un segundo dato cualquiera enumera la base de pedidos y
+    se lleva nombre del cliente, qué compró y cuánto pagó.
+    """
+
+    def setUp(self):
+        self.order = Order.objects.create(
+            order_code='RY2609090001', customer_name='Ana Torres',
+            customer_phone='5512345678',
+        )
+
+    def test_sin_telefono_no_revela_el_pedido(self):
+        resp = self.client.get('/rastrear/', {'codigo': 'RY2609090001'})
+        self.assertNotContains(resp, 'Ana Torres')
+
+    def test_con_telefono_incorrecto_no_revela_el_pedido(self):
+        resp = self.client.get(
+            '/rastrear/', {'codigo': 'RY2609090001', 'telefono': '5599999999'}
+        )
+        self.assertNotContains(resp, 'Ana Torres')
+
+    def test_con_telefono_correcto_muestra_el_pedido(self):
+        resp = self.client.get(
+            '/rastrear/', {'codigo': 'RY2609090001', 'telefono': '5512345678'}
+        )
+        self.assertContains(resp, 'Ana Torres')
+
+    def test_acepta_el_telefono_con_formato_libre(self):
+        resp = self.client.get(
+            '/rastrear/', {'codigo': 'RY2609090001', 'telefono': '+52 (55) 1234-5678'}
+        )
+        self.assertContains(resp, 'Ana Torres')
+
+    def test_codigo_inexistente_y_telefono_erroneo_dan_el_mismo_mensaje(self):
+        """Si los mensajes difieren, el rastreo sigue siendo un oráculo que
+        confirma qué códigos existen."""
+        inexistente = self.client.get('/rastrear/', {'codigo': 'RY9999999999', 'telefono': '5512345678'})
+        mal_tel = self.client.get('/rastrear/', {'codigo': 'RY2609090001', 'telefono': '5599999999'})
+        self.assertEqual(
+            inexistente.context['error'], mal_tel.context['error'],
+            'El mensaje distingue "no existe" de "teléfono incorrecto" y filtra qué códigos son reales.',
+        )
+
+
+class MisPedidosNoCruzaPorTelefonoTests(TestCase):
+    """`Profile.phone` se escribe a mano desde el formulario de perfil y nadie lo
+    verifica. Cruzar los pedidos por ese campo deja que cualquiera se ponga el
+    teléfono de otra clienta y vea sus pedidos.
+    """
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+        self.ajeno = Order.objects.create(
+            order_code='RY2609090077', customer_name='Beatriz Ruiz',
+            customer_phone='5512345678',
+        )
+        self.intruso = User.objects.create_user('intruso', password='Prueba1234!')
+        self.intruso.profile.phone = '5512345678'   # el teléfono de Beatriz
+        self.intruso.profile.save()
+
+    def test_mis_pedidos_no_muestra_pedidos_de_otra_persona(self):
+        self.client.force_login(self.intruso)
+        resp = self.client.get('/mis-pedidos/')
+        # El código del pedido sí se imprime en la plantilla; el nombre del
+        # cliente no, así que asertar sobre el nombre no probaría nada.
+        self.assertNotContains(resp, 'RY2609090077')
+
+    def test_el_perfil_no_muestra_pedidos_de_otra_persona(self):
+        self.client.force_login(self.intruso)
+        resp = self.client.get('/accounts/perfil/')
+        self.assertNotContains(resp, 'RY2609090077')
+
+    def test_si_ve_sus_propios_pedidos(self):
+        propio = Order.objects.create(
+            order_code='RY2609090078', customer_name='Intruso Mismo',
+            customer_phone='5500000000', user=self.intruso,
+        )
+        self.client.force_login(self.intruso)
+        resp = self.client.get('/mis-pedidos/')
+        self.assertContains(resp, propio.order_code)

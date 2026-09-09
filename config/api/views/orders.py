@@ -6,16 +6,23 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from django_ratelimit.decorators import ratelimit
 
+from core.ratelimit import client_ip
+from negocio.phone import normalize_telefono
+
 from catalog.models import Product, ProductVariant, SiteConfig
 from orders.models import Order, OrderItem
 from orders.views import _get_cart, _save_cart, _create_order_safe
-from api.serializers import OrderSerializer
+from api.serializers import OrderSerializer, OrderTrackSerializer
 
 
 def _build_whatsapp_url(order, request):
     config = SiteConfig.get()
     phone = config.whatsapp
-    track_url = request.build_absolute_uri(f'/rastrear/?codigo={order.order_code}')
+    # El rastreo pide código + teléfono; el link que recibe el cliente trae
+    # los dos para que siga siendo de un clic.
+    track_url = request.build_absolute_uri(
+        f'/rastrear/?codigo={order.order_code}&telefono={order.customer_phone}'
+    )
     items_text = '\n'.join(
         f'  • {item.quantity}x {item.name_snapshot} - ${item.subtotal:.0f}'
         for item in order.items.all()
@@ -33,7 +40,7 @@ def _build_whatsapp_url(order, request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-@ratelimit(key='ip', rate='5/m', method='POST', block=False)
+@ratelimit(key=client_ip, rate='5/m', method='POST', block=False)
 def checkout(request):
     if getattr(request, 'limited', False):
         return Response({'detail': 'Demasiados intentos.'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
@@ -113,22 +120,31 @@ def order_detail(request, token):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
-@ratelimit(key='ip', rate='20/m', method='GET', block=False)
+@ratelimit(key=client_ip, rate='20/m', method='GET', block=False)
 def order_track(request):
     if getattr(request, 'limited', False):
         return Response({'detail': 'Demasiadas solicitudes.'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
     code = request.query_params.get('code', '').strip().upper()
-    if not code:
-        return Response({'detail': 'Código requerido.'}, status=status.HTTP_400_BAD_REQUEST)
+    phone = request.query_params.get('phone', '').strip()
+    if not code or not phone:
+        return Response(
+            {'detail': 'Código y teléfono requeridos.'}, status=status.HTTP_400_BAD_REQUEST
+        )
 
     try:
         order = Order.objects.prefetch_related('items').get(order_code=code)
     except Order.DoesNotExist:
+        order = None
+
+    # `order_code` es RY+fecha+consecutivo, o sea adivinable; el teléfono es el
+    # segundo factor. Y la respuesta negativa es idéntica en los dos casos: si
+    # distinguiera "no existe" de "no coincide", seguiría siendo un oráculo.
+    if order is None or normalize_telefono(order.customer_phone) != normalize_telefono(phone):
         return Response({'detail': 'Pedido no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
 
     config = SiteConfig.get()
-    data = OrderSerializer(order, context={'request': request}).data
+    data = OrderTrackSerializer(order, context={'request': request}).data
     data['track_message'] = config.track_message
     return Response(data)
 

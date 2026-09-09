@@ -1,3 +1,5 @@
+from django.shortcuts import redirect
+from django.urls import reverse
 from pathlib import Path
 
 from django.conf import settings
@@ -81,10 +83,44 @@ class ContentSecurityPolicyMiddleware:
         "object-src 'none';"
     )
 
+    # La tienda no usa ninguna de estas APIs. Declararlo apagado evita que un
+    # script de terceros o un iframe las pida en nombre del sitio.
+    _PERMISSIONS_POLICY = (
+        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+        "magnetometer=(), microphone=(), payment=(), usb=()"
+    )
+
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
         response = self.get_response(request)
         response.setdefault('Content-Security-Policy', self._CSP)
+        response.setdefault('Permissions-Policy', self._PERMISSIONS_POLICY)
         return response
+
+
+class RequireStaffMFAMiddleware:
+    """Exige segundo factor a staff y superusuarios antes del panel y del admin.
+
+    Sin esto una sola contraseña filtrada abre los datos de clientes y la caja.
+    Solo alcanza a `is_staff`: un cliente normal nunca entra en este flujo.
+    """
+
+    _PROTEGIDAS = ('/panel/', '/admin/')
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if not getattr(settings, 'REQUIRE_STAFF_MFA', True):
+            return self.get_response(request)
+        user = getattr(request, 'user', None)
+        if (user is not None and user.is_authenticated and user.is_staff
+                and request.path.startswith(self._PROTEGIDAS)):
+            from allauth.mfa.utils import is_mfa_enabled
+            if not is_mfa_enabled(user):
+                # A enrolar. La propia pantalla de enrolamiento no está bajo
+                # /panel/ ni /admin/, así que no hay bucle de redirección.
+                return redirect(reverse('mfa_activate_totp'))
+        return self.get_response(request)

@@ -151,3 +151,47 @@ class ContentSecurityPolicyMiddlewareTests(TestCase):
         csp = self._csp()
         img_src = [d for d in csp.split(';') if d.strip().startswith('img-src')][0]
         self.assertIn('www.facebook.com', img_src)
+
+
+class PermissionsPolicyHeaderTests(TestCase):
+    """Sin `Permissions-Policy` el navegador deja que cualquier iframe o script
+    embebido pida cámara, micrófono o geolocalización en nombre del sitio."""
+
+    def test_la_respuesta_trae_permissions_policy(self):
+        resp = self.client.get('/')
+        self.assertIn('Permissions-Policy', resp.headers)
+
+    def test_desactiva_camara_microfono_y_geolocalizacion(self):
+        resp = self.client.get('/')
+        policy = resp.headers.get('Permissions-Policy', '')
+        for feature in ('camera', 'microphone', 'geolocation'):
+            self.assertIn(f'{feature}=()', policy)
+
+
+@override_settings(REQUIRE_STAFF_MFA=True)
+class StaffDebeTener2FATests(TestCase):
+    """El panel y /admin/ mueven dinero y datos de clientes. Una sola contraseña
+    filtrada bastaba para entrar; el segundo factor es lo que lo impide.
+    """
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+        self.staff = User.objects.create_user(
+            'staff_2fa', password='Prueba1234!', is_staff=True, is_superuser=True
+        )
+
+    def test_staff_sin_segundo_factor_no_entra_al_panel(self):
+        self.client.force_login(self.staff)
+        resp = self.client.get('/panel/')
+        self.assertEqual(
+            resp.status_code, 302,
+            'Un staff sin 2FA entró al panel directo: no hay segundo factor exigido.',
+        )
+        self.assertIn('2fa', resp['Location'])
+
+    def test_un_usuario_normal_no_queda_atrapado_en_el_flujo_de_2fa(self):
+        from django.contrib.auth.models import User
+        cliente = User.objects.create_user('cliente_normal', password='Prueba1234!')
+        self.client.force_login(cliente)
+        resp = self.client.get('/')
+        self.assertEqual(resp.status_code, 200)

@@ -350,7 +350,7 @@ document.getElementById('btnWA').addEventListener('click', () => {
     return `• ${i.qty}x ${i.name}${v} — $${Math.round(i.subtotal)} MXN`;
   }).join('\n');
 
-  const trackUrl = `${window.location.origin}/rastrear/?codigo={{ order.order_code }}`;
+  const trackUrl = `${window.location.origin}/rastrear/?codigo={{ order.order_code }}&telefono={{ order.customer_phone }}`;
 
   const msg = [
     `Hola {{ order.customer_name|escapejs }},`,

@@ -147,6 +147,24 @@ class OrderItemSerializer(serializers.ModelSerializer):
         ]
 
 
+class OrderTrackSerializer(serializers.ModelSerializer):
+    """Vista pública del rastreo. Deliberadamente SIN `customer_phone` ni
+    `tracking_token`: el endpoint es anónimo y el token es la capability URL
+    de la confirmación del pedido — entregarlo ahí regala acceso permanente.
+    """
+
+    items = OrderItemSerializer(many=True, read_only=True)
+    total = serializers.DecimalField(max_digits=8, decimal_places=2, read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = Order
+        fields = [
+            'order_code', 'customer_name', 'status', 'status_display',
+            'created_at', 'total', 'items',
+        ]
+
+
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     total = serializers.DecimalField(max_digits=8, decimal_places=2, read_only=True)

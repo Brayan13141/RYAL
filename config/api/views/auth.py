@@ -9,6 +9,8 @@ from rest_framework.response import Response
 from allauth.account.forms import LoginForm
 from django_ratelimit.decorators import ratelimit
 
+from core.ratelimit import client_ip
+
 
 def _user_data(user):
     return {
@@ -31,7 +33,7 @@ def me(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-@ratelimit(key='ip', rate='10/m', method='POST', block=False)
+@ratelimit(key=client_ip, rate='10/m', method='POST', block=False)
 def login_view(request):
     if getattr(request, 'limited', False):
         return Response({'detail': 'Demasiados intentos. Espera un momento.'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
@@ -61,7 +63,7 @@ def login_view(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-@ratelimit(key='ip', rate='5/m', method='POST', block=False)
+@ratelimit(key=client_ip, rate='5/m', method='POST', block=False)
 def signup_view(request):
     if getattr(request, 'limited', False):
         return Response({'detail': 'Demasiados intentos. Espera un momento.'}, status=status.HTTP_429_TOO_MANY_REQUESTS)

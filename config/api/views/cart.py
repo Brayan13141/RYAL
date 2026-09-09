@@ -3,6 +3,8 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 from django_ratelimit.decorators import ratelimit
+
+from core.ratelimit import client_ip
 from django.shortcuts import get_object_or_404
 
 from catalog.models import Product, ProductVariant
@@ -49,7 +51,7 @@ def cart_get(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-@ratelimit(key='ip', rate='60/m', method='POST', block=False)
+@ratelimit(key=client_ip, rate='60/m', method='POST', block=False)
 def cart_add(request):
     if getattr(request, 'limited', False):
         return Response({'detail': 'Demasiadas solicitudes.'}, status=status.HTTP_429_TOO_MANY_REQUESTS)

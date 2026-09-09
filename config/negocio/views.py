@@ -13,6 +13,8 @@ from django.utils import timezone
 
 from django_ratelimit.decorators import ratelimit
 
+from core.ratelimit import client_ip
+
 from catalog.models import Category, Product
 from .forms import ClienteForm, PedidoForm, PagoForm, GastoForm, PedidoItemForm
 from .models import Cliente, Pedido, Pago, Gasto, PedidoItem, AjusteCaja
@@ -887,7 +889,7 @@ def etiquetas_print(request):
 
 # ── Etiqueta individual HTML (USB) ─────────────────────────
 
-@ratelimit(key='header:X-Forwarded-For', rate='60/m', block=True)
+@ratelimit(key=client_ip, rate='60/m', block=True)
 def label_html(request, sku):
     """Renderiza una etiqueta HTML optimizada para 58mm — impresión USB."""
     token = request.GET.get('token', '')
@@ -917,7 +919,7 @@ def label_html(request, sku):
 
 # ── Print endpoints (Bluetooth Print app) ─────────────────
 
-@ratelimit(key='header:X-Forwarded-For', rate='60/m', block=True)
+@ratelimit(key=client_ip, rate='60/m', block=True)
 def receipt_print_json(request, pedido_id):
     """Devuelve JSON para Bluetooth Print app — ticket de venta.
     Público (sin sesión) pero protegido con token HMAC firmado por Django."""
@@ -936,7 +938,7 @@ def receipt_print_json(request, pedido_id):
     return JsonResponse(_build_receipt_json(pedido))
 
 
-@ratelimit(key='header:X-Forwarded-For', rate='60/m', block=True)
+@ratelimit(key=client_ip, rate='60/m', block=True)
 def label_print_json(request, sku):
     """Devuelve JSON para Bluetooth Print app — etiqueta de producto.
     Público (sin sesión) pero protegido con token HMAC firmado por Django."""

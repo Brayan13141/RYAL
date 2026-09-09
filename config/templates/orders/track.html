@@ -16,13 +16,19 @@
   </p>
 
   <!-- Formulario -->
-  <form method="get" class="d-flex gap-3 mb-5">
+  <form method="get" class="d-flex flex-wrap gap-3 mb-5">
     <input type="text" name="codigo"
            value="{{ codigo }}"
-           placeholder="Ej. RYL-2026-XXXX"
+           placeholder="Ej. RY2609090001"
            class="form-control"
-           style="background:#111;border:1px solid var(--ryal-border);color:#fff;border-radius:3px;font-family:var(--font-body);font-size:.95rem;padding:.75rem 1rem;flex:1;"
+           style="background:#111;border:1px solid var(--ryal-border);color:#fff;border-radius:3px;font-family:var(--font-body);font-size:.95rem;padding:.75rem 1rem;flex:1 1 220px;"
            autofocus autocomplete="off">
+    <input type="tel" name="telefono"
+           value="{{ telefono }}"
+           placeholder="Teléfono del pedido"
+           class="form-control"
+           style="background:#111;border:1px solid var(--ryal-border);color:#fff;border-radius:3px;font-family:var(--font-body);font-size:.95rem;padding:.75rem 1rem;flex:1 1 220px;"
+           autocomplete="off">
     <button type="submit" class="btn btn-gold px-4" style="white-space:nowrap;">
       <i class="bi bi-search"></i> Buscar
     </button>
