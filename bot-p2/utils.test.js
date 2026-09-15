@@ -139,8 +139,10 @@ describe('buildRyalForward', () => {
         expect(out).toContain('▪')
         // tallas intactas
         expect(out).toContain('#2 al 5')
-        // pie de Ryal con sus 2 emojis
-        expect(out).toContain('↪️ Reenvía esta imagen con las tallas que quieres para tu pedido.')
+        // pie de Ryal con sus 2 emojis. La copia se cambio en el servidor sin
+        // tocar este test y la suite quedo en rojo: lo que manda produccion es
+        // RYAL_FOOTER de utils.js, y es esto.
+        expect(out).toContain('🔥 Reenvía la imagen del modelo que quieres y las tallas para tu pedido 🔥')
         expect(out).toContain('🌐 ryalsneackers.com')
     })
 })

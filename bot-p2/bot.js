@@ -15,7 +15,7 @@ const { extractPrice, buildRyalForward, buildImageCaption, markupCaption, cleanC
 const { createBatchBuffer, MAX_PER_GROUP } = require('./batchBuffer')
 const { acquireAuthLock } = require('./lock')
 const { createOrderSessionStore } = require('./orderSession')
-const { WELCOME_MESSAGE, menuReply, isGreetableJid, createWelcomeStore } = require('./welcome')
+const { WELCOME_MESSAGE, menuReply, isGreetableJid, createWelcomeStore, jidsFromKey, phoneFromKey } = require('./welcome')
 const { writeQrState } = require('./qrState')
 const { resolveNotifyJid } = require('./notifyTarget')
 const { matchPromo } = require('./promos')
@@ -43,10 +43,14 @@ const logger = pino({ level: 'info' })
 const batch = createBatchBuffer()
 const orders = createOrderSessionStore()
 // JIDs privados ya saludados — persiste junto a la sesión de esta instancia
-// Numeros propios que NUNCA reciben bienvenida ni menu. Va por LID exacto y
-// no por telefono: en un chat privado la key del mensaje trae solo el `@lid`
-// (verificado: {remoteJid:'154211253772535@lid', fromMe, id}) y el numero no
-// aparece por ningun lado.
+// Numeros propios que NUNCA reciben bienvenida ni menu.
+//
+// En 6.7.x la key de un privado trae SOLO el `@lid` (verificado:
+// {remoteJid:'154211253772535@lid', fromMe, id}) y el telefono no aparece por
+// ningun lado, asi que habia que listar el LID. Desde 7.x tambien llega el
+// telefono en `remoteJidAlt`, y cual de los dos ocupa `remoteJid` depende de
+// la migracion a LID de WhatsApp. Por eso se listan LAS DOS formas de cada
+// numero propio: cualquiera que llegue, la exclusion acierta.
 const INTERNAL_JIDS = new Set(
     (process.env.INTERNAL_JIDS || '').split(',').map(s => s.trim()).filter(Boolean))
 
@@ -203,11 +207,15 @@ async function handleClientMessage(sock, msg) {
     // del Grupo Proveedor al Grupo Ryal (handleSupplierMessage).
     if (FORWARD_TO_RYAL) return
 
-    const jid = msg.key.remoteJid
+    // Las dos formas de la dirección: en Baileys 7 el mismo contacto puede
+    // llegar como @lid o como @s.whatsapp.net. Si solo se consulta una, el
+    // día que WhatsApp cambie de modo el store deja de reconocer a nadie y
+    // se re-saluda a cientos de clientes.
+    const { jid, altJid } = jidsFromKey(msg.key)
 
     // Bienvenida + menú para clientes nuevos (primer chat privado con este número)
-    if (isGreetableJid(jid, INTERNAL_JIDS) && !welcome.hasSeen(jid)) {
-        welcome.markSeen(jid)
+    if (isGreetableJid(jid, INTERNAL_JIDS) && !welcome.hasSeen(jid, altJid)) {
+        welcome.markSeen(jid, altJid)
         try {
             await sock.sendMessage(jid, { text: WELCOME_MESSAGE })
             logger.info({ jid }, 'Bienvenida enviada a cliente nuevo')
@@ -235,8 +243,12 @@ async function handleClientMessage(sock, msg) {
     const price = extractPrice(text)
     if (!price) return
 
-    const telefono = msg.key.remoteJid.replace('@s.whatsapp.net', '')
-    const descuento = await getDescuento(telefono)
+    // Sin telefono no hay a quien buscarle descuento. Bajo 6.7.x un privado
+    // solo trae el @lid y recortarle el sufijo dejaba pasar el LID entero:
+    // la consulta a Django fallaba siempre y el descuento quedaba en 0 sin
+    // que nada lo dijera. 0 sigue siendo el resultado, ahora sin el viaje.
+    const telefono = phoneFromKey(msg.key)
+    const descuento = telefono ? await getDescuento(telefono) : 0
     const total = computeTotal(price, descuento)
 
     await sock.sendMessage(msg.key.remoteJid, {

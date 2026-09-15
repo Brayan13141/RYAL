@@ -2,7 +2,7 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 
-const { WELCOME_MESSAGE, MENU_RESPONSES, menuReply, isGreetableJid, createWelcomeStore } = require('./welcome')
+const { WELCOME_MESSAGE, MENU_RESPONSES, menuReply, isGreetableJid, createWelcomeStore, jidsFromKey, phoneFromKey } = require('./welcome')
 
 describe('menuReply', () => {
     test('opciones 1-3 devuelven su respuesta', () => {
@@ -172,5 +172,84 @@ describe('isGreetableJid usado como callback de .filter()', () => {
     test('no revienta y filtra bien cuando se pasa directo a .filter', () => {
         const jids = ['a@lid', 'b@lid', 'c@s.whatsapp.net', 'x@g.us', 'y@broadcast']
         expect(jids.filter(isGreetableJid)).toEqual(['a@lid', 'b@lid', 'c@s.whatsapp.net'])
+    })
+})
+
+// Baileys 7 entrega, en todo chat que no es grupo, una segunda forma de la
+// misma dirección en `key.remoteJidAlt` (Utils/decode-wa-message.js): si
+// `remoteJid` es el @lid, ahí viene el @s.whatsapp.net, y al revés. Cuál de
+// las dos manda WhatsApp depende de la migración a LID y puede cambiar bajo
+// los pies. El store tiene 527 claves @lid y 8 @s.whatsapp.net: si un día
+// llegan por la otra forma, `hasSeen` falla para todas y el bot vuelve a
+// saludar a cientos de clientes. Por eso las dos formas se consultan y se
+// guardan juntas.
+describe('createWelcomeStore — las dos formas de una misma dirección', () => {
+    test('hasSeen reconoce a quien fue guardado bajo su otra dirección', () => {
+        const store = createWelcomeStore({})
+        store.markSeen('141480651952232@lid')
+
+        expect(store.hasSeen('5214451129186@s.whatsapp.net', '141480651952232@lid')).toBe(true)
+    })
+
+    test('markSeen guarda las dos direcciones, así llegue por cualquiera', () => {
+        const store = createWelcomeStore({})
+        store.markSeen('5214451129186@s.whatsapp.net', '141480651952232@lid')
+
+        expect(store.hasSeen('141480651952232@lid')).toBe(true)
+    })
+
+    test('markSeenBulk acepta pares y guarda las dos formas', () => {
+        const store = createWelcomeStore({})
+        store.markSeenBulk([['5214451076015@s.whatsapp.net', '154211253772535@lid']])
+
+        expect(store.hasSeen('154211253772535@lid')).toBe(true)
+        expect(store.hasSeen('5214451076015@s.whatsapp.net')).toBe(true)
+    })
+})
+
+describe('jidsFromKey', () => {
+    test('saca las dos direcciones de la key de Baileys 7', () => {
+        const key = { remoteJid: '141480651952232@lid', remoteJidAlt: '5214451129186@s.whatsapp.net' }
+
+        expect(jidsFromKey(key)).toEqual({
+            jid: '141480651952232@lid',
+            altJid: '5214451129186@s.whatsapp.net',
+        })
+    })
+
+    test('en Baileys 6 no hay alt y el comportamiento es el de siempre', () => {
+        // 6.7.23 no escribe `remoteJidAlt` en ningún lado: el campo no existe.
+        expect(jidsFromKey({ remoteJid: '141480651952232@lid' }))
+            .toEqual({ jid: '141480651952232@lid', altJid: undefined })
+    })
+
+    test('una key ausente no revienta', () => {
+        expect(jidsFromKey(undefined)).toEqual({ jid: undefined, altJid: undefined })
+    })
+})
+
+// El bot cotiza una foto reenviada y le aplica el descuento del cliente, que
+// consulta a Django por TELÉFONO (`/api/negocio/cliente/<telefono>/`). En un
+// privado bajo 6.7.x la key trae solo el @lid, así que lo que viajaba a Django
+// era un LID: la consulta no matchea nunca y el descuento sale 0 en silencio.
+// Bajo 7.x el teléfono real llega en `remoteJidAlt`.
+describe('phoneFromKey', () => {
+    test('saca el teléfono del alt cuando remoteJid es un @lid', () => {
+        expect(phoneFromKey({
+            remoteJid: '141480651952232@lid',
+            remoteJidAlt: '5214451129186@s.whatsapp.net',
+        })).toBe('5214451129186')
+    })
+
+    test('lo saca del propio remoteJid cuando ya viene como teléfono', () => {
+        expect(phoneFromKey({ remoteJid: '5214451129186@s.whatsapp.net' })).toBe('5214451129186')
+    })
+
+    test('sin ninguna forma telefónica devuelve null, no un LID disfrazado', () => {
+        expect(phoneFromKey({ remoteJid: '141480651952232@lid' })).toBeNull()
+    })
+
+    test('una key ausente no revienta', () => {
+        expect(phoneFromKey(undefined)).toBeNull()
     })
 })

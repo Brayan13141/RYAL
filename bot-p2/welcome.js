@@ -91,6 +91,39 @@ function menuReply(text) {
 }
 
 /**
+ * El telefono real de un chat privado, o null si no se puede saber.
+ *
+ * El bot cotiza fotos reenviadas y le aplica el descuento del cliente, que
+ * Django resuelve por TELEFONO. Bajo 6.7.x la key de un privado trae solo el
+ * `@lid`, asi que recortarle el sufijo `@s.whatsapp.net` dejaba pasar un LID
+ * entero como si fuera un numero: la consulta no matcheaba nunca y el
+ * descuento salia 0 sin que nada lo dijera. Devolver null es lo honesto —
+ * quien llama decide, en vez de mandar basura a la API.
+ */
+function phoneFromKey(key) {
+    const PN = '@s.whatsapp.net'
+    for (const jid of [key?.remoteJid, key?.remoteJidAlt]) {
+        if (typeof jid === 'string' && jid.endsWith(PN)) return jid.slice(0, -PN.length)
+    }
+    return null
+}
+
+/**
+ * Las dos direcciones de un chat privado, tal como las entrega Baileys.
+ *
+ * Desde 7.x la key trae `remoteJidAlt` con la OTRA forma de la misma
+ * dirección (Types/Message.d.ts, Utils/decode-wa-message.js): si `remoteJid`
+ * es el @lid, ahí viene el @s.whatsapp.net, y al revés. Cuál de las dos manda
+ * WhatsApp depende de su migración a LID y puede cambiar sin aviso.
+ *
+ * En 6.7.x el campo no existe — cero ocurrencias en toda la librería — así que
+ * `altJid` sale `undefined` y todo se comporta como antes.
+ */
+function jidsFromKey(key) {
+    return { jid: key?.remoteJid, altJid: key?.remoteJidAlt }
+}
+
+/**
  * Store persistente de JIDs ya saludados. Archivo JSON simple (array de
  * strings); si no existe o está corrupto se empieza de cero sin tirar el bot.
  */
@@ -133,18 +166,24 @@ function createWelcomeStore({ filePath, maxEntries = 20000 } = {}) {
     }
 
     return {
-        hasSeen(jid) {
+        hasSeen(jid, altJid) {
             // Sellado = no sabemos a quien ya saludamos. Decir "ya lo vi" de
             // todos es el lado seguro: se pierde una bienvenida, no se manda
             // spam a cientos.
             if (sealed) return true
-            return seen.has(jid)
+            // Baileys 7 trae la otra forma de la misma direccion en
+            // `key.remoteJidAlt`. Cual de las dos llega depende de la
+            // migracion a LID, asi que basta con conocer cualquiera.
+            return seen.has(jid) || (!!altJid && seen.has(altJid))
         },
         isSealed() {
             return sealed
         },
-        markSeen(jid) {
+        markSeen(jid, altJid) {
+            // Las dos formas se guardan juntas: asi el proximo mensaje del
+            // mismo contacto se reconoce llegue como @lid o como telefono.
             addWithoutPersist(jid)
+            addWithoutPersist(altJid)
             persist()
         },
         /**
@@ -156,7 +195,11 @@ function createWelcomeStore({ filePath, maxEntries = 20000 } = {}) {
             if (!jids || jids.length === 0) return
             // Sembrar a proposito es la unica forma de levantar el sello.
             sealed = false
-            for (const jid of jids) addWithoutPersist(jid)
+            // Cada entrada es un JID suelto o un par [jid, altJid].
+            for (const entry of jids) {
+                if (Array.isArray(entry)) for (const j of entry) addWithoutPersist(j)
+                else addWithoutPersist(entry)
+            }
             persist()
         },
         size() {
@@ -165,4 +208,4 @@ function createWelcomeStore({ filePath, maxEntries = 20000 } = {}) {
     }
 }
 
-module.exports = { WELCOME_MESSAGE, MENU_RESPONSES, menuReply, isGreetableJid, createWelcomeStore }
+module.exports = { WELCOME_MESSAGE, MENU_RESPONSES, menuReply, isGreetableJid, createWelcomeStore, jidsFromKey, phoneFromKey }
