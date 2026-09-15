@@ -920,6 +920,9 @@ async function connect() {
         // Ping más frecuente que el default (30s): detecta antes la conexión
         // muerta y mantiene vivo el NAT durante los reenvíos de lotes pesados.
         keepAliveIntervalMs: 20000,
+        // Sin esto Baileys da 60s al primer QR y 20s a los siguientes: no alcanza
+        // para llevar el QR del panel al teléfono. 60s es la cadencia de WA Web.
+        qrTimeout: 60 * 1000,
         // Baileys manda presencia 'available' al conectar por default
         // (Defaults/index.js: markOnlineOnConnect: true → chats.js: sendPresenceUpdate).
         // Con la cuenta marcada online desde este dispositivo vinculado, WhatsApp deja
