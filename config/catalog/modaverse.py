@@ -165,3 +165,49 @@ def merge_scraped_products(existing_products, scraped_products, filter_ids):
         if p.get('category_id') not in filter_ids and p.get('sku') not in scraped_skus
     ]
     return preservados + scraped
+
+
+def esta_agotado(stock, yn_stock_for_zero, cantidad=1):
+    """Regla única de falta de stock de Modaverse: la usan el scraper, el sync de
+    stock de la tienda y el carrito del proveedor (`orders.cart_builder`).
+
+    Falta stock cuando hay menos piezas que las pedidas, salvo que el producto se
+    venda sin stock (`ynStockForZero` "1", "散货" en su sitio). Si ese campo no
+    viene se asume "0": un agotado de más cuesta menos que vender algo que no llega.
+    Sin dato de stock no se puede afirmar que falte.
+    """
+    if stock is None or isinstance(stock, bool):
+        return False
+    try:
+        stock = float(stock)
+    except (TypeError, ValueError):
+        return False
+    if stock >= cantidad:
+        return False
+    return str(yn_stock_for_zero or '0') != '1'
+
+
+def status_proveedor(yn_launch, stock, yn_stock_for_zero):
+    """`status` de un producto en scraped_modaverse.json.
+
+    `ynLaunch` manda: si no está publicado, el stock no importa.
+    """
+    if str(yn_launch or '') != '1':
+        return 'unlaunched'
+    if esta_agotado(stock, yn_stock_for_zero):
+        return 'out_of_stock'
+    return 'available'
+
+
+def registro_sano(p):
+    """True si la entrada del JSON no es una carcasa.
+
+    Las respuestas degradadas de la API dejan registros sin categoría, precio ni
+    imagen y con stock 0 (778 de los 787 `out_of_stock` del JSON del 2026-09-15).
+    Tomarlos por agotados marcaría cientos de productos que sí se venden.
+    """
+    try:
+        precio = Decimal(str(p.get('price_mxn') or 0))
+    except (InvalidOperation, TypeError, ValueError):
+        return False
+    return bool(p.get('sku') and p.get('category_id') and precio > 0)

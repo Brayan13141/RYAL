@@ -37,7 +37,7 @@ except ImportError:
     _HAS_SCRAPLING = False
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'config'))
-from catalog.modaverse import parse_specifications, merge_scraped_products  # noqa: E402
+from catalog.modaverse import parse_specifications, merge_scraped_products, status_proveedor  # noqa: E402
 
 # ─── Argumentos ───────────────────────────────────────────────────────────────
 _ap = argparse.ArgumentParser(description='Scraper modaverse.vip')
@@ -423,14 +423,8 @@ for item in all_products_raw:
     price_mxn = parse_float(item.get('unitPrice'))
     stock_num = item.get('stockNum', 0)
     yn_launch = '1' if item.get('ynLaunch') == '1' else '0'
-
-    # ynLaunch tiene prioridad: si no está publicado, no importa el stock
-    if yn_launch != '1':
-        status = 'unlaunched'
-    elif stock_num is not None and int(stock_num or 0) <= 0:
-        status = 'out_of_stock'
-    else:
-        status = 'available'
+    yn_stock_for_zero = '1' if str(item.get('ynStockForZero') or '') == '1' else '0'
+    status = status_proveedor(yn_launch, stock_num, yn_stock_for_zero)
 
     specs = parse_specifications(item.get('productSpecificationsList'))
     all_mapped.append({
@@ -447,6 +441,7 @@ for item in all_products_raw:
         "description":  "",
         "status":       status,
         "yn_launch":    yn_launch,
+        "yn_stock_for_zero": yn_stock_for_zero,
         "stock":        stock_num,
         "tags":         [],
         "category_id":  cat_id,

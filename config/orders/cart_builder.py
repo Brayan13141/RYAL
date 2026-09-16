@@ -7,7 +7,7 @@ modaverse espera. Todo lo testeable del armado del pedido vive acá.
 """
 import json
 
-from catalog.modaverse import clean_spec_value
+from catalog.modaverse import clean_spec_value, esta_agotado
 
 _SIZE_KEYS  = ('talla', 'size', '尺寸', '尺码')
 _COLOR_KEYS = ('color', '颜色')
@@ -169,13 +169,10 @@ def falta_stock(product: dict, quantity: int) -> bool:
     """Misma regla que el carrito de modaverse: pedir más de lo que hay, salvo que
     el producto se venda sin stock (ynStockForZero '1', "散货" en su sitio).
 
-    Si el campo no viene se asume que no se vende sin stock: un aviso de más
-    cuesta menos que una pieza que nunca llega.
+    La regla vive en `catalog.modaverse.esta_agotado`, compartida con el scraper y
+    con el sync de stock de la tienda.
     """
-    stock = _stock(product)
-    if stock is None or stock >= quantity:
-        return False
-    return str(product.get('ynStockForZero') or '0') != '1'
+    return esta_agotado(_stock(product), product.get('ynStockForZero'), quantity)
 
 
 def stock_warnings(product: dict, quantity: int) -> list:
