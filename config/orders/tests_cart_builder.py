@@ -65,6 +65,10 @@ class ParseVariantTests(TestCase):
     def test_vacio(self):
         self.assertEqual(parse_variant(''), ('', ''))
 
+    def test_colorway_de_calzado_lleva_el_color_primero(self):
+        """orders/views.py arma "{color} · Talla {size}" en el modo colorway."""
+        self.assertEqual(parse_variant('Blanco · Talla 26'), ('26', 'Blanco'))
+
 
 class SpecDimensionTests(TestCase):
 
@@ -102,6 +106,20 @@ class BuildCartEntryTests(TestCase):
         self.assertEqual(status, 'added')
         elegidos = [s['foreignLanguageName2'] for s in entry['orderSpecificationsList']]
         self.assertEqual(sorted(elegidos), ['L', 'Negro'])
+
+    def test_producto_con_colorway_de_calzado(self):
+        entry, status, _ = build_cart_entry(FOG0124, 'Negro · Talla L', 1)
+        self.assertEqual(status, 'added')
+        elegidos = [s['foreignLanguageName2'] for s in entry['orderSpecificationsList']]
+        self.assertEqual(sorted(elegidos), ['L', 'Negro'])
+
+    def test_dimension_no_pedida_se_agrega_sin_elegir_y_avisa(self):
+        """Pedido con talla y producto con color: no se inventa el color, se avisa."""
+        entry, status, notas = build_cart_entry(FOG0124, 'Talla M', 1)
+        self.assertEqual(status, 'added')
+        elegidos = [s['foreignLanguageName2'] for s in entry['orderSpecificationsList']]
+        self.assertEqual(elegidos, ['M'])
+        self.assertIn('"Color" sin elegir', notas)
 
     def test_no_muta_el_producto_de_entrada(self):
         """build_cart_entry no puede ensuciar el dict que le pasaron."""

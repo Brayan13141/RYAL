@@ -19,10 +19,19 @@ def parse_variant(variant: str) -> tuple:
       "Talla L / Rojo burdeos" → ("L", "Rojo burdeos")
       "Talla L"                → ("L", "")
       "Rojo burdeos"           → ("", "Rojo burdeos")
+      "Blanco · Talla 26"      → ("26", "Blanco")
       ""                       → ("", "")
+
+    El sitio arma variant_target de dos formas cuando hay talla y color
+    (orders/views.py): "Talla {size} / {color}" en el modo normal, y
+    "{color} · Talla {size}" en el modo colorway por imagen (el que usa
+    calzado) — ahí el color va primero y el separador es " · ".
     """
     if not variant:
         return '', ''
+    if ' · Talla ' in variant:
+        color_part, size_part = variant.split(' · Talla ', 1)
+        return size_part.strip(), color_part.strip()
     if variant.startswith('Talla') and ' / ' in variant:
         size_part, color_part = variant.split(' / ', 1)
         return size_part.removeprefix('Talla').strip(), color_part.strip()
@@ -92,6 +101,14 @@ def build_cart_entry(product: dict, variant_target: str, quantity: int,
     status es 'added' o 'variant_not_found'. Cuando no es 'added', la entrada es
     None y el ítem NO entra al carrito: mejor un carrito corto y un aviso que uno
     completo con la talla equivocada.
+
+    Si el producto tiene una dimensión (talla o color) que variant_target no
+    trajo, el ítem se agrega igual (status='added') y notas avisa cuál
+    dimensión quedó sin elegir. No se bloquea: casi ningún pedido local
+    registra color (la BD apenas tiene 2 de ~26k productos con variantes de
+    color) mientras que en Modaverse esa dimensión es común, así que bloquear
+    haría fallar casi todos los pedidos. Misma lógica que stock_warnings:
+    avisar, no bloquear.
     """
     specs = product.get('productSpecificationsList') or []
     size_value, color_value = parse_variant(variant_target)
@@ -111,11 +128,17 @@ def build_cart_entry(product: dict, variant_target: str, quantity: int,
         elif not variant_target:
             # No se registró ninguna variante (ni talla ni color): el código
             # viejo tomaba la primera opción de cada dimensión y avisaba; se
-            # conserva. Si el pedido sí trae variant_target pero solo cubre una
-            # dimensión (p. ej. "Talla M" sin color), la otra se deja sin
-            # seleccionar en vez de rellenarla con un valor no pedido.
+            # conserva.
             elegidos.append(disponibles[0])
             avisos.append(f'Sin variante — seleccionado "{spec_label(disponibles[0])}"')
+        else:
+            # El pedido sí trae variant_target pero cubre solo una dimensión
+            # (p. ej. "Talla M" sin color) y el producto tiene la otra. No se
+            # inventa un valor — rellenar con el primero rompería el carrito
+            # si el cliente pidió otro color — pero tampoco desaparece en
+            # silencio: se avisa para que el operador la complete a mano.
+            etiqueta = disponibles[0].get('foreignLanguageName1') or dimension
+            avisos.append(f'"{etiqueta}" sin elegir')
 
     if faltantes:
         opciones = ', '.join(dict.fromkeys(spec_label(s) for s in specs)) or 'ninguna'
