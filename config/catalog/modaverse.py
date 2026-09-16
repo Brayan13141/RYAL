@@ -20,7 +20,7 @@ _PID_RE = re.compile(r'/proinfo/(\w+)|[?&]pid=(\w+)')
 _CJK_SUFFIX_RE = re.compile(r'\s*[　-〿㐀-䶿一-鿿＀-￯].*$')
 
 
-def _clean_spec_val(s: str) -> str:
+def clean_spec_value(s: str) -> str:
     """Quita sufijos de caracteres CJK/fullwidth y whitespace residual."""
     return _CJK_SUFFIX_RE.sub('', s).strip()
 
@@ -50,7 +50,7 @@ def parse_specifications(spec_list):
         dim = (entry.get('foreignLanguageName1') or '').strip().lower()
         raw = (entry.get('foreignLanguageName2') or '').strip() \
             or (entry.get('specificationsValue') or '').strip()
-        val = _clean_spec_val(raw)
+        val = clean_spec_value(raw)
         if not val:
             continue
         if 'talla' in dim or 'size' in dim or '尺寸' in dim or '尺码' in dim:
