@@ -1,7 +1,15 @@
+from unittest.mock import patch
+
 import httpx
 from django.test import TestCase
 
-from catalog.modaverse_api import ModaverseUnavailable, get_product
+from catalog.modaverse_api import (
+    HEADERS,
+    TIMEOUT,
+    ModaverseUnavailable,
+    get_product,
+    new_client,
+)
 
 
 def _client(handler):
@@ -103,3 +111,46 @@ class GetProductTests(TestCase):
             with self.assertRaises(ModaverseUnavailable):
                 get_product('PR1', client=c)
         self.assertEqual(len(intentos), 2)
+
+    def test_429_es_api_cerrada(self):
+        intentos = []
+
+        def handler(request):
+            intentos.append(1)
+            return httpx.Response(429, json={'message': 'too many requests'})
+        with _client(handler) as c:
+            with self.assertRaises(ModaverseUnavailable):
+                get_product('PR1', client=c)
+        self.assertEqual(len(intentos), 1)
+
+    def test_success_false_sin_palabra_clave_sigue_siendo_producto_inexistente(self):
+        def handler(request):
+            return httpx.Response(200, json={'success': False, 'message': 'no data'})
+        with _client(handler) as c:
+            self.assertIsNone(get_product('NOPE', client=c))
+
+    def test_new_client_trae_headers_y_timeout(self):
+        c = new_client()
+        try:
+            for key, value in HEADERS.items():
+                self.assertEqual(c.headers[key], value)
+            self.assertEqual(c.timeout.read, TIMEOUT)
+        finally:
+            c.close()
+
+    def test_sin_cliente_crea_uno_propio_y_lo_cierra(self):
+        creado = {}
+
+        def handler(request):
+            return httpx.Response(200, json={'success': True, 'data': {'productId': 'PR1'}})
+
+        def fake_new_client():
+            c = _client(handler)
+            creado['client'] = c
+            return c
+
+        with patch('catalog.modaverse_api.new_client', side_effect=fake_new_client):
+            resultado = get_product('PR1')
+
+        self.assertEqual(resultado['productId'], 'PR1')
+        self.assertTrue(creado['client'].is_closed)

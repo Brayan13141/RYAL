@@ -79,6 +79,13 @@ def _post_with_retry(client, path: str, payload: dict):
             raise ModaverseUnavailable(
                 f'La API devolvió HTTP {resp.status_code}: ya no es pública o exige token.'
             )
+        if resp.status_code == 429:
+            # Rate limit, no "no existe": si lo tratáramos como éxito con
+            # success=false, un bloqueo temporal se confundiría con un
+            # producto faltante y el carrito quedaría incompleto sin avisar.
+            raise ModaverseUnavailable(
+                'La API devolvió HTTP 429: está limitando la tasa de peticiones.'
+            )
         if resp.status_code >= 500:
             ultimo = f'HTTP {resp.status_code}'
             continue
