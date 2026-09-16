@@ -1,7 +1,7 @@
 from django.test import TestCase
 
 from orders.cart_builder import (
-    build_cart_entry, build_cart_script, parse_variant,
+    build_cart_entry, build_cart_script, falta_stock, parse_variant,
     spec_dimension, spec_label, stock_warnings,
 )
 
@@ -46,6 +46,22 @@ ZA156 = {
     'ynLaunch':                  '0',
     'unitPrice':                 250,
     'stockNum':                  0,
+    'categoryId':                'CA20260107160742000002',
+    'productSpecificationsList': [],
+}
+
+
+# Producto real capturado de la API el 2026-09-16: publicado pero sobrevendido.
+# ynStockForZero '0' = no se vende sin stock; en modaverse el botón dice "Agotado".
+ZA266 = {
+    'productId':                 '2082402530293186562',
+    'productName':               'ZA-266',
+    'specifications':            None,
+    'ynLaunch':                  '1',
+    'unitPrice':                 220.0,
+    'stockNum':                  -1,
+    'actualStockNum':            0,
+    'ynStockForZero':            '0',
     'categoryId':                'CA20260107160742000002',
     'productSpecificationsList': [],
 }
@@ -189,6 +205,43 @@ class StockWarningsTests(TestCase):
 
     def test_stock_suficiente_y_publicado_no_avisa(self):
         self.assertEqual(stock_warnings(FOG0124, 5), [])
+
+    def test_agotado_lo_dice_con_todas_las_letras(self):
+        avisos = ' '.join(stock_warnings(ZA266, 1))
+        self.assertIn('AGOTADO en Modaverse', avisos)
+        self.assertNotIn('< 1 pedidas', avisos)
+
+    def test_stock_insuficiente_pero_no_agotado_dice_cuantas_hay(self):
+        avisos = ' '.join(stock_warnings(dict(ZA266, stockNum=3), 5))
+        self.assertIn('stock 3 < 5 pedidas', avisos)
+        self.assertNotIn('AGOTADO', avisos)
+
+    def test_se_vende_sin_stock_no_avisa(self):
+        """ynStockForZero '1' ("散货" en modaverse): se compra aunque no haya stock."""
+        self.assertEqual(stock_warnings(dict(ZA266, ynStockForZero='1'), 5), [])
+
+    def test_sin_el_campo_ynStockForZero_avisa(self):
+        """Ante la duda, avisar: un falso aviso cuesta menos que una gorra que no llega."""
+        sin_campo = {k: v for k, v in ZA266.items() if k != 'ynStockForZero'}
+        self.assertIn('AGOTADO', ' '.join(stock_warnings(sin_campo, 1)))
+
+
+class FaltaStockTests(TestCase):
+
+    def test_agotado(self):
+        self.assertTrue(falta_stock(ZA266, 1))
+
+    def test_insuficiente(self):
+        self.assertTrue(falta_stock(dict(ZA266, stockNum=3), 5))
+
+    def test_suficiente(self):
+        self.assertFalse(falta_stock(FOG0124, 80))
+
+    def test_se_vende_sin_stock(self):
+        self.assertFalse(falta_stock(dict(ZA266, ynStockForZero='1'), 5))
+
+    def test_despublicado_con_stock_no_es_falta_de_stock(self):
+        self.assertFalse(falta_stock(dict(ZA266, ynLaunch='0', stockNum=10), 1))
 
 
 class BuildCartScriptTests(TestCase):

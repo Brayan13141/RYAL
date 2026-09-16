@@ -158,14 +158,39 @@ def build_cart_entry(product: dict, variant_target: str, quantity: int,
     return entry, 'added', '; '.join(avisos)
 
 
+def _stock(product: dict):
+    stock = product.get('stockNum')
+    if isinstance(stock, (int, float)) and not isinstance(stock, bool):
+        return stock
+    return None
+
+
+def falta_stock(product: dict, quantity: int) -> bool:
+    """Misma regla que el carrito de modaverse: pedir más de lo que hay, salvo que
+    el producto se venda sin stock (ynStockForZero '1', "散货" en su sitio).
+
+    Si el campo no viene se asume que no se vende sin stock: un aviso de más
+    cuesta menos que una pieza que nunca llega.
+    """
+    stock = _stock(product)
+    if stock is None or stock >= quantity:
+        return False
+    return str(product.get('ynStockForZero') or '0') != '1'
+
+
 def stock_warnings(product: dict, quantity: int) -> list:
     """Advertencias que no bloquean: el ítem se agrega igual (decisión de Bryan)."""
     avisos = []
     if str(product.get('ynLaunch') or '') == '0':
         avisos.append('despublicado en Modaverse')
-    stock = product.get('stockNum')
-    if isinstance(stock, (int, float)) and not isinstance(stock, bool) and stock < quantity:
-        avisos.append(f'stock {int(stock)} < {quantity} pedidas')
+    if falta_stock(product, quantity):
+        stock = int(_stock(product))
+        if stock <= 0:
+            # stockNum llega negativo cuando está sobrevendido: "stock -1 < 1" no
+            # se entiende de un vistazo en el panel.
+            avisos.append(f'AGOTADO en Modaverse (stock {stock})')
+        else:
+            avisos.append(f'stock {stock} < {quantity} pedidas')
     return avisos
 
 

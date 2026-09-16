@@ -13,11 +13,14 @@ from django.core.management.base import BaseCommand, CommandError
 
 from catalog.modaverse_api import ModaverseUnavailable, get_product, new_client
 from orders.cart_builder import (
-    build_cart_entry, build_cart_script, parse_variant, stock_warnings,
+    build_cart_entry, build_cart_script, falta_stock, parse_variant, stock_warnings,
 )
 from orders.models import SupplierOrder
 
 _PID_RE = re.compile(r'/proinfo/(\w+)|[?&]pid=(\w+)')
+
+# La nota que pone panel.views.supplier_item_update al marcar un renglón a mano.
+_NOTA_MANUAL = 'Agregado manualmente'
 
 
 class Command(BaseCommand):
@@ -42,9 +45,15 @@ class Command(BaseCommand):
                 f'Inicializalo primero desde el panel.'
             )
 
-        pendientes = [i for i in supplier_order.items.all() if i.status == 'pending']
-        if not pendientes:
-            self.stdout.write(self.style.WARNING('No hay ítems pendientes. Nada que hacer.'))
+        # Se procesan los pendientes Y los ya agregados: pegar el script reemplaza
+        # shopCarList entero en modaverse, así que en un "Reintentar fallidos" el
+        # script tiene que volver a traer lo que ya estaba, no solo lo reintentado.
+        a_armar = [i for i in supplier_order.items.all() if i.status in ('pending', 'added')]
+        if not a_armar:
+            # La vista ya dejó el pedido en 'pending' antes de lanzar el comando.
+            supplier_order.status = self._estado_final(supplier_order)
+            supplier_order.save(update_fields=['status', 'updated_at'])
+            self.stdout.write(self.style.WARNING('No hay ítems para armar. Nada que hacer.'))
             return
 
         supplier_order.status = 'running'
@@ -54,23 +63,39 @@ class Command(BaseCommand):
         # mismo producto Y la misma variante suman cantidades; con variantes
         # distintas son dos entradas separadas, cada una con su propio num.
         entradas = {}
-        total = len(pendientes)
+        con_falta_de_stock = 0
+        fuera_del_script = 0
+        total = len(a_armar)
         client = new_client()
 
         try:
-            for idx, item in enumerate(pendientes, 1):
+            for idx, item in enumerate(a_armar, 1):
                 sku = item.order_item.sku_snapshot
                 pid = self._pid(item.supplier_url)
+                # Un renglón ya agregado nunca cambia de estado acá: si no se puede
+                # armar, puede ser uno que el operador marcó a mano en el panel.
+                ya_agregado = item.status == 'added'
                 self.stdout.write('')
-                self.stdout.write(f'===== [{idx}/{total}] {sku} =====')
+                marca = ' (ya agregado)' if ya_agregado else ''
+                self.stdout.write(f'===== [{idx}/{total}] {sku}{marca} =====')
 
                 if not pid:
+                    if ya_agregado:
+                        fuera_del_script += 1
+                        self.stdout.write(self.style.WARNING(
+                            '  sin URL de proveedor: NO va en el script, agregalo a mano'))
+                        continue
                     self._guardar(item, 'no_url', 'El producto no tiene supplier_url de modaverse')
                     self.stdout.write(self.style.WARNING('  sin URL de proveedor'))
                     continue
 
                 producto = get_product(pid, client=client)
                 if producto is None:
+                    if ya_agregado:
+                        fuera_del_script += 1
+                        self.stdout.write(self.style.WARNING(
+                            f'  la API no conoce el pid {pid}: NO va en el script, agregalo a mano'))
+                        continue
                     self._guardar(item, 'variant_not_found',
                                   f'La API dice que el producto {pid} no existe')
                     self.stdout.write(self.style.WARNING(f'  la API no conoce el pid {pid}'))
@@ -83,11 +108,18 @@ class Command(BaseCommand):
                 )
 
                 if status != 'added':
+                    if ya_agregado:
+                        fuera_del_script += 1
+                        self.stdout.write(self.style.WARNING(
+                            f'  {notas} — NO va en el script, agregalo a mano'))
+                        continue
                     self._guardar(item, status, notas)
                     self.stdout.write(self.style.WARNING(f'  {notas}'))
                     continue
 
                 avisos = stock_warnings(producto, qty)
+                if falta_stock(producto, qty):
+                    con_falta_de_stock += 1
                 if avisos:
                     aviso_txt = '⚠ ' + '; '.join(avisos)
                     notas = f'{notas}; {aviso_txt}' if notas else aviso_txt
@@ -99,7 +131,8 @@ class Command(BaseCommand):
                 else:
                     entradas[clave] = entry
 
-                self._guardar(item, 'added', notas)
+                if item.notes != _NOTA_MANUAL:
+                    self._guardar(item, 'added', notas)
                 self.stdout.write(self.style.SUCCESS(
                     f'  OK {producto.get("productName")} ×{qty} {item.variant_target}'.rstrip()
                 ))
@@ -127,6 +160,12 @@ class Command(BaseCommand):
 
         cart_script = build_cart_script(list(entradas.values()))
         supplier_order.status = self._estado_final(supplier_order)
+        if supplier_order.status == 'done' and (con_falta_de_stock or fuera_del_script):
+            # Entra al carrito igual (decisión de Bryan), pero un pedido con
+            # piezas agotadas no puede verse terminado: 'done' dispara el toast
+            # verde de "carrito listo" y el aviso del renglón pasa de largo. Lo
+            # mismo si un renglón marcado como agregado no pudo ir en el script.
+            supplier_order.status = 'partial'
         supplier_order.cart_script = cart_script
         supplier_order.save(update_fields=['status', 'cart_script', 'updated_at'])
 
