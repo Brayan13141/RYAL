@@ -1153,3 +1153,27 @@ class ResumenGlobalGraficoSinMovimientosTests(TestCase):
         self.client.login(username='staff_rg_vacio', password='pass')
         res = self.client.get('/panel/resumen-global/?mes=2026-07')
         self.assertEqual(res.context['chart_meses'], [])
+
+
+class SupplierOrderRunLanzamientoTests(TestCase):
+    """El subproceso se lanza sin --headless y con el stdout sin buffer."""
+
+    def setUp(self):
+        from orders.models import SupplierOrder
+        self.staff = User.objects.create_user('staff', password='x', is_staff=True)
+        self.client.force_login(self.staff)
+        self.order = Order.objects.create(customer_name='Bryan', customer_phone='4451112233')
+        SupplierOrder.objects.create(order=self.order)
+
+    def test_lanza_sin_headless_y_sin_buffer(self):
+        with patch('panel.views.subprocess.Popen') as mock_popen:
+            resp = self.client.post(
+                reverse('panel:supplier_order_run', args=[self.order.pk])
+            )
+        self.assertEqual(resp.status_code, 200)
+        args, kwargs = mock_popen.call_args
+        cmd = args[0]
+        self.assertIn('-u', cmd)
+        self.assertNotIn('--headless', cmd)
+        self.assertEqual(kwargs['env']['PYTHONUNBUFFERED'], '1')
+        self.assertEqual(kwargs['env']['PYTHONUTF8'], '1')

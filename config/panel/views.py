@@ -1800,7 +1800,7 @@ def supplier_item_update(request, pk, item_pk):
 @_staff
 @require_POST
 def supplier_order_run(request, pk):
-    """Lanza sync_modaverse_order --headless como subproceso en background."""
+    """Lanza sync_modaverse_order como subproceso en background."""
     order = get_object_or_404(Order, pk=pk)
     supplier_order = get_object_or_404(SupplierOrder, order=order)
 
@@ -1820,7 +1820,7 @@ def supplier_order_run(request, pk):
     log_path = Path(tempfile.gettempdir()) / f'modaverse_{order.pk}.log'
     log_f = open(log_path, 'w', encoding='utf-8', errors='replace')
     subprocess.Popen(
-        [sys.executable, '-u', str(manage_py), 'sync_modaverse_order', str(order.pk), '--headless'],
+        [sys.executable, '-u', str(manage_py), 'sync_modaverse_order', str(order.pk)],
         cwd=str(manage_py.parent),
         env=env,
         stdout=log_f,
