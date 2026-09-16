@@ -160,7 +160,13 @@ class Command(BaseCommand):
                 self._bootstrap_to_product_page(page)
 
                 try:
-                    for group in item_groups.values():
+                    total_groups = len(item_groups)
+                    for idx, group in enumerate(item_groups.values(), 1):
+                        self.stdout.write('')
+                        self.stdout.write(
+                            f'===== [{idx}/{total_groups}] {group[0]["sku"]} '
+                            f'({len(group)} item(s) del pedido) ====='
+                        )
                         try:
                             group_results = self._add_item_group(page, group)
                         except Exception as exc:

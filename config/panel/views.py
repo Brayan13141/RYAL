@@ -1813,11 +1813,14 @@ def supplier_order_run(request, pk):
     supplier_order.save(update_fields=['status'])
 
     manage_py = Path(__file__).resolve().parent.parent / 'manage.py'
-    env = {**os.environ, 'PYTHONUTF8': '1'}
+    # PYTHONUNBUFFERED: sin esto el stdout del hijo se bufferea en bloques de 8 KB
+    # (no es una terminal, es un archivo) y el log del panel queda vacio hasta que
+    # el proceso termina. El -u de abajo cubre lo mismo; van los dos a proposito.
+    env = {**os.environ, 'PYTHONUTF8': '1', 'PYTHONUNBUFFERED': '1'}
     log_path = Path(tempfile.gettempdir()) / f'modaverse_{order.pk}.log'
     log_f = open(log_path, 'w', encoding='utf-8', errors='replace')
     subprocess.Popen(
-        [sys.executable, str(manage_py), 'sync_modaverse_order', str(order.pk), '--headless'],
+        [sys.executable, '-u', str(manage_py), 'sync_modaverse_order', str(order.pk), '--headless'],
         cwd=str(manage_py.parent),
         env=env,
         stdout=log_f,
