@@ -1,6 +1,12 @@
 """
-Scrape + carga Gorra (siempre) + la categoría rotativa del slot. Crontab cada 2 días:
-  0 2 */2 * * cd ~/WEB_RYAL && PYTHONUTF8=1 venv/bin/python config/manage.py auto_sync_catalog >> /var/log/ryal_sync.log 2>&1
+Sincronización del catálogo de Modaverse. Dos modos, dos líneas de crontab (root,
+servidor en UTC; México = UTC−6 fijo). Comparten el candado para no escribir el
+JSON a la vez; si el otro no suelta en 30 min, la corrida se salta.
+
+  # Stock de gorras: 18:00 y 06:00 México
+  0 0,12 * * *  cd /root/app && flock -w 1800 /tmp/ryal_catalog.lock env PYTHONUTF8=1 venv/bin/python config/manage.py auto_sync_catalog --stock-only >> /var/log/ryal_stock.log 2>&1
+  # Gorra + categoría rotativa, cada 2 días a las 20:00 México
+  0 2 */2 * *   cd /root/app && flock -w 1800 /tmp/ryal_catalog.lock env PYTHONUTF8=1 venv/bin/python config/manage.py auto_sync_catalog >> /var/log/ryal_sync.log 2>&1
 """
 import subprocess
 import sys
@@ -33,6 +39,10 @@ _ALWAYS = (['gorra'], 'Gorra', 'gorra', 'gorras')
 # 2026-07-13 (cont.): 85% del catálogo activo tenía exactamente 1 foto — import_images
 # existía pero nunca se había sumado al pipeline automático. Se agrega como Paso 4
 # (--fill-gaps, completa desde 1 hasta lo que el JSON tenga disponible por producto).
+#
+# 2026-09-16: el Paso 4 (import_images --fill-gaps) salió del pipeline por decisión
+# de Bryan: no se completan galerías de productos existentes. images_hint se conserva
+# como referencia para correr import_images a mano.
 _SCHEDULE = {
     0: (['deportiva'],      'Camisetas deportivas',        'deportiva',    'deportivas'),
     1: (['1:1'],            'Camisetas/Sudaderas 1:1',     '1:1',          '1a1'),
@@ -46,6 +56,10 @@ _SCHEDULE = {
 
 # Ruta del scraper relativa a la raíz del repo
 _SCRAPER = 'scrape_modaverse_final.py'
+
+# Categorías con stock sincronizado 2 veces al día (--stock-only). Extender a más
+# categorías exige medir antes cuánto tarda su scrape.
+_STOCK_SYNC = ['gorra']
 
 
 def slot_for_date(d: date) -> int:
@@ -93,8 +107,17 @@ class Command(BaseCommand):
             '--browser', dest='no_browser', action='store_false',
             help='Usar scrapling/Playwright en el scrape (solo si el entorno lo soporta).',
         )
+        parser.add_argument(
+            '--stock-only', action='store_true',
+            help='Solo stock de _STOCK_SYNC: scrape → reconcile_catalog → sync_stock_modaverse. '
+                 'Sin carga de productos ni imágenes.',
+        )
 
     def handle(self, *args, **options):
+        if options['stock_only']:
+            self._stock_only(options)
+            return
+
         to_run = []
 
         if not options['skip_gorra']:
@@ -121,6 +144,43 @@ class Command(BaseCommand):
         for keywords, label, scraper_kw, images_hint in to_run:
             self._sync_one(keywords, label, scraper_kw, images_hint, options)
 
+    def _scrape(self, scraper_kw, options):
+        """Corre el scraper de una categoría. True si terminó con código 0."""
+        repo_root = Path(__file__).resolve().parents[4]
+        scraper   = repo_root / _SCRAPER
+        if not scraper.exists():
+            self.stdout.write(self.style.WARNING(f'  ⚠ Scraper no encontrado: {scraper}'))
+            return False
+        self.stdout.write(f'  ► Scrapeando "{scraper_kw}"...')
+        cmd = [sys.executable, '-X', 'utf8', str(scraper), '--category', scraper_kw]
+        if options['no_browser']:
+            cmd.append('--no-browser')
+        result = subprocess.run(
+            cmd,
+            capture_output=False,   # deja que stdout/stderr fluyan al log
+            cwd=str(repo_root),
+        )
+        if result.returncode != 0:
+            self.stdout.write(self.style.WARNING(f'  ⚠ Scraper terminó con código {result.returncode}.'))
+            return False
+        self.stdout.write('  ✓ Scrape completado.')
+        return True
+
+    def _stock_only(self, options):
+        for kw in _STOCK_SYNC:
+            if options['dry_run']:
+                self.stdout.write(f'[dry-run] {kw}  |  scrape → reconcile_catalog → sync_stock_modaverse')
+                continue
+            self.stdout.write(f'[auto_sync_catalog --stock-only] {kw}')
+            if not options['no_scrape'] and not self._scrape(kw, options):
+                self.stdout.write(self.style.ERROR(
+                    f'  ✗ El scrape de "{kw}" falló: no se reconcilia ni se sincroniza stock con el JSON viejo.'
+                ))
+                continue
+            call_command('reconcile_catalog', category=[kw], verbosity=options['verbosity'])
+            call_command('sync_stock_modaverse', category=[kw], verbosity=options['verbosity'])
+            self.stdout.write(self.style.SUCCESS(f'  ✓ Stock de {kw} sincronizado.'))
+
     def _sync_one(self, keywords, label, scraper_kw, images_hint, options):
         self.stdout.write(
             f'[auto_sync_catalog] {label}'
@@ -128,29 +188,15 @@ class Command(BaseCommand):
         )
 
         # ── Paso 1: scrape ────────────────────────────────────────────────────
+        scrape_fallo = False
         if scraper_kw and not options['no_scrape']:
-            repo_root = Path(__file__).resolve().parents[4]
-            scraper   = repo_root / _SCRAPER
-            if not scraper.exists():
-                self.stdout.write(self.style.WARNING(f'  ⚠ Scraper no encontrado: {scraper}'))
-            else:
-                self.stdout.write(f'  ► Scrapeando "{scraper_kw}"...')
-                cmd = [sys.executable, '-X', 'utf8', str(scraper), '--category', scraper_kw]
-                if options['no_browser']:
-                    cmd.append('--no-browser')
-                result = subprocess.run(
-                    cmd,
-                    capture_output=False,   # deja que stdout/stderr fluyan al log
-                    cwd=str(repo_root),
-                )
-                if result.returncode != 0:
-                    self.stdout.write(
-                        self.style.WARNING(f'  ⚠ Scraper terminó con código {result.returncode} — continuando con JSON existente.')
-                    )
-                else:
-                    self.stdout.write(f'  ✓ Scrape completado.')
+            scrape_fallo = not self._scrape(scraper_kw, options)
+            if scrape_fallo:
+                self.stdout.write(self.style.WARNING('  ⚠ Continuando con el JSON existente (sin sincronizar stock).'))
 
         # ── Paso 2: load_productos ────────────────────────────────────────────
+        # La reconciliación (baja de productos eliminados) se ejecuta dentro
+        # de load_productos al recibir --category. No se repite aquí.
         self.stdout.write(f'  ► Cargando productos ({label})...')
         call_command('load_productos', category=keywords, verbosity=options['verbosity'])
 
@@ -158,18 +204,9 @@ class Command(BaseCommand):
         self.stdout.write(f'  ► Descargando imágenes de pendientes...')
         call_command('import_pending_images', workers=4, verbosity=options['verbosity'])
 
-        # La reconciliación (baja de productos eliminados) se ejecuta dentro
-        # de load_productos al recibir --category. No se repite aquí.
-
-        # ── Paso 4: galería completa de productos ya aprobados ────────────────
-        # import_pending_images solo baja 1 foto de portada por PendingProduct.
-        # Aquí se completa la galería de los Product ya aprobados de esta
-        # categoría con --fill-gaps (hasta lo que el JSON tenga disponible).
-        if images_hint:
-            self.stdout.write(f'  ► Completando galería de productos ({label})...')
-            call_command(
-                'import_images', only=images_hint, fill_gaps=True,
-                verbosity=options['verbosity'],
-            )
+        # ── Paso 4: stock (solo Modaverse, y nunca contra un JSON viejo) ──────
+        if scraper_kw and not scrape_fallo:
+            self.stdout.write(f'  ► Sincronizando stock ({label})...')
+            call_command('sync_stock_modaverse', category=keywords, verbosity=options['verbosity'])
 
         self.stdout.write(self.style.SUCCESS(f'  ✓ {label} sincronizada.'))
