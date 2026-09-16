@@ -2,15 +2,39 @@
 
 Reconcilia el catálogo local con scraped_modaverse.json:
 - Soft-delete de productos modaverse que ya no existen en el proveedor.
-- Reactivación de los que reaparecen.
+  Las fotos se conservan (desde 2026-09-16): si el producto vuelve, vuelve completo.
+- Reactivación de los que reaparecen, solo si tienen al menos una foto.
 
 Solo afecta supplier_url que contenga 'modaverse.vip'.
 Calzado (yupoo) y productos manuales quedan intactos.
 """
 from django.core.management.base import BaseCommand
+from django.db.models import Count
 
 from catalog.models import Category, Product, ProductImage
 from catalog.modaverse import pid_from_url, read_modaverse_json, category_filter_ids
+
+
+def modaverse_scope(keywords=None):
+    """Productos de Modaverse, limitados si hay keywords a las categorías raíz que
+    coinciden (por nombre o slug) y a sus subcategorías.
+
+    Usa la jerarquía de Django, no el árbol del JSON: así entran las subcategorías
+    legacy que el proveedor ya no lista.
+    """
+    qs = Product.objects.filter(supplier_url__icontains='modaverse.vip')
+    if not keywords:
+        return qs
+    kws = [k.lower() for k in keywords]
+    root_pks = {
+        c.pk
+        for c in Category.objects.filter(parent__isnull=True)
+        if any(kw in c.name.lower() or kw in c.slug.lower() for kw in kws)
+    }
+    sub_pks = set(
+        Category.objects.filter(parent_id__in=root_pks).values_list('pk', flat=True)
+    )
+    return qs.filter(category_id__in=root_pks | sub_pks)
 
 
 class Command(BaseCommand):
@@ -95,18 +119,7 @@ class Command(BaseCommand):
             return
 
         # ── DB scope ─────────────────────────────────────────────────────────
-        scope_qs = Product.objects.filter(supplier_url__icontains='modaverse.vip')
-        if filter_ids is not None:
-            kws = [k.lower() for k in options['category']]
-            root_pks = {
-                c.pk
-                for c in Category.objects.filter(parent__isnull=True)
-                if any(kw in c.name.lower() or kw in c.slug.lower() for kw in kws)
-            }
-            sub_pks = set(
-                Category.objects.filter(parent_id__in=root_pks).values_list('pk', flat=True)
-            )
-            scope_qs = scope_qs.filter(category_id__in=root_pks | sub_pks)
+        scope_qs = modaverse_scope(options['category'])
 
         # ── Candidatos ───────────────────────────────────────────────────────
         to_deactivate_pks = []
@@ -117,11 +130,17 @@ class Command(BaseCommand):
             if pid and pid not in live_pids:
                 to_deactivate_pks.append(p.pk)
 
+        # Un producto sin fotos no se reactiva: se vería roto en la tienda.
         to_reactivate_pks = []
-        for p in scope_qs.filter(auto_deactivated=True):
+        sin_fotos = []
+        for p in scope_qs.filter(auto_deactivated=True).annotate(n_fotos=Count('images')):
             pid = pid_from_url(p.supplier_url)
-            if pid and pid in live_pids:
+            if not (pid and pid in live_pids):
+                continue
+            if p.n_fotos:
                 to_reactivate_pks.append(p.pk)
+            else:
+                sin_fotos.append(p)
 
         # ── Guarda 2: umbral ─────────────────────────────────────────────────
         if to_deactivate_pks and scope_active_count > 0 and not options['force']:
@@ -139,7 +158,8 @@ class Command(BaseCommand):
             self.stdout.write(
                 f'[dry-run] scope={scope_active_count} · '
                 f'bajas={len(to_deactivate_pks)} · '
-                f'reactivaciones={len(to_reactivate_pks)}'
+                f'reactivaciones={len(to_reactivate_pks)} · '
+                f'sin_fotos={len(sin_fotos)}'
             )
             if to_deactivate_pks:
                 examples = list(
@@ -149,6 +169,7 @@ class Command(BaseCommand):
                 self.stdout.write(f'  A desactivar (primeros {len(examples)}):')
                 for sku, name in examples:
                     self.stdout.write(f'    {sku} — {name}')
+            self._report_sin_fotos(sin_fotos)
             return
 
         # ── Aplicar ───────────────────────────────────────────────────────────
@@ -159,39 +180,26 @@ class Command(BaseCommand):
             is_active=True, auto_deactivated=False
         )
 
-        # Borrar imágenes de los productos dados de baja
-        imgs_deleted = 0
-        if to_deactivate_pks:
-            imgs = list(ProductImage.objects.filter(product_id__in=to_deactivate_pks))
-            for img in imgs:
-                img.image.delete(save=False)
-            ProductImage.objects.filter(product_id__in=to_deactivate_pks).delete()
-            imgs_deleted = len(imgs)
-
         self.stdout.write(self.style.SUCCESS(
             f'scope={scope_active_count} · '
             f'bajas={len(to_deactivate_pks)} · '
             f'reactivaciones={len(to_reactivate_pks)} · '
-            f'imágenes_eliminadas={imgs_deleted}'
+            f'sin_fotos={len(sin_fotos)}'
         ))
+        self._report_sin_fotos(sin_fotos)
+
+    def _report_sin_fotos(self, sin_fotos):
+        if not sin_fotos:
+            return
+        self.stdout.write(
+            f'  Siguen ocultos por no tener fotos (primeros {min(10, len(sin_fotos))}):'
+        )
+        for p in sin_fotos[:10]:
+            self.stdout.write(f'    {p.sku} — {p.name}')
 
     def _prune(self, options):
         """Elimina permanentemente los productos con auto_deactivated=True en el scope."""
-        qs = Product.objects.filter(
-            supplier_url__icontains='modaverse.vip',
-            auto_deactivated=True,
-        )
-        if options['category']:
-            kws = [k.lower() for k in options['category']]
-            root_pks = {
-                c.pk
-                for c in Category.objects.filter(parent__isnull=True)
-                if any(kw in c.name.lower() or kw in c.slug.lower() for kw in kws)
-            }
-            sub_pks = set(
-                Category.objects.filter(parent_id__in=root_pks).values_list('pk', flat=True)
-            )
-            qs = qs.filter(category_id__in=root_pks | sub_pks)
+        qs = modaverse_scope(options['category']).filter(auto_deactivated=True)
 
         count = qs.count()
         if count == 0:

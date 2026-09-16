@@ -1,7 +1,11 @@
+import os
+import shutil
+import tempfile
 from decimal import Decimal
 from io import StringIO
 from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
@@ -574,6 +578,19 @@ class ReconcileCatalogTests(TestCase):
             )
         return stdout.getvalue(), stderr.getvalue()
 
+    def _add_image(self, product):
+        """Fila de imagen sin archivo en disco: alcanza para contar fotos."""
+        return ProductImage.objects.create(product=product, image=f'products/{product.sku}.jpg')
+
+    def _media_tmp(self):
+        """MEDIA_ROOT temporal: TestCase no limpia los archivos que se escriben."""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        ajuste = self.settings(MEDIA_ROOT=tmp)
+        ajuste.enable()
+        self.addCleanup(ajuste.disable)
+        return tmp
+
     def test_desactiva_producto_cuyo_pid_no_esta_en_json(self):
         """Producto activo cuyo pid no aparece en el JSON → is_active=False, auto_deactivated=True.
         3 productos permanecen en JSON → 1/4 = 25 % < 30 % (threshold no dispara)."""
@@ -586,8 +603,9 @@ class ReconcileCatalogTests(TestCase):
         self.assertTrue(p.auto_deactivated)
 
     def test_reactiva_producto_auto_deactivated_que_reaparece(self):
-        """Producto con auto_deactivated=True cuyo pid vuelve al JSON → is_active=True, auto_deactivated=False."""
+        """Producto con auto_deactivated=True y con fotos cuyo pid vuelve al JSON → se reactiva."""
         p = self._make_product('PID001', is_active=False, auto_deactivated=True)
+        self._add_image(p)
         self._call(json_data=self._json(['PID001']))
         p.refresh_from_db()
         self.assertTrue(p.is_active)
@@ -738,6 +756,39 @@ class ReconcileCatalogTests(TestCase):
         p_manual.refresh_from_db()
         self.assertTrue(p_yupoo.is_active)
         self.assertTrue(p_manual.is_active)
+
+    def test_desactivar_conserva_fotos_y_archivos(self):
+        """Ocultar un producto ya no borra sus fotos: si vuelve, vuelve completo."""
+        self._media_tmp()
+        p = self._make_product('PID001')
+        for pid in ('PID002', 'PID003', 'PID004'):
+            self._make_product(pid)
+        img = ProductImage.objects.create(
+            product=p,
+            image=SimpleUploadedFile('foto.jpg', b'x' * 600, content_type='image/jpeg'),
+        )
+        ruta = img.image.path
+        self._call(json_data=self._json(['PID002', 'PID003', 'PID004']))
+        p.refresh_from_db()
+        self.assertFalse(p.is_active)
+        self.assertEqual(p.images.count(), 1)
+        self.assertTrue(os.path.exists(ruta))
+
+    def test_no_reactiva_producto_sin_fotos_y_lo_lista(self):
+        """Las gorras que perdieron las fotos antes de este cambio quedan ocultas."""
+        p = self._make_product('PID001', is_active=False, auto_deactivated=True)
+        stdout, _ = self._call(json_data=self._json(['PID001']))
+        p.refresh_from_db()
+        self.assertFalse(p.is_active)
+        self.assertTrue(p.auto_deactivated)
+        self.assertIn('sin_fotos=1', stdout)
+        self.assertIn('RYL-TEST-PID001', stdout)
+
+    def test_dry_run_cuenta_los_bloqueados_por_falta_de_fotos(self):
+        self._make_product('PID001', is_active=False, auto_deactivated=True)
+        stdout, _ = self._call('--dry-run', json_data=self._json(['PID001']))
+        self.assertIn('sin_fotos=1', stdout)
+        self.assertIn('RYL-TEST-PID001', stdout)
 
 
 class ReconcileYupooTests(TestCase):
