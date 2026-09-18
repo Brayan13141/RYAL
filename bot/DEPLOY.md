@@ -106,6 +106,11 @@ NOTIFY_PORT=8953
 > `NOTIFY_PORT=8953` es obligatorio aquí: las tres instancias del bot comparten
 > el host y todas caen en el default 8952 si no se fija — Django (`BOT_NOTIFY_URL`)
 > apunta a 8953 porque persona2 es la única instancia con `ORDERS_GROUP_ID`.
+>
+> `NOTIFY_TOKEN` (avisos de estado al cliente): el mismo valor en `/root/app/bot-p2/.env` y en
+> `/root/app/.env`. Generarlo con `openssl rand -hex 32`. Sin él, Django no manda avisos por
+> WhatsApp a clientes y el bot responde 503 a `target: "customer"`; los avisos al Grupo Pedidos y
+> los del watchdog no lo necesitan.
 
 ---
 

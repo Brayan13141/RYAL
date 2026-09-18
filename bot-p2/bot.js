@@ -17,7 +17,7 @@ const { acquireAuthLock } = require('./lock')
 const { createOrderSessionStore } = require('./orderSession')
 const { WELCOME_MESSAGE, menuReply, isGreetableJid, createWelcomeStore, jidsFromKey, phoneFromKey } = require('./welcome')
 const { writeQrState } = require('./qrState')
-const { resolveNotifyJid } = require('./notifyTarget')
+const { createNotifyHandler } = require('./notifyServer')
 const { matchPromo } = require('./promos')
 const { avisoSinTipo } = require('./avisoSinTipo')
 const { mensajeSinTipo } = require('./ventaSinTipo')
@@ -1041,45 +1041,13 @@ process.on('unhandledRejection', (err) => {
 })
 
 function startNotifyServer() {
-    const server = http.createServer((req, res) => {
-        if (req.method !== 'POST' || req.url !== '/notify') {
-            res.writeHead(404).end()
-            return
-        }
-        let body = ''
-        req.on('data', (chunk) => { body += chunk })
-        req.on('end', async () => {
-            let message, target
-            try {
-                const parsed = JSON.parse(body || '{}')
-                message = parsed.message
-                target = parsed.target
-            } catch (e) {
-                res.writeHead(400).end('JSON inválido')
-                return
-            }
-            if (!message) {
-                res.writeHead(400).end('Falta "message"')
-                return
-            }
-            if (!currentSock) {
-                res.writeHead(503).end('Bot aún no conectado')
-                return
-            }
-            const { jid, error } = resolveNotifyJid(target, { ordersGid: ORDERS_GID, alertJid: ALERT_JID })
-            if (error) {
-                res.writeHead(503).end('Grupo de pedidos no configurado en esta instancia')
-                return
-            }
-            try {
-                await currentSock.sendMessage(jid, { text: message })
-                res.writeHead(200).end('ok')
-            } catch (err) {
-                logger.error({ err: err.message, jid, target }, 'Error enviando aviso (/notify)')
-                res.writeHead(500).end('Error al enviar')
-            }
-        })
-    })
+    const server = http.createServer(createNotifyHandler({
+        getSock: () => currentSock,
+        ordersGid: ORDERS_GID,
+        alertJid: ALERT_JID,
+        notifyToken: process.env.NOTIFY_TOKEN,
+        logger,
+    }))
     server.on('error', (err) => {
         logger.error({ err: err.message, port: NOTIFY_PORT }, 'No se pudo levantar el servidor de avisos')
     })
