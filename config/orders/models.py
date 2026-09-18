@@ -1,7 +1,10 @@
 import uuid
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError
+from django.core.validators import URLValidator
 from django.db import models
+from django.utils import timezone
 from django.contrib.auth.models import User
 from catalog.models import Product, ProductVariant
 
@@ -20,6 +23,10 @@ SUPPLIER_ITEM_STATUS = [
     ('variant_not_found', 'Variante no encontrada'),
     ('no_url',            'Sin URL de proveedor'),
 ]
+
+
+class InvalidTransition(ValueError):
+    """Cambio de estado del pedido que la máquina de estados no permite."""
 
 
 class SavedCartItem(models.Model):
@@ -45,6 +52,17 @@ class Order(models.Model):
         ('cancelled', 'Cancelado'),
     ]
 
+    # Máquina de estados: no se saltan pasos ni se regresa. Enviado ya no se
+    # cancela; Entregado y Cancelado son finales.
+    TRANSITIONS = {
+        'pending':        ('confirmed', 'cancelled'),
+        'confirmed':      ('in_preparation', 'cancelled'),
+        'in_preparation': ('shipped', 'cancelled'),
+        'shipped':        ('delivered',),
+        'delivered':      (),
+        'cancelled':      (),
+    }
+
     user = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True, related_name='orders'
     )
@@ -56,6 +74,10 @@ class Order(models.Model):
 
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='pending')
     notes = models.TextField(blank=True)
+    tracking_url = models.URLField(
+        max_length=500, blank=True,
+        help_text='URL de rastreo que manda el proveedor (17track, etc). Obligatoria para pasar a Enviado.',
+    )
 
     deposit             = models.DecimalField(max_digits=8, decimal_places=2, default=0)  # deprecado: reemplazado por OrderPayment
     descuento_aplicado  = models.DecimalField(max_digits=8, decimal_places=2, default=0)
@@ -139,6 +161,48 @@ class Order(models.Model):
         if self.is_paid != paid:
             self.is_paid = paid
             self.save(update_fields=['is_paid', 'updated_at'])
+
+    def allowed_next_statuses(self):
+        """(valor, etiqueta) de los estados a los que puede pasar, en el orden de STATUS_CHOICES."""
+        siguientes = self.TRANSITIONS.get(self.status, ())
+        return [(s, lbl) for s, lbl in self.STATUS_CHOICES if s in siguientes]
+
+    @property
+    def is_final_status(self):
+        return not self.TRANSITIONS.get(self.status, ())
+
+    def transition_to(self, new, tracking_url=''):
+        """Único camino para cambiar el estado. Guarda o lanza InvalidTransition."""
+        labels = dict(self.STATUS_CHOICES)
+        if new not in labels:
+            raise InvalidTransition('Estado inválido.')
+        if new == self.status:
+            raise InvalidTransition(f'El pedido ya está en "{labels[new]}".')
+        if new not in self.TRANSITIONS.get(self.status, ()):
+            raise InvalidTransition(
+                f'No se puede pasar de "{self.get_status_display()}" a "{labels[new]}".'
+            )
+        nueva_url = self.tracking_url
+        if new == 'shipped':
+            nueva_url = (tracking_url or '').strip()
+            if not nueva_url:
+                raise InvalidTransition('Para marcar como Enviado pega la URL de rastreo.')
+            try:
+                URLValidator(schemes=['http', 'https'])(nueva_url)
+            except ValidationError:
+                raise InvalidTransition('La URL de rastreo debe empezar con http:// o https://.')
+            if len(nueva_url) > 500:
+                raise InvalidTransition('La URL de rastreo es demasiado larga (máximo 500 caracteres).')
+        # Update condicionado al estado que se leyó: si otro request ya movió el
+        # pedido (doble clic, dos personas a la vez) no se guarda ni se vuelve a
+        # avisar al cliente. `update()` no dispara auto_now: updated_at va a mano.
+        ahora = timezone.now()
+        movidos = type(self).objects.filter(pk=self.pk, status=self.status).update(
+            status=new, tracking_url=nueva_url, updated_at=ahora,
+        )
+        if not movidos:
+            raise InvalidTransition('El pedido cambió de estado mientras tanto. Recarga la página.')
+        self.status, self.tracking_url, self.updated_at = new, nueva_url, ahora
 
     def __str__(self):
         return f'{self.order_code or f"#{self.pk}"} — {self.customer_name} ({self.get_status_display()})'

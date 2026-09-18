@@ -22,13 +22,12 @@ class OrderAdmin(admin.ModelAdmin):
     ]
     list_filter = ['status', 'created_at']
     search_fields = ['order_code', 'customer_name', 'customer_phone', 'customer_email']
-    list_editable = ['status']
-    readonly_fields = ['order_code', 'created_at', 'updated_at', 'get_total']
+    readonly_fields = ['order_code', 'status', 'tracking_url', 'created_at', 'updated_at', 'get_total']
     inlines = [OrderItemInline]
     date_hierarchy = 'created_at'
     fieldsets = (
         ('Pedido', {
-            'fields': ('order_code', 'status', 'notes', 'get_total')
+            'fields': ('order_code', 'status', 'tracking_url', 'notes', 'get_total')
         }),
         ('Cliente', {
             'fields': ('user', 'customer_name', 'customer_phone', 'customer_email')
