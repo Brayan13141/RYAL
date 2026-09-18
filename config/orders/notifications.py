@@ -4,7 +4,6 @@ import threading
 import urllib.request
 
 from django.conf import settings
-from django.core.mail import send_mail
 from django.urls import reverse
 
 from negocio.phone import normalize_telefono
@@ -69,16 +68,14 @@ _STATUS_MESSAGES = {
 }
 
 
-def build_status_notice(order):
-    """(asunto, mensaje) del aviso al cliente para el estado actual del pedido."""
+def build_status_message(order):
+    """Mensaje de WhatsApp al cliente para el estado actual del pedido."""
     if order.status == 'shipped':
         link = order.tracking_url
     else:
         link = settings.SITE_URL + reverse('orders:confirmation', args=[order.tracking_token])
     nombre = (order.customer_name.split() or ['cliente'])[0]
-    message = _STATUS_MESSAGES[order.status].format(nombre=nombre, code=order.order_code, link=link)
-    subject = f'Tu pedido #{order.order_code} — {order.get_status_display()}'
-    return subject, message
+    return _STATUS_MESSAGES[order.status].format(nombre=nombre, code=order.order_code, link=link)
 
 
 def _post_notify_customer(phone, message, order_code):
@@ -100,44 +97,22 @@ def _post_notify_customer(phone, message, order_code):
         logger.warning('El bot no confirmó el aviso de estado del pedido #%s: %s', order_code, e)
 
 
-def _send_status_email(email, subject, message, order_code):
-    """Correo al cliente. Se apaga solo si no hay correo o no hay credenciales SMTP."""
-    if not email:
-        return
-    if not (settings.EMAIL_HOST_USER and settings.EMAIL_HOST_PASSWORD):
-        logger.info('Correo sin configurar: no se mandó el aviso de estado del pedido #%s', order_code)
-        return
-    try:
-        send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [email], fail_silently=False)
-    except Exception as e:
-        logger.warning('No salió el correo de estado del pedido #%s: %s', order_code, e)
-
-
-def _send_status_notice(phone, email, subject, message, order_code):
-    """Corre en el thread aparte. Los canales van cada uno por su lado: si uno falla, el otro sale."""
-    if phone:
-        _post_notify_customer(phone, message, order_code)
-    _send_status_email(email, subject, message, order_code)
-
-
 def notify_status_change_async(order):
-    """Avisa al cliente el estado nuevo. Nunca propaga: el cambio de estado ya está guardado.
+    """Avisa al cliente por WhatsApp el estado nuevo. Nunca propaga: el cambio ya está guardado.
 
-    Arma todo en el thread del request (sin ORM en el thread spawneado) y manda
-    los dos canales en un thread daemon.
+    Arma el mensaje en el thread del request (sin ORM en el thread spawneado) y
+    manda solo el POST en un thread daemon.
     """
     try:
         if order.status not in NOTIFY_STATUSES:
             return
-        subject, message = build_status_notice(order)
         phone = normalize_telefono(order.customer_phone)
         if len(phone) != 10:
             logger.warning('Teléfono inválido en el pedido #%s: no se avisa por WhatsApp', order.order_code)
-            phone = ''
-        email = (order.customer_email or '').strip()
+            return
         threading.Thread(
-            target=_send_status_notice,
-            args=(phone, email, subject, message, order.order_code),
+            target=_post_notify_customer,
+            args=(phone, build_status_message(order), order.order_code),
             daemon=True,
         ).start()
     except Exception as e:

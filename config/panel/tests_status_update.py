@@ -35,7 +35,7 @@ class OrderStatusUpdateTests(TestCase):
         self.assertEqual(resp.json(), {'ok': True, 'status': 'confirmed', 'label': 'Confirmado'})
         self.assertEqual(Order.objects.get(pk=self.order.pk).status, 'confirmed')
         mock_thread_cls.assert_called_once()
-        message = mock_thread_cls.call_args[1]['args'][3]
+        message = mock_thread_cls.call_args[1]['args'][1]
         self.assertIn('fue confirmado', message)
         self.assertIn('#EST-1', message)
 
@@ -59,7 +59,7 @@ class OrderStatusUpdateTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         order = Order.objects.get(pk=self.order.pk)
         self.assertEqual((order.status, order.tracking_url), ('shipped', URL_17TRACK))
-        self.assertIn(URL_17TRACK, mock_thread_cls.call_args[1]['args'][3])
+        self.assertIn(URL_17TRACK, mock_thread_cls.call_args[1]['args'][1])
 
     @patch('orders.notifications.threading.Thread')
     def test_cancelado_y_entregado_no_avisan(self, mock_thread_cls):
