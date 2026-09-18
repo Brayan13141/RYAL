@@ -173,6 +173,20 @@ BOT_NOTIFY_URL = os.environ.get('BOT_NOTIFY_URL', 'http://127.0.0.1:8953')
 # URL pública del sitio — se usa para armar links en avisos (WhatsApp, etc).
 SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
 
+# Token compartido con el bot persona2 (mismo valor en bot-p2/.env). Sin él,
+# /notify no acepta avisos a clientes y Django ni lo intenta.
+NOTIFY_TOKEN = os.environ.get('NOTIFY_TOKEN', '')
+
+# ——— Correo: avisos de estado al cliente (Gmail SMTP con contraseña de aplicación) ———
+# Sin EMAIL_HOST_USER/EMAIL_HOST_PASSWORD el canal de correo se apaga solo.
+EMAIL_HOST          = 'smtp.gmail.com'
+EMAIL_PORT          = 587
+EMAIL_USE_TLS       = True
+EMAIL_HOST_USER     = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL  = os.environ.get('DEFAULT_FROM_EMAIL', '') or EMAIL_HOST_USER or 'webmaster@localhost'
+EMAIL_TIMEOUT       = 10
+
 # ——— Upload limits ———
 DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024   # 20 MB per request body
 FILE_UPLOAD_MAX_MEMORY_SIZE = 15 * 1024 * 1024   # 15 MB before spooling to disk

@@ -22,7 +22,8 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from catalog.models import Category, HeroSlide, PendingProduct, Product, ProductImage, Section, SiteConfig, SizeGroup, SubcategorySection, VolumeTier
-from orders.models import Order, OrderItem, OrderPayment, SupplierOrder, SupplierOrderItem
+from orders.models import InvalidTransition, Order, OrderItem, OrderPayment, SupplierOrder, SupplierOrderItem
+from orders.notifications import notify_status_change_async
 from orders.forms import OrderPaymentForm
 from panel.whatsapp import WHATSAPP_INSTANCES, get_instance, read_qr_state
 
@@ -528,7 +529,6 @@ def order_detail(request, pk):
     )
     return render(request, 'panel/order_detail.html', {
         'order':           order,
-        'status_choices':  Order.STATUS_CHOICES,
         'items_subtotal':  order.total + order.descuento_aplicado,
         'today_iso':       timezone.localdate().isoformat(),
     })
@@ -537,13 +537,22 @@ def order_detail(request, pk):
 @_staff
 @require_POST
 def order_status_update(request, pk):
-    order = get_object_or_404(Order, pk=pk)
-    new   = request.POST.get('status', '')
-    valid = [s for s, _ in Order.STATUS_CHOICES]
-    if new in valid:
-        order.status = new
-        order.save(update_fields=['status', 'updated_at'])
-    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+    order   = get_object_or_404(Order, pk=pk)
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    try:
+        order.transition_to(
+            request.POST.get('status', ''),
+            tracking_url=request.POST.get('tracking_url', ''),
+        )
+    except InvalidTransition as e:
+        if is_ajax:
+            return JsonResponse({'ok': False, 'error': str(e)}, status=400)
+        from django.contrib import messages
+        messages.error(request, str(e))
+        return redirect('panel:order_detail', pk=pk)
+    # Filtra por su cuenta los estados que no avisan y nunca propaga.
+    notify_status_change_async(order)
+    if is_ajax:
         return JsonResponse({
             'ok':    True,
             'status': order.status,

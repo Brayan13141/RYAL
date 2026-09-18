@@ -169,20 +169,35 @@
     <div class="p-card" style="margin-bottom:16px;">
       <div class="p-card-head"><h2>Estado del pedido</h2></div>
       <div class="p-card-body">
+        {% if order.is_final_status %}
+        <p style="margin:0;font-size:13px;color:#888;text-align:center;">Estado final — no admite cambios.</p>
+        {% else %}
         <form id="statusForm">
           {% csrf_token %}
           <div style="margin-bottom:12px;">
             <select id="statusSelect" style="width:100%;background:#0d0d0d;border:1px solid #1a1a1a;color:#e0e0e0;padding:9px 12px;border-radius:6px;font-size:14px;outline:none;">
-              {% for s, lbl in status_choices %}
-              <option value="{{ s }}" {% if order.status == s %}selected{% endif %}>{{ lbl }}</option>
+              <option value="" selected disabled>{{ order.get_status_display }} (actual)</option>
+              {% for s, lbl in order.allowed_next_statuses %}
+              <option value="{{ s }}">{{ lbl }}</option>
               {% endfor %}
             </select>
+          </div>
+          <div id="trackingWrap" style="display:none;margin-bottom:12px;">
+            <input type="url" id="trackingInput" placeholder="URL de rastreo (17track…)" value="{{ order.tracking_url }}"
+                   style="width:100%;background:#0d0d0d;border:1px solid #1a1a1a;color:#e0e0e0;padding:9px 12px;border-radius:6px;font-size:14px;outline:none;">
           </div>
           <button type="button" id="btnStatus" class="btn-g" style="width:100%;">
             <i class="bi bi-check-circle"></i> Actualizar estado
           </button>
           <div id="statusMsg" style="display:none;margin-top:10px;font-size:12px;text-align:center;color:#50c878;"></div>
         </form>
+        {% endif %}
+        {% if order.tracking_url %}
+        <div style="margin-top:12px;font-size:12px;word-break:break-all;">
+          <i class="bi bi-truck"></i>
+          <a href="{{ order.tracking_url }}" target="_blank" rel="noopener noreferrer" style="color:#50c878;">{{ order.tracking_url }}</a>
+        </div>
+        {% endif %}
       </div>
     </div>
 
@@ -535,27 +550,47 @@ document.getElementById('btnLiquidar').addEventListener('click', async () => {
 document.querySelectorAll('.btnDelPago').forEach(bindDelete);
 
 // ── Estado ───────────────────────────────────────────────────────────────────
-document.getElementById('btnStatus').addEventListener('click', async () => {
-  const sel = document.getElementById('statusSelect');
-  const msg = document.getElementById('statusMsg');
-  const badge = document.getElementById('statusBadge');
+const statusSel = document.getElementById('statusSelect');
+if (statusSel) {
+  const trackingWrap  = document.getElementById('trackingWrap');
+  const trackingInput = document.getElementById('trackingInput');
+  const statusMsg     = document.getElementById('statusMsg');
 
-  const res = await fetch(URL_STATUS, {
-    method: 'POST',
-    headers: {
-      'X-CSRFToken': CSRF,
-      'X-Requested-With': 'XMLHttpRequest',
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: `status=${sel.value}`,
+  const showStatusMsg = (text, ok) => {
+    statusMsg.textContent = text;
+    statusMsg.style.color = ok ? '#50c878' : '#e05555';
+    statusMsg.style.display = 'block';
+  };
+
+  statusSel.addEventListener('change', () => {
+    trackingWrap.style.display = statusSel.value === 'shipped' ? 'block' : 'none';
   });
-  const data = await res.json();
-  if (data.ok) {
-    badge.innerHTML = `<span class="bs bs-${data.status}">${data.label}</span>`;
-    msg.textContent = 'Estado actualizado.';
-    msg.style.display = 'block';
-    setTimeout(() => { msg.style.display = 'none'; }, 2500);
-  }
-});
+
+  const btnStatus = document.getElementById('btnStatus');
+  btnStatus.addEventListener('click', async () => {
+    if (!statusSel.value) { showStatusMsg('Elige el estado siguiente.', false); return; }
+    const body = new URLSearchParams({ status: statusSel.value });
+    if (statusSel.value === 'shipped') body.append('tracking_url', trackingInput.value.trim());
+    btnStatus.disabled = true;  // un doble clic mandaría dos avisos al cliente
+    let data;
+    try {
+      const res = await fetch(URL_STATUS, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': CSRF, 'X-Requested-With': 'XMLHttpRequest' },
+        body,
+      });
+      data = await res.json();
+    } catch (e) {
+      data = { ok: false, error: 'Sin conexión con el servidor.' };
+    }
+    if (!data.ok) {
+      btnStatus.disabled = false;
+      showStatusMsg(data.error || 'No se pudo cambiar el estado.', false);
+      return;
+    }
+    // Recarga para que el selector, el link de rastreo y el badge salgan del servidor.
+    window.location.reload();
+  });
+}
 </script>
 {% endblock %}
