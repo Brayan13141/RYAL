@@ -1071,3 +1071,70 @@ def mas_vendidos(request):
         'total_ganancia': sum((f['ganancia'] for f in filas), Decimal('0')),
         'total_sin_desglose': sum(f['sin_desglose'] for f in filas),
     })
+
+
+# ── Contabilidad (para el contador) ─────────────────────────────────────────
+from django.http import HttpResponse
+
+from .contabilidad import egresos, ingresos, pendientes_de_costo, resumen_mensual
+from .contabilidad_excel import generar_xlsx
+
+_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+
+def _periodo_contable(request):
+    """(desde, hasta, etiqueta, query, slug) de `?mes=YYYY-MM` o `?anio=YYYY`.
+    Si llegan los dos, gana el mes: es lo último que eligió quien estaba en la
+    vista anual. Cualquier valor inválido cae al mes actual (hora de México)."""
+    try:
+        y, m = map(int, request.GET.get('mes', '').split('-'))
+        desde, hasta = _mes_range(y, m)
+    except (ValueError, TypeError):
+        anio = request.GET.get('anio', '')
+        if anio.isdigit() and 2000 <= int(anio) <= 2100:
+            y = int(anio)
+            return (datetime.date(y, 1, 1), datetime.date(y + 1, 1, 1), str(y),
+                    f'anio={y}', str(y))
+        hoy = timezone.localdate()
+        y, m = hoy.year, hoy.month
+        desde, hasta = _mes_range(y, m)
+    return (desde, hasta, f'{_MESES_ES[m - 1]} {y}', f'mes={y}-{m:02d}', f'{y}-{m:02d}')
+
+
+@staff_member_required
+def contabilidad(request):
+    desde, hasta, label, query, _ = _periodo_contable(request)
+    ing, egr = ingresos(desde, hasta), egresos(desde, hasta)
+    total_ingresos = sum((m.monto for m in ing), Decimal('0'))
+    total_egresos = sum((m.monto for m in egr), Decimal('0'))
+
+    hoy = timezone.localdate()
+    meses_disponibles = []
+    for i in range(11, -1, -1):
+        tm, ty = hoy.month - i, hoy.year
+        while tm <= 0:
+            tm += 12
+            ty -= 1
+        meses_disponibles.append({'valor': f'{ty}-{tm:02d}',
+                                  'label': f'{_MESES_ES[tm - 1]} {ty}'})
+
+    return render(request, 'negocio/contabilidad.html', {
+        'periodo_label': label,
+        'query': query,
+        'total_ingresos': total_ingresos,
+        'total_egresos': total_egresos,
+        'diferencia': total_ingresos - total_egresos,
+        'resumen': resumen_mensual(desde, hasta),
+        'n_estimados': sum(1 for m in egr if m.estimado),
+        'n_pendientes_costo': pendientes_de_costo(desde, hasta),
+        'meses_disponibles': meses_disponibles,
+        'anios_disponibles': list(range(hoy.year, 2024, -1)),
+    })
+
+
+@staff_member_required
+def contabilidad_excel(request):
+    desde, hasta, label, _, slug = _periodo_contable(request)
+    res = HttpResponse(generar_xlsx(desde, hasta, label), content_type=_XLSX)
+    res['Content-Disposition'] = f'attachment; filename="ryal-contabilidad-{slug}.xlsx"'
+    return res

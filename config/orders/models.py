@@ -21,6 +21,12 @@ SUPPLIER_ITEM_STATUS = [
     ('no_url',            'Sin URL de proveedor'),
 ]
 
+# De dónde salió el costo de un renglón web. El contador tiene que poder
+# distinguir un costo registrado de uno estimado.
+FUENTE_REGISTRADO = 'Registrado'
+FUENTE_COSTO_ACTUAL = 'Estimado: costo actual del producto'
+FUENTE_PRECIO_MENOS_100 = 'Estimado: precio − $100'
+
 
 class SavedCartItem(models.Model):
     user      = models.ForeignKey(User, on_delete=models.CASCADE, related_name='saved_cart')
@@ -89,24 +95,10 @@ class Order(models.Model):
         producto, y $100 por unidad como último recurso — a propósito: si las
         dos divergieran, la caja y el reporte contarían costos distintos para
         el mismo pedido. Hay un test que fija la consistencia.
+
+        La regla por renglón vive en OrderItem.costo_con_fuente().
         """
-        from decimal import Decimal
-        total = Decimal('0')
-        for item in self.items.all():
-            if item.cost_snapshot is not None:
-                total += item.cost_snapshot * item.quantity
-            elif item.product_id:
-                try:
-                    cost = item.product.effective_base_price + item.product.effective_shipping
-                    total += cost * item.quantity
-                except Exception:
-                    total += (item.price_snapshot - Decimal('100')) * item.quantity
-            else:
-                # OJO: el último recurso de `ganancia` asume $100 de GANANCIA
-                # por unidad, no un costo de $100. El costo implícito es lo que
-                # queda del precio. Leerlo al revés descuadra las dos.
-                total += (item.price_snapshot - Decimal('100')) * item.quantity
-        return total
+        return sum((item.costo_con_fuente()[0] for item in self.items.all()), Decimal('0'))
 
     @property
     def ganancia(self):
@@ -169,6 +161,21 @@ class OrderItem(models.Model):
     @property
     def subtotal(self):
         return self.price_snapshot * self.quantity
+
+    def costo_con_fuente(self):
+        """(costo del renglón, fuente). Cadena de respaldo: snapshot, costo vivo
+        del producto y, como último recurso, precio − $100 por unidad (el
+        último recurso de `Order.ganancia` asume $100 de GANANCIA, así que el
+        costo implícito es lo que queda del precio)."""
+        if self.cost_snapshot is not None:
+            return self.cost_snapshot * self.quantity, FUENTE_REGISTRADO
+        if self.product_id:
+            try:
+                cost = self.product.effective_base_price + self.product.effective_shipping
+                return cost * self.quantity, FUENTE_COSTO_ACTUAL
+            except Exception:
+                pass
+        return (self.price_snapshot - Decimal('100')) * self.quantity, FUENTE_PRECIO_MENOS_100
 
     def __str__(self):
         return f'{self.quantity}x {self.sku_snapshot} — Pedido #{self.order_id}'

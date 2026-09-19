@@ -1170,6 +1170,11 @@
               <i class="bi bi-cash-stack"></i>
               <span class="nav-label">Caja</span>
             </a>
+            <a href="{% url 'negocio:contabilidad' %}" title="Contabilidad"
+              class="{% if request.resolver_match.url_name == 'contabilidad' %}on{% endif %}">
+              <i class="bi bi-journal-text"></i>
+              <span class="nav-label">Contabilidad</span>
+            </a>
             <a href="{% url 'negocio:pos' %}" title="Venta rápida"
               class="{% if request.resolver_match.url_name == 'pos' %}on{% endif %}">
               <i class="bi bi-shop"></i>

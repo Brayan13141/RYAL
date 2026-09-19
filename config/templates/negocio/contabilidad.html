@@ -1,0 +1,65 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Contabilidad — RYAL{% endblock %}
+{% block page_title %}Contabilidad{% endblock %}
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:18px;">
+  <h1 style="font-size:20px;font-weight:700;color:#ddd;margin:0;">Contabilidad · {{ periodo_label }}</h1>
+  <a class="btn btn-success btn-sm" href="{% url 'negocio:contabilidad_excel' %}?{{ query }}">
+    <i class="bi bi-file-earmark-excel me-1"></i>Descargar Excel
+  </a>
+</div>
+
+<form method="get" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;">
+  <select name="mes" class="form-select form-select-sm" style="width:auto;" onchange="this.form.anio.value='';this.form.submit()">
+    <option value="">Mes…</option>
+    {% for m in meses_disponibles %}
+    <option value="{{ m.valor }}" {% if m.label == periodo_label %}selected{% endif %}>{{ m.label }}</option>
+    {% endfor %}
+  </select>
+  <select name="anio" class="form-select form-select-sm" style="width:auto;" onchange="this.form.mes.value='';this.form.submit()">
+    <option value="">Año completo…</option>
+    {% for a in anios_disponibles %}
+    <option value="{{ a }}" {% if a|stringformat:"s" == periodo_label %}selected{% endif %}>{{ a }}</option>
+    {% endfor %}
+  </select>
+</form>
+
+<div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:18px;">
+  <div class="p-card p-card-body" style="flex:1 1 180px;">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:4px;">Ingresos</div>
+    <div style="font-size:26px;font-weight:700;color:#4ade80;">${{ total_ingresos }}</div>
+  </div>
+  <div class="p-card p-card-body" style="flex:1 1 180px;">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:4px;">Egresos</div>
+    <div style="font-size:26px;font-weight:700;color:#f87171;">${{ total_egresos }}</div>
+  </div>
+  <div class="p-card p-card-body" style="flex:1 1 180px;">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:4px;">Diferencia</div>
+    <div style="font-size:26px;font-weight:700;color:#ddd;">${{ diferencia }}</div>
+  </div>
+</div>
+
+{% if n_estimados or n_pendientes_costo %}
+<div class="p-card p-card-body" style="margin-bottom:18px;font-size:13px;color:#fbbf24;">
+  {% if n_estimados %}<div><i class="bi bi-exclamation-triangle me-1"></i>{{ n_estimados }} costo{{ n_estimados|pluralize }} de proveedor estimado{{ n_estimados|pluralize }} (sin costo registrado). En el Excel van resaltados en amarillo.</div>{% endif %}
+  {% if n_pendientes_costo %}<div><i class="bi bi-hourglass-split me-1"></i>{{ n_pendientes_costo }} pedido{{ n_pendientes_costo|pluralize }} web cobrado{{ n_pendientes_costo|pluralize }} todavía sin comprar al proveedor: su costo aparecerá en el mes en que se arme.</div>{% endif %}
+</div>
+{% endif %}
+
+<div class="p-card p-card-body" style="overflow-x:auto;">
+  <table class="table table-dark table-sm mb-0" style="min-width:420px;">
+    <thead><tr><th>Mes</th><th class="text-end">Ingresos</th><th class="text-end">Egresos</th><th class="text-end">Diferencia</th></tr></thead>
+    <tbody>
+      {% for f in resumen %}
+      <tr><td>{{ f.mes }}</td><td class="text-end">${{ f.ingresos }}</td><td class="text-end">${{ f.egresos }}</td><td class="text-end">${{ f.diferencia }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p style="font-size:12px;color:#666;margin-top:14px;max-width:720px;">
+  Base de efectivo: cada movimiento va en la fecha en que se movió el dinero. Los pedidos web
+  cuentan el cobro completo como ingreso y el costo del proveedor como egreso, en el día en que
+  se armó el pedido. No incluye ajustes de caja ni cálculo de impuestos.
+</p>
+{% endblock %}
