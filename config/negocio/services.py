@@ -1,4 +1,4 @@
-import datetime
+from django.utils import timezone
 from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
@@ -178,7 +178,7 @@ def crear_pedido_tienda_bot(*, items, envio=Decimal('0')):
 
     Pago.objects.create(
         pedido=pedido,
-        fecha=datetime.date.today(),
+        fecha=timezone.localdate(),
         monto=precio_total,
         metodo_pago=Pago.EFECTIVO,
     )
@@ -246,7 +246,7 @@ def crear_venta_tienda(*, lineas, cliente=None, metodo_pago='efectivo'):
     pedido.save(update_fields=['precio_venta', 'costo_producto', 'descripcion'])
 
     Pago.objects.create(
-        pedido=pedido, fecha=datetime.date.today(),
+        pedido=pedido, fecha=timezone.localdate(),
         monto=total_precio, metodo_pago=metodo_pago,
     )
     return pedido
@@ -270,13 +270,12 @@ def crear_pedido_bot(*, nombre, telefono, items, envio=Decimal('0'),
     if codigo_descuento_id:
         from catalog.models import CodigoDescuento
         from catalog.services import consumir_uso
-        import datetime
         try:
             codigo_obj = CodigoDescuento.objects.get(pk=codigo_descuento_id)
             # Re-validate: code must still be active, not expired, not exhausted
             if not codigo_obj.is_active:
                 codigo_obj = None
-            elif codigo_obj.valid_hasta and codigo_obj.valid_hasta < datetime.date.today():
+            elif codigo_obj.valid_hasta and codigo_obj.valid_hasta < timezone.localdate():
                 codigo_obj = None
             # Chequeo de usos_max + incremento en un solo UPDATE atómico.
             # Si el pedido falla más abajo, transaction.atomic lo revierte.

@@ -279,7 +279,7 @@ def caja(request):
             saldo_actual = caja_totales()['saldo']
             ajuste = total_real - saldo_actual
             AjusteCaja.objects.create(
-                fecha=datetime.date.today(), monto=ajuste,
+                fecha=timezone.localdate(), monto=ajuste,
                 saldo_resultante=total_real, motivo=motivo,
                 usuario=request.user if request.user.is_authenticated else None,
             )
@@ -297,7 +297,7 @@ def caja(request):
 
 @staff_member_required
 def resumen(request):
-    hoy = datetime.date.today()
+    hoy = timezone.localdate()
     mes = request.GET.get('mes', f"{hoy.year}-{hoy.month:02d}")
     todo = (mes == 'todo')
 

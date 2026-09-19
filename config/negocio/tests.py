@@ -3627,3 +3627,85 @@ class ApiPedidoCreateNoFiltraExcepcionesTests(TestCase):
         """VentaInvalida lleva un texto escrito para el bot — ese sí debe pasar."""
         resp = self._post({'nombre': 'Ana', 'telefono': '5512345678', 'items': []})
         self.assertEqual(resp.status_code, 400)
+
+
+class FechaLocalNoUTCTests(TestCase):
+    """El servidor corre en UTC y la tienda en Mexico (UTC-6): despues de las
+    18:00 hora local `date.today()` ya es el dia siguiente. Todo lo que se
+    fecha 'hoy' tiene que usar `timezone.localdate()`.
+
+    El reloj se fija en el PASADO (2020) a proposito: con el codigo viejo
+    `date.today()` devuelve la fecha real del sistema, asi que el test falla
+    a cualquier hora, no solo en la ventana 18:00-24:00. Y un reloj en el
+    pasado no expira la sesion del test client."""
+
+    # 2020-01-02 03:00 UTC = 2020-01-01 21:00 en Mexico
+    AHORA_UTC = datetime.datetime(2020, 1, 2, 3, 0, tzinfo=datetime.timezone.utc)
+    HOY_LOCAL = datetime.date(2020, 1, 1)
+
+    def setUp(self):
+        from unittest import mock
+        self.staff = User.objects.create_user('fechas', password='x', is_staff=True)
+        self.client.force_login(self.staff)
+        p = mock.patch('django.utils.timezone.now', return_value=self.AHORA_UTC)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_pedido_sin_fecha_toma_la_fecha_local(self):
+        ped = Pedido.objects.create(costo_producto=Decimal('0'), precio_venta=Decimal('0'))
+        self.assertEqual(ped.fecha, self.HOY_LOCAL)
+
+    def test_ajuste_caja_sin_fecha_toma_la_fecha_local(self):
+        from negocio.models import AjusteCaja
+        aj = AjusteCaja.objects.create(monto=Decimal('1'), saldo_resultante=Decimal('1'), motivo='x')
+        self.assertEqual(aj.fecha, self.HOY_LOCAL)
+
+    def test_arqueo_graba_la_fecha_local(self):
+        from negocio.models import AjusteCaja
+        self.client.post('/panel/negocio/caja/', {'total_real': '100', 'motivo': 'arqueo'})
+        self.assertEqual(AjusteCaja.objects.get().fecha, self.HOY_LOCAL)
+
+    def test_resumen_abre_en_el_mes_local(self):
+        # 2020-02-01 03:00 UTC = 2020-01-31 21:00 en Mexico: sigue siendo enero
+        from unittest import mock
+        feb_utc = datetime.datetime(2020, 2, 1, 3, 0, tzinfo=datetime.timezone.utc)
+        with mock.patch('django.utils.timezone.now', return_value=feb_utc):
+            res = self.client.get('/panel/negocio/')
+        self.assertEqual(res.context['mes'], '2020-01')
+
+    def test_venta_tienda_graba_pago_con_fecha_local(self):
+        cat = Category.objects.create(name='Gorras', profit_margin=Decimal('100'))
+        Product.objects.create(sku='CAP-FL', name='Gorra', category=cat, base_price=Decimal('100'))
+        pedido = crear_venta_tienda(
+            lineas=[{'sku': 'CAP-FL', 'cantidad': 1, 'precio_unitario': '200'}],
+            cliente=None, metodo_pago='efectivo',
+        )
+        self.assertEqual(pedido.fecha, self.HOY_LOCAL)
+        self.assertEqual(pedido.pagos.get().fecha, self.HOY_LOCAL)
+
+    def test_pedido_tienda_bot_graba_pago_con_fecha_local(self):
+        TipoArticulo.objects.create(nombre='Tenis', keywords='tenis', costo=Decimal('0'))
+        pedido = crear_pedido_tienda_bot(items=[{'description': 'tenis rojo', 'price': 450, 'qty': 1}])
+        self.assertEqual(pedido.fecha, self.HOY_LOCAL)
+        self.assertEqual(pedido.pagos.get().fecha, self.HOY_LOCAL)
+
+    def test_pedido_bot_acepta_codigo_que_vence_hoy_local(self):
+        from negocio.services import crear_pedido_bot
+        code = CodigoDescuento.objects.create(
+            codigo='HOYFL', descuento=Decimal('50'), is_active=True, valid_hasta=self.HOY_LOCAL,
+        )
+        pedido = crear_pedido_bot(
+            nombre='N', telefono='5512340000',
+            items=[{'description': 'x', 'price': 500, 'qty': 1}],
+            descuento_aplicado=Decimal('50'), codigo_descuento_id=code.pk,
+        )
+        self.assertEqual(pedido.fecha, self.HOY_LOCAL)
+        self.assertEqual(pedido.codigo_descuento_id, code.pk)
+        self.assertEqual(pedido.descuento_aplicado, Decimal('50'))
+
+    def test_validar_codigo_acepta_codigo_que_vence_hoy_local(self):
+        from catalog.services import validar_codigo
+        CodigoDescuento.objects.create(
+            codigo='HOYFL2', descuento=Decimal('50'), is_active=True, valid_hasta=self.HOY_LOCAL,
+        )
+        self.assertTrue(validar_codigo('HOYFL2', descriptions=[])['valido'])

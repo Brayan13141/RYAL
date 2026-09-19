@@ -1,4 +1,4 @@
-import datetime
+from django.utils import timezone
 import re
 from decimal import Decimal
 
@@ -140,7 +140,7 @@ def validar_codigo(
     except CodigoDescuento.DoesNotExist:
         return {**_invalid, 'mensaje': 'Código inválido o inactivo.'}
 
-    if code.valid_hasta and code.valid_hasta < datetime.date.today():
+    if code.valid_hasta and code.valid_hasta < timezone.localdate():
         return {**_invalid, 'mensaje': 'Código expirado.'}
 
     if code.usos_max is not None and code.usos_actuales >= code.usos_max:
