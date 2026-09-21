@@ -189,3 +189,65 @@ describe('reintento cuando no sabemos si la venta entró', () => {
     })
 })
 
+describe('/pedido moda — el mismo hueco, el mismo remedio', () => {
+    // `crearPedidoModa` tiene su propio axios.post con el mismo timeout de
+    // 10 s. Sin reintento, un cierre perdido terminaba en «Intenta de nuevo»
+    // y al reteclear el comando se creaba el segundo pedido igual que en
+    // /cerrar. Pasa por el mismo camino de reintento.
+
+    const sinRespuesta = () => Object.assign(new Error('timeout of 10000ms exceeded'), {
+        code: 'ECONNABORTED', response: undefined })
+    const postsDePedido = () => axios.post.mock.calls.filter(
+        ([url]) => url.endsWith('/api/negocio/pedido/'))
+    const textoEnviado = (sock) => sock.sendMessage.mock.calls.map(c => c[1].text).join('\n')
+
+    const pedidoModa = async (sock, id) => {
+        axios.get.mockResolvedValue({
+            data: { clientes: [{ nombre: 'Victor', telefono: '5551110000', descuento: 0 }] } })
+        await handleOrdersMessage(sock, mensaje('/pedido Victor moda 12 100', id))
+    }
+
+    beforeEach(() => {
+        ordersReales.cancelSession(ORDERS)
+        jest.clearAllMocks()
+    })
+
+    test('un timeout se reintenta con la MISMA idem_key', async () => {
+        axios.post
+            .mockRejectedValueOnce(sinRespuesta())
+            .mockResolvedValueOnce({ data: { pedido_id: 210, total: '1200.00' } })
+
+        await pedidoModa({ sendMessage: jest.fn() }, 'WA-MODA')
+
+        const posts = postsDePedido()
+        expect(posts).toHaveLength(2)
+        expect(posts[0][1].idem_key).toBe('wa:WA-MODA')
+        expect(posts[1][1].idem_key).toBe('wa:WA-MODA')
+    })
+
+    test('agotados los reintentos no manda a reteclear el comando', async () => {
+        axios.post.mockRejectedValue(sinRespuesta())
+        const sock = { sendMessage: jest.fn() }
+
+        await pedidoModa(sock, 'WA-MODA-MUERTO')
+
+        expect(postsDePedido()).toHaveLength(3)
+        const texto = textoEnviado(sock)
+        expect(texto).toMatch(/no pude confirmar/i)
+        expect(texto).not.toMatch(/intenta de nuevo/i)
+    })
+
+    test('si Django dice duplicado, no se anuncia como creado', async () => {
+        axios.post.mockResolvedValue({
+            data: { pedido_id: 210, total: '1200.00', duplicado: true } })
+        const sock = { sendMessage: jest.fn() }
+
+        await pedidoModa(sock, 'WA-MODA-DUP')
+
+        const texto = textoEnviado(sock)
+        expect(texto).toContain('#210')
+        expect(texto).toMatch(/ya estaba registrado/i)
+        expect(texto).not.toMatch(/creado/i)
+    })
+})
+

@@ -134,18 +134,21 @@ async function crearPedidoModa(sock, { nombre, telefono, cantidad, ganancia, env
         envio,
         idem_key: idemKey,
     }
-    try {
-        const { data } = await axios.post(
-            `${DJANGO_URL}/api/negocio/pedido/`, payload,
-            { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 10000 },
-        )
-        await sock.sendMessage(ORDERS_GID, {
-            text: `✅ Pedido #${data.pedido_id} creado — Ganancia: $${Number((cantidad * ganancia).toFixed(2))} MXN`,
-        })
-    } catch (err) {
-        logger.error({ err: err.message }, 'Error al crear pedido moda en Django')
-        await sock.sendMessage(ORDERS_GID, { text: '❌ Error al crear el pedido. Intenta de nuevo.' })
+    // Mismo camino que el cierre de tienda: este POST tenía el mismo timeout
+    // de 10 s y el mismo «Intenta de nuevo», o sea el mismo duplicado.
+    const res = await postVentaConReintento({
+        endpoint: `${DJANGO_URL}/api/negocio/pedido/`, payload })
+    if (!res.ok) {
+        logger.error({ err: res.err.message }, 'Error al crear pedido moda en Django')
+        await sock.sendMessage(ORDERS_GID, { text: textoDeFallo(res.err) })
+        return
     }
+    const { data } = res
+    await sock.sendMessage(ORDERS_GID, {
+        text: data.duplicado
+            ? `ℹ️ Este pedido ya estaba registrado — Pedido #${data.pedido_id}. No se registró de nuevo.`
+            : `✅ Pedido #${data.pedido_id} creado — Ganancia: $${Number((cantidad * ganancia).toFixed(2))} MXN`,
+    })
 }
 
 async function resolveClienteYCrearModa(sock, moda, idemKey = null) {
@@ -261,7 +264,7 @@ function noSabemosSiEntro(err) {
  * Sin `idem_key` NO se reintenta: Django no tendría con qué reconocer el POST
  * anterior y el reintento automático duplicaría él solito.
  */
-async function enviarVentaTienda(sock, { endpoint, payload }) {
+async function postVentaConReintento({ endpoint, payload }) {
     const intentos = payload.idem_key ? MAX_INTENTOS_VENTA : 1
     let ultimoErr = null
 
@@ -274,36 +277,47 @@ async function enviarVentaTienda(sock, { endpoint, payload }) {
             return { ok: true, data }
         } catch (err) {
             ultimoErr = err
-            if (err.response && err.response.status === 409) {
-                const detalles = (err.response.data && err.response.data.sin_tipo) || []
-                const totalItems = (payload.items || []).length
-                const { texto, opciones } = mensajeSinTipo(detalles, totalItems)
-                // Sin sugerencias no hay nada que numerar: armar el pending solo
-                // trabaría la carga de ítems de texto libre para siempre (el "1"
-                // de un item nunca puede distinguirse del "1" de elegir opción).
-                if (opciones.length > 0) {
-                    orders.setPending(ORDERS_GID, 'sin_tipo', {
-                        detalles, opciones, endpoint, envio: payload.envio || 0,
-                    })
-                }
-                await sock.sendMessage(ORDERS_GID, { text: texto })
-                return { ok: false, sinTipo: detalles }
-            }
             if (!noSabemosSiEntro(err) || n === intentos) break
             logger.warn({ err: err.message, intento: n },
                 'Cierre sin confirmar — reintentando con la misma idem_key')
             await esperar(ESPERA_REINTENTO_MS)
         }
     }
+    return { ok: false, err: ultimoErr }
+}
 
-    logger.error({ err: ultimoErr.message }, 'Error al crear la venta en Django')
-    // El texto importa: «intenta de nuevo» era, literalmente, la instrucción
-    // que duplicaba la venta cuando el pedido sí había quedado grabado.
-    const texto = noSabemosSiEntro(ultimoErr)
+/** Aviso honesto cuando el intento se agotó: «intenta de nuevo» solo cuando
+ *  sabemos que no se grabó nada. */
+function textoDeFallo(err) {
+    return noSabemosSiEntro(err)
         ? '⚠️ No pude confirmar si la venta entró. Revisá el panel ANTES de'
           + ' reintentar: si ya está registrada, cerrarla otra vez la duplica.'
         : '❌ Error al crear el pedido. Intenta de nuevo.'
-    await sock.sendMessage(ORDERS_GID, { text: texto })
+}
+
+async function enviarVentaTienda(sock, { endpoint, payload }) {
+    const res = await postVentaConReintento({ endpoint, payload })
+    if (res.ok) return { ok: true, data: res.data }
+
+    const err = res.err
+    if (err.response && err.response.status === 409) {
+        const detalles = (err.response.data && err.response.data.sin_tipo) || []
+        const totalItems = (payload.items || []).length
+        const { texto, opciones } = mensajeSinTipo(detalles, totalItems)
+        // Sin sugerencias no hay nada que numerar: armar el pending solo
+        // trabaría la carga de ítems de texto libre para siempre (el "1"
+        // de un item nunca puede distinguirse del "1" de elegir opción).
+        if (opciones.length > 0) {
+            orders.setPending(ORDERS_GID, 'sin_tipo', {
+                detalles, opciones, endpoint, envio: payload.envio || 0,
+            })
+        }
+        await sock.sendMessage(ORDERS_GID, { text: texto })
+        return { ok: false, sinTipo: detalles }
+    }
+
+    logger.error({ err: err.message }, 'Error al crear la venta en Django')
+    await sock.sendMessage(ORDERS_GID, { text: textoDeFallo(err) })
     return { ok: false, error: true }
 }
 
