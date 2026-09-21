@@ -55,6 +55,15 @@ class Pedido(models.Model):
     )
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default=PENDIENTE)
     origen = models.CharField(max_length=20, choices=ORIGEN_CHOICES, default=WHATSAPP)
+    # Identifica el CIERRE de venta, no el pedido: hoy es el id del mensaje de
+    # WhatsApp del `/cerrar`, que es el mismo para toda instancia que lo recibe.
+    # El UNIQUE es quien arbitra de verdad — un chequeo previo en la vista no
+    # alcanza cuando los dos POST llegan con 18 ms de diferencia (ver el caso
+    # de los pedidos 105/106, 2026-09-20). `null` y no `''`: sin clave son
+    # ventas distintas, y varios NULL conviven bajo un UNIQUE.
+    idem_key = models.CharField(
+        max_length=128, unique=True, null=True, blank=True, default=None,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

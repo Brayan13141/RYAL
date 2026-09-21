@@ -1370,6 +1370,99 @@ class ApiTiendaCreateTest(TestCase):
         self.assertEqual(pedido.envio, Decimal('80'))
 
 
+@override_settings(NEGOCIO_API_KEY='test-key-123')
+class ApiIdempotenciaTest(TestCase):
+    """Dos POST con la misma `idem_key` son el MISMO cierre de venta.
+
+    El caso real (2026-09-20): bot-p2 y bot-p3 escuchaban el mismo Grupo
+    Pedidos y atendieron el mismo `/cerrar`. Dos POST con 18 ms de diferencia
+    dejaron los pedidos 105 y 106 idénticos, y la caja del día con $500 de
+    más. La clave es el id del mensaje de WhatsApp, que es el MISMO para toda
+    instancia que lo recibe: mientras el cierre sea el mismo mensaje, da igual
+    cuántos bots escuchen, cuántas veces lo re-entregue WhatsApp, o si el
+    usuario reintenta tras un timeout.
+    """
+
+    def setUp(self):
+        TipoArticulo.objects.create(nombre='Tenis', keywords='tenis', costo=Decimal('0'))
+        self.auth = {'HTTP_AUTHORIZATION': 'Bearer test-key-123',
+                     'content_type': 'application/json'}
+
+    def _tienda(self, body):
+        return self.client.post('/api/negocio/tienda/', data=json.dumps(body), **self.auth)
+
+    def _pedido(self, body):
+        return self.client.post('/api/negocio/pedido/', data=json.dumps(body), **self.auth)
+
+    def test_tienda_misma_idem_key_no_crea_segundo_pedido(self):
+        body = {'items': [{'description': 'tenis', 'price': 500, 'qty': 1}],
+                'idem_key': 'WA-MSG-ABC123'}
+        primera = self._tienda(body)
+        segunda = self._tienda(body)
+        self.assertEqual(primera.status_code, 200)
+        self.assertEqual(segunda.status_code, 200)
+        self.assertEqual(segunda.json()['pedido_id'], primera.json()['pedido_id'])
+        self.assertTrue(segunda.json()['duplicado'])
+        self.assertFalse(primera.json().get('duplicado', False))
+        self.assertEqual(Pedido.objects.count(), 1)
+
+    def test_pedido_misma_idem_key_no_crea_segundo_pedido(self):
+        body = {'nombre': 'Ana', 'telefono': '5551110000',
+                'items': [{'description': 'tenis', 'price': 500, 'qty': 1, 'costo': 200}],
+                'idem_key': 'WA-MSG-DEF456'}
+        primera = self._pedido(body)
+        segunda = self._pedido(body)
+        self.assertEqual(segunda.json()['pedido_id'], primera.json()['pedido_id'])
+        self.assertTrue(segunda.json()['duplicado'])
+        self.assertEqual(Pedido.objects.count(), 1)
+
+    def test_el_segundo_post_no_duplica_items_ni_pagos(self):
+        """El duplicado no puede dejar rastro: ni una línea, ni un peso de más."""
+        from negocio.models import PedidoItem, Pago
+        body = {'items': [{'description': 'tenis', 'price': 500, 'qty': 1}],
+                'idem_key': 'WA-MSG-GHI789'}
+        self._tienda(body)
+        self._tienda(body)
+        self.assertEqual(PedidoItem.objects.count(), 1)
+        self.assertEqual(Pago.objects.filter(monto=Decimal('500')).count(), 1)
+
+    def test_idem_keys_distintas_crean_dos_pedidos(self):
+        """Dos ventas iguales en el mismo minuto son legítimas: dos clientes
+        pueden comprar lo mismo. Solo la clave repetida se colapsa."""
+        base = {'items': [{'description': 'tenis', 'price': 500, 'qty': 1}]}
+        self._tienda({**base, 'idem_key': 'WA-MSG-1'})
+        self._tienda({**base, 'idem_key': 'WA-MSG-2'})
+        self.assertEqual(Pedido.objects.count(), 2)
+
+    def test_sin_idem_key_sigue_creando(self):
+        """Un bot viejo sin la clave no puede quedarse sin registrar ventas.
+        Pierde la protección, no la función."""
+        base = {'items': [{'description': 'tenis', 'price': 500, 'qty': 1}]}
+        self._tienda(base)
+        self._tienda(base)
+        self.assertEqual(Pedido.objects.count(), 2)
+
+    def test_idem_key_vacia_no_colapsa_ventas(self):
+        """`''` y `None` son 'no mandó clave', no 'todas son la misma venta'.
+        Sin esto, dos bots viejos colapsarían ventas REALES en una sola."""
+        base = {'items': [{'description': 'tenis', 'price': 500, 'qty': 1}]}
+        self._tienda({**base, 'idem_key': ''})
+        self._tienda({**base, 'idem_key': ''})
+        self.assertEqual(Pedido.objects.count(), 2)
+
+    def test_venta_rechazada_no_quema_la_idem_key(self):
+        """Un 409 por ítem sin tipo no crea pedido: el reintento con la misma
+        clave —el mismo `/cerrar`— tiene que poder registrarlo después."""
+        body = {'items': [{'description': 'cosa rarísima', 'price': 500, 'qty': 1}],
+                'idem_key': 'WA-MSG-409'}
+        rechazo = self._tienda(body)
+        self.assertEqual(rechazo.status_code, 409)
+        TipoArticulo.objects.create(nombre='Rara', keywords='rarísima', costo=Decimal('100'))
+        ok = self._tienda(body)
+        self.assertEqual(ok.status_code, 200)
+        self.assertEqual(Pedido.objects.count(), 1)
+
+
 class PedidoDescuentoPropertyTest(TestCase):
     def setUp(self):
         self.cliente = Cliente.objects.create(nombre='Test', telefono='5550000001')

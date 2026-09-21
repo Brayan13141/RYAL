@@ -99,7 +99,7 @@ def resolver_tipo_con_origen(texto, tipos, aliases):
 
 
 @transaction.atomic
-def crear_pedido_tienda_bot(*, items, envio=Decimal('0')):
+def crear_pedido_tienda_bot(*, items, envio=Decimal('0'), idem_key=None):
     """Crea un pedido de tienda física via bot. Sin SKU, sin normalize_telefono.
 
     `items`: lista de {description, price, qty}
@@ -156,6 +156,7 @@ def crear_pedido_tienda_bot(*, items, envio=Decimal('0')):
         envio=Decimal(str(envio)),
         estado=Pedido.PAGADO,
         origen=Pedido.TIENDA,
+        idem_key=idem_key or None,
     )
 
     total_costo = Decimal('0')
@@ -254,7 +255,8 @@ def crear_venta_tienda(*, lineas, cliente=None, metodo_pago='efectivo'):
 
 @transaction.atomic
 def crear_pedido_bot(*, nombre, telefono, items, envio=Decimal('0'),
-                     descuento_aplicado=Decimal('0'), codigo_descuento_id=None):
+                     descuento_aplicado=Decimal('0'), codigo_descuento_id=None,
+                     idem_key=None):
     """Crea un pedido vía bot WhatsApp. Cada item puede incluir 'costo' opcional."""
     from .phone import normalize_telefono
     if not items:
@@ -296,6 +298,7 @@ def crear_pedido_bot(*, nombre, telefono, items, envio=Decimal('0'),
         codigo_descuento=codigo_obj,
         estado=Pedido.PAGADO,
         origen=Pedido.BOT,
+        idem_key=idem_key or None,
     )
     total_precio = Decimal('0')
     total_costo = Decimal('0')

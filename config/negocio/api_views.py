@@ -4,6 +4,7 @@ import logging
 from decimal import Decimal
 
 from django.conf import settings
+from django.db import IntegrityError
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
@@ -11,7 +12,7 @@ from django_ratelimit.decorators import ratelimit
 
 from core.ratelimit import client_ip as _client_ip
 
-from .models import Cliente
+from .models import Cliente, Pedido
 from .phone import normalize_telefono
 from .services import crear_pedido_bot, crear_pedido_tienda_bot, VentaInvalida, VentaSinTipo
 
@@ -22,6 +23,23 @@ def _authorized(request):
     auth = request.META.get('HTTP_AUTHORIZATION', '')
     expected = f'Bearer {settings.NEGOCIO_API_KEY}'
     return hmac.compare_digest(auth, expected)
+
+
+def _idem_key(payload):
+    """Clave del cierre de venta, o None si el bot no la mandó.
+
+    `''` tiene que volverse None: si se guardara la cadena vacía, el UNIQUE
+    trataría TODAS las ventas sin clave como la misma y colapsaría ventas
+    reales en una. Un bot viejo pierde la protección, nunca la función.
+    """
+    return str(payload.get('idem_key') or '').strip()[:128] or None
+
+
+def _pedido_previo(idem_key):
+    """El pedido que ya registró este mismo cierre, si existe."""
+    if not idem_key:
+        return None
+    return Pedido.objects.filter(idem_key=idem_key).first()
 
 
 @require_GET
@@ -78,6 +96,10 @@ def api_pedido_create(request):
         return JsonResponse({'error': 'nombre y telefono requeridos'}, status=400)
     if not items:
         return JsonResponse({'error': 'items vacíos'}, status=400)
+    idem_key = _idem_key(payload)
+    previo = _pedido_previo(idem_key)
+    if previo is not None:
+        return _respuesta_pedido(previo, duplicado=True)
     try:
         pedido = crear_pedido_bot(
             nombre=nombre,
@@ -86,7 +108,17 @@ def api_pedido_create(request):
             envio=Decimal(str(envio)),
             descuento_aplicado=Decimal(str(descuento_monto)),
             codigo_descuento_id=codigo_descuento_id,
+            idem_key=idem_key,
         )
+    except IntegrityError:
+        # Otra instancia ganó la carrera por milisegundos y su pedido ya está
+        # grabado; el UNIQUE abortó este. La transacción entera se revirtió,
+        # así que tampoco se consumió el uso del código de descuento.
+        previo = _pedido_previo(idem_key)
+        if previo is None:
+            logger.exception('api_pedido_create falló')
+            return JsonResponse({'error': 'No se pudo registrar el pedido.'}, status=500)
+        return _respuesta_pedido(previo, duplicado=True)
     except VentaInvalida as e:
         # Mensaje de negocio, escrito para que el bot lo muestre en el grupo.
         return JsonResponse({'error': str(e)}, status=400)
@@ -95,10 +127,15 @@ def api_pedido_create(request):
         # nombra tablas y constraints. Va al log, no al llamante.
         logger.exception('api_pedido_create falló')
         return JsonResponse({'error': 'No se pudo registrar el pedido.'}, status=500)
+    return _respuesta_pedido(pedido)
+
+
+def _respuesta_pedido(pedido, duplicado=False):
     return JsonResponse({
         'ok': True,
         'pedido_id': pedido.pk,
         'total': f'{pedido.total_a_cobrar:.2f}',
+        'duplicado': duplicado,
     })
 
 
@@ -115,14 +152,30 @@ def api_tienda_create(request):
         return JsonResponse({'error': 'invalid json'}, status=400)
     items = body.get('items') or []
     envio = Decimal(str(body.get('envio', 0)))
+    idem_key = _idem_key(body)
+    previo = _pedido_previo(idem_key)
+    if previo is not None:
+        return _respuesta_tienda(previo, duplicado=True)
     try:
-        pedido = crear_pedido_tienda_bot(items=items, envio=envio)
+        pedido = crear_pedido_tienda_bot(items=items, envio=envio, idem_key=idem_key)
+    except IntegrityError:
+        # Ver el comentario gemelo en api_pedido_create: la carrera de 18 ms
+        # entre dos instancias la arbitra el UNIQUE, no el chequeo de arriba.
+        previo = _pedido_previo(idem_key)
+        if previo is None:
+            logger.exception('api_tienda_create falló')
+            return JsonResponse({'error': 'No se pudo registrar la venta.'}, status=500)
+        return _respuesta_tienda(previo, duplicado=True)
     except VentaSinTipo as e:
         # 409: no es un payload inválido — es una venta que no se puede
         # registrar todavía. El bot la retiene y pide el tipo en el grupo.
         return JsonResponse({'error': str(e), 'sin_tipo': e.detalles}, status=409)
     except VentaInvalida as e:
         return JsonResponse({'error': str(e)}, status=400)
+    return _respuesta_tienda(pedido)
+
+
+def _respuesta_tienda(pedido, duplicado=False):
     return JsonResponse({
         'ok': True,
         'pedido_id': pedido.pk,
@@ -130,6 +183,7 @@ def api_tienda_create(request):
         # Campo conservado por compatibilidad con bot desplegado. Siempre viene
         # vacío hoy porque las ventas sin tipo se rechazan (409).
         'sin_tipo': getattr(pedido, 'sin_tipo', []),
+        'duplicado': duplicado,
     })
 
 
