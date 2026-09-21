@@ -21,6 +21,7 @@ const { createNotifyHandler } = require('./notifyServer')
 const { matchPromo } = require('./promos')
 const { avisoSinTipo } = require('./avisoSinTipo')
 const { mensajeSinTipo } = require('./ventaSinTipo')
+const { parsePeerJids, esDeOtraInstancia } = require('./peerBots')
 const { avisoTipoItem } = require('./avisoTipoItem')
 
 const AUTH_DIR = '.baileys_auth'
@@ -53,6 +54,10 @@ const orders = createOrderSessionStore()
 // numero propio: cualquiera que llegue, la exclusion acierta.
 const INTERNAL_JIDS = new Set(
     (process.env.INTERNAL_JIDS || '').split(',').map(s => s.trim()).filter(Boolean))
+
+// Números/LIDs de las OTRAS instancias que escuchan el Grupo Pedidos (hoy
+// bot-p3). Sus mensajes los atiende su propia instancia: ver peerBots.js.
+const PEER_BOT_JIDS = parsePeerJids(process.env.PEER_BOT_JIDS)
 
 const welcome = createWelcomeStore({ filePath: '.welcome_seen.json' })
 if (welcome.isSealed()) {
@@ -298,12 +303,13 @@ async function buscarCliente(q) {
     }
 }
 
-async function crearPedidoModa(sock, { nombre, telefono, cantidad, ganancia, envio }) {
+async function crearPedidoModa(sock, { nombre, telefono, cantidad, ganancia, envio, idemKey = null }) {
     const payload = {
         nombre,
         telefono,
         items: [{ description: 'Moda', qty: cantidad, price: ganancia, costo: 0 }],
         envio,
+        idem_key: idemKey,
     }
     try {
         const { data } = await axios.post(
@@ -319,7 +325,7 @@ async function crearPedidoModa(sock, { nombre, telefono, cantidad, ganancia, env
     }
 }
 
-async function resolveClienteYCrearModa(sock, moda) {
+async function resolveClienteYCrearModa(sock, moda, idemKey = null) {
     const { query, cantidad, ganancia, envio } = moda
     const isPhone = /^\d{10,13}$/.test(query.replace(/\s/g, ''))
     const clientes = await buscarCliente(query)
@@ -328,7 +334,7 @@ async function resolveClienteYCrearModa(sock, moda) {
         const digits = query.replace(/\s/g, '')
         const nombre = clientes.length > 0 ? clientes[0].nombre : `Tel. ${digits}`
         const telefono = clientes.length > 0 ? clientes[0].telefono : digits
-        await crearPedidoModa(sock, { nombre, telefono, cantidad, ganancia, envio })
+        await crearPedidoModa(sock, { nombre, telefono, cantidad, ganancia, envio, idemKey })
         return
     }
 
@@ -350,7 +356,40 @@ async function resolveClienteYCrearModa(sock, moda) {
 
     await crearPedidoModa(sock, {
         nombre: clientes[0].nombre, telefono: clientes[0].telefono, cantidad, ganancia, envio,
+        idemKey,
     })
+}
+
+/**
+ * Clave que identifica este CIERRE de venta para Django.
+ *
+ * Es el id del mensaje de WhatsApp que lo dispara. WhatsApp se lo asigna al
+ * mensaje, no al receptor: toda instancia que reciba el mismo `/cerrar` manda
+ * la misma clave, y Django colapsa los POST repetidos en un solo pedido. Eso
+ * cubre los tres caminos que duplicaban: dos bots en el mismo grupo (el caso
+ * de los pedidos 105/106, 2026-09-20), la re-entrega tras una reconexión, y
+ * dos eventos `upsert` procesados en paralelo.
+ *
+ * Sin id devuelve null y NO inventa una: un uuid o un timestamp sería distinto
+ * en cada instancia, daría la ilusión de protección y duplicaría igual.
+ */
+function idemKeyDe(msg) {
+    const id = msg?.key?.id
+    return id ? `wa:${id}` : null
+}
+
+/**
+ * Confirmación del cierre. Cuando Django responde `duplicado`, el pedido ya
+ * existía y este POST no creó nada: decir «creado» haría creer que hay dos
+ * ventas donde hay una. El número de pedido es el mismo en las dos, y eso es
+ * lo que lo vuelve evidente en el grupo.
+ */
+function confirmacionVenta(data) {
+    if (data.duplicado) {
+        return `ℹ️ Esta venta ya estaba registrada — Pedido #${data.pedido_id}`
+            + ` ($${data.total} MXN). No se registró de nuevo.`
+    }
+    return `✅ Pedido #${data.pedido_id} creado — Total: $${data.total} MXN`
 }
 
 /**
@@ -359,10 +398,11 @@ async function resolveClienteYCrearModa(sock, moda) {
  * en el conflicto, y para el reintento tras resolver un alias — así un ítem
  * cargado después del 409 y antes de la respuesta numérica no se pierde.
  */
-function payloadVentaTienda(sess, envio = 0) {
+function payloadVentaTienda(sess, envio = 0, idemKey = null) {
     return {
         items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty })),
         envio,
+        idem_key: idemKey,
     }
 }
 
@@ -426,8 +466,17 @@ async function avisarSiNoTieneTipo(descripcion) {
 }
 
 async function handleOrdersMessage(sock, msg) {
+    // Lo que escribe otra instancia lo atiende esa instancia. Sin esto las dos
+    // arman sesiones paralelas del mismo grupo y pueden diverger en ítems.
+    // El porqué está en peerBots.js.
+    if (esDeOtraInstancia(msg, PEER_BOT_JIDS)) return
+
     const image = msg.message?.imageMessage
     const text = getText(msg)
+    // Identifica este cierre ante Django. Se calcula UNA vez por mensaje: el
+    // mensaje es lo que las instancias comparten, y es lo que WhatsApp puede
+    // re-entregar. Ver idemKeyDe().
+    const idemKey = idemKeyDe(msg)
 
     // Un pending activo se queda con las respuestas cortas: `parseItemText`
     // acepta un numero suelto como precio, asi que sin esta guarda el "1"
@@ -514,8 +563,8 @@ async function handleOrdersMessage(sock, msg) {
                         ? `${DJANGO_URL}/api/negocio/tienda/`
                         : `${DJANGO_URL}/api/negocio/pedido/`
                     const closePayload = closingTienda
-                        ? payloadVentaTienda(sess, 0)
-                        : { nombre: sess.cliente.nombre, telefono: sess.cliente.telefono, items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty, costo: i.costo || 0 })), envio: 0, descuento_monto: orders.getDescuento(ORDERS_GID)?.monto || 0, codigo_descuento_id: orders.getDescuento(ORDERS_GID)?.codigoId || null }
+                        ? payloadVentaTienda(sess, 0, idemKey)
+                        : { nombre: sess.cliente.nombre, telefono: sess.cliente.telefono, items: sess.items.map(i => ({ description: i.description, price: i.price, qty: i.qty, costo: i.costo || 0 })), envio: 0, descuento_monto: orders.getDescuento(ORDERS_GID)?.monto || 0, codigo_descuento_id: orders.getDescuento(ORDERS_GID)?.codigoId || null, idem_key: idemKey }
                     const resPrev = await enviarVentaTienda(
                         sock, { endpoint: closeEndpoint, payload: closePayload })
                     if (!resPrev.ok) return   // no se abre sesión nueva sobre una venta sin cerrar
@@ -584,7 +633,7 @@ async function handleOrdersMessage(sock, msg) {
             }
             const elegido = clientes[bareNum - 1]
             orders.clearPending(ORDERS_GID)
-            await crearPedidoModa(sock, { nombre: elegido.nombre, telefono: elegido.telefono, cantidad, ganancia, envio })
+            await crearPedidoModa(sock, { nombre: elegido.nombre, telefono: elegido.telefono, cantidad, ganancia, envio, idemKey })
             return
         }
 
@@ -629,13 +678,11 @@ async function handleOrdersMessage(sock, msg) {
                 })
                 return
             }
-            const payload = payloadVentaTienda(sesionActual, envio)
+            const payload = payloadVentaTienda(sesionActual, envio, idemKey)
             const res = await enviarVentaTienda(sock, { endpoint, payload })
             if (!res.ok) return
             orders.cancelSession(ORDERS_GID)
-            await sock.sendMessage(ORDERS_GID, {
-                text: `✅ Pedido #${res.data.pedido_id} creado — Total: $${res.data.total} MXN`,
-            })
+            await sock.sendMessage(ORDERS_GID, { text: confirmacionVenta(res.data) })
             return
         }
     }
@@ -700,7 +747,7 @@ async function handleOrdersMessage(sock, msg) {
                 })
                 return
             }
-            await resolveClienteYCrearModa(sock, moda)
+            await resolveClienteYCrearModa(sock, moda, idemKey)
             return
         }
 
@@ -889,7 +936,7 @@ async function handleOrdersMessage(sock, msg) {
             ? `${DJANGO_URL}/api/negocio/tienda/`
             : `${DJANGO_URL}/api/negocio/pedido/`
         const payload = isTienda
-            ? payloadVentaTienda(sess, envio)
+            ? payloadVentaTienda(sess, envio, idemKey)
             : {
                 nombre: sess.cliente.nombre,
                 telefono: sess.cliente.telefono,
@@ -897,13 +944,13 @@ async function handleOrdersMessage(sock, msg) {
                 envio,
                 descuento_monto: orders.getDescuento(ORDERS_GID)?.monto || 0,
                 codigo_descuento_id: orders.getDescuento(ORDERS_GID)?.codigoId || null,
+                idem_key: idemKey,
             }
         const res = await enviarVentaTienda(sock, { endpoint, payload })
         if (!res.ok) return          // 409 o error: la sesión queda intacta
         orders.cancelSession(ORDERS_GID)
         await sock.sendMessage(ORDERS_GID, {
-            text: `✅ Pedido #${res.data.pedido_id} creado — Total: $${res.data.total} MXN`
-                + avisoSinTipo(res.data.sin_tipo),
+            text: confirmacionVenta(res.data) + avisoSinTipo(res.data.sin_tipo),
         })
         return
     }
