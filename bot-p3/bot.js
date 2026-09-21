@@ -229,37 +229,82 @@ function payloadVentaTienda(sess, envio = 0, idemKey = null) {
     }
 }
 
+const MAX_INTENTOS_VENTA = 3
+// 0 en los tests: la espera real no aporta nada y multiplica la suite.
+const ESPERA_REINTENTO_MS = Number(process.env.VENTA_REINTENTO_MS ?? 1500)
+
+const esperar = (ms) => new Promise(r => setTimeout(r, ms))
+
+/**
+ * ¿El fallo deja la venta en un estado que no podemos leer?
+ *
+ * Sin respuesta (timeout, conexión cortada, DNS) o un 5xx: en los dos casos
+ * Django pudo haber grabado el pedido y perdido la respuesta. Un 4xx es lo
+ * contrario — es una respuesta, y dice que no se grabó nada.
+ */
+function noSabemosSiEntro(err) {
+    if (!err.response) return true
+    return err.response.status >= 500
+}
+
 /**
  * Manda la venta a Django. El 409 no es un error: es "no se puede registrar
  * todavía". La sesión NO se toca — los ítems tienen que sobrevivir.
+ *
+ * Cuando no sabemos si entró, reintenta el BOT y no la persona. Antes, un
+ * timeout después de que Django grabara el pedido terminaba en «Intenta de
+ * nuevo»: al reteclear `/cerrar` el mensaje tenía otro id, o sea otra
+ * `idem_key`, y se creaba una SEGUNDA venta. Reintentando acá la clave es la
+ * misma, así que si el POST perdido había llegado Django responde
+ * `duplicado: true` y confirma el pedido que ya existe.
+ *
+ * Sin `idem_key` NO se reintenta: Django no tendría con qué reconocer el POST
+ * anterior y el reintento automático duplicaría él solito.
  */
 async function enviarVentaTienda(sock, { endpoint, payload }) {
-    try {
-        const { data } = await axios.post(
-            endpoint, payload,
-            { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 10000 },
-        )
-        return { ok: true, data }
-    } catch (err) {
-        if (err.response && err.response.status === 409) {
-            const detalles = (err.response.data && err.response.data.sin_tipo) || []
-            const totalItems = (payload.items || []).length
-            const { texto, opciones } = mensajeSinTipo(detalles, totalItems)
-            // Sin sugerencias no hay nada que numerar: armar el pending solo
-            // trabaría la carga de ítems de texto libre para siempre (el "1"
-            // de un item nunca puede distinguirse del "1" de elegir opción).
-            if (opciones.length > 0) {
-                orders.setPending(ORDERS_GID, 'sin_tipo', {
-                    detalles, opciones, endpoint, envio: payload.envio || 0,
-                })
+    const intentos = payload.idem_key ? MAX_INTENTOS_VENTA : 1
+    let ultimoErr = null
+
+    for (let n = 1; n <= intentos; n++) {
+        try {
+            const { data } = await axios.post(
+                endpoint, payload,
+                { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 10000 },
+            )
+            return { ok: true, data }
+        } catch (err) {
+            ultimoErr = err
+            if (err.response && err.response.status === 409) {
+                const detalles = (err.response.data && err.response.data.sin_tipo) || []
+                const totalItems = (payload.items || []).length
+                const { texto, opciones } = mensajeSinTipo(detalles, totalItems)
+                // Sin sugerencias no hay nada que numerar: armar el pending solo
+                // trabaría la carga de ítems de texto libre para siempre (el "1"
+                // de un item nunca puede distinguirse del "1" de elegir opción).
+                if (opciones.length > 0) {
+                    orders.setPending(ORDERS_GID, 'sin_tipo', {
+                        detalles, opciones, endpoint, envio: payload.envio || 0,
+                    })
+                }
+                await sock.sendMessage(ORDERS_GID, { text: texto })
+                return { ok: false, sinTipo: detalles }
             }
-            await sock.sendMessage(ORDERS_GID, { text: texto })
-            return { ok: false, sinTipo: detalles }
+            if (!noSabemosSiEntro(err) || n === intentos) break
+            logger.warn({ err: err.message, intento: n },
+                'Cierre sin confirmar — reintentando con la misma idem_key')
+            await esperar(ESPERA_REINTENTO_MS)
         }
-        logger.error({ err: err.message }, 'Error al crear la venta en Django')
-        await sock.sendMessage(ORDERS_GID, { text: '❌ Error al crear el pedido. Intenta de nuevo.' })
-        return { ok: false, error: true }
     }
+
+    logger.error({ err: ultimoErr.message }, 'Error al crear la venta en Django')
+    // El texto importa: «intenta de nuevo» era, literalmente, la instrucción
+    // que duplicaba la venta cuando el pedido sí había quedado grabado.
+    const texto = noSabemosSiEntro(ultimoErr)
+        ? '⚠️ No pude confirmar si la venta entró. Revisá el panel ANTES de'
+          + ' reintentar: si ya está registrada, cerrarla otra vez la duplica.'
+        : '❌ Error al crear el pedido. Intenta de nuevo.'
+    await sock.sendMessage(ORDERS_GID, { text: texto })
+    return { ok: false, error: true }
 }
 
 async function handleOrdersMessage(sock, msg) {

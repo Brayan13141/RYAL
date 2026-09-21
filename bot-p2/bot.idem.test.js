@@ -15,6 +15,7 @@ process.env.ORDERS_GROUP_ID = 'orders@g.us'
 process.env.DJANGO_API_URL  = 'http://localhost'
 process.env.DJANGO_API_KEY  = 'test-key'
 process.env.PEER_BOT_JIDS   = '5214451000181,233299133886498'  // bot-p3
+process.env.VENTA_REINTENTO_MS = '0'   // sin esperas reales entre reintentos
 
 jest.mock('axios')
 const axios = require('axios')
@@ -89,6 +90,103 @@ describe('clave de idempotencia en el cierre de venta', () => {
         await handleOrdersMessage({ sendMessage: jest.fn() }, mensaje('/cerrar', undefined))
 
         expect(postDeVenta()[1].idem_key).toBeNull()
+    })
+})
+
+describe('reintento cuando no sabemos si la venta entró', () => {
+    // El hueco que quedaba abierto: si Django CREA el pedido pero la respuesta
+    // no llega antes del timeout, el bot decía «Intenta de nuevo» y dejaba la
+    // sesión viva. Al reteclear `/cerrar` el mensaje tiene OTRO id, o sea otra
+    // idem_key, y Django creaba un SEGUNDO pedido. Reintentar lo tiene que
+    // hacer el bot, con la MISMA clave — no la persona con un mensaje nuevo.
+
+    const sinRespuesta = () => Object.assign(new Error('timeout of 10000ms exceeded'), {
+        code: 'ECONNABORTED', response: undefined })
+    const conStatus = (status, data = {}) => Object.assign(new Error(`status ${status}`), {
+        response: { status, data } })
+
+    const postsDeVenta = () => axios.post.mock.calls.filter(
+        ([url]) => url.endsWith('/api/negocio/tienda/') || url.endsWith('/api/negocio/pedido/'))
+
+    const textoEnviado = (sock) => sock.sendMessage.mock.calls.map(c => c[1].text).join('\n')
+
+    // Sin valor por defecto a propósito: `id = 'X'` haría que pasar
+    // `undefined` cayera en el default y el caso «sin clave» nunca se probara.
+    const conSesionCerrada = async (sock, id) => {
+        ordersReales.startSession(ORDERS, 'Mostrador', 'TIENDA-MOSTRADOR', 'tienda')
+        ordersReales.addItem(ORDERS, 'gorra barbas', 500, 230)
+        await handleOrdersMessage(sock, mensaje('/cerrar', id))
+    }
+
+    beforeEach(() => {
+        ordersReales.cancelSession(ORDERS)
+        jest.clearAllMocks()
+    })
+
+    test('un timeout se reintenta con la MISMA idem_key y la venta se confirma', async () => {
+        axios.post
+            .mockRejectedValueOnce(sinRespuesta())
+            .mockResolvedValueOnce({ data: { pedido_id: 105, total: '500.00', duplicado: true } })
+        const sock = { sendMessage: jest.fn() }
+
+        await conSesionCerrada(sock, 'WA-TIMEOUT')
+
+        const posts = postsDeVenta()
+        expect(posts).toHaveLength(2)
+        expect(posts[0][1].idem_key).toBe('wa:WA-TIMEOUT')
+        expect(posts[1][1].idem_key).toBe('wa:WA-TIMEOUT')
+        // Django reconoció el POST perdido: un solo pedido, y el bot lo dice.
+        expect(textoEnviado(sock)).toContain('#105')
+        expect(ordersReales.getSession(ORDERS)).toBeNull()
+    })
+
+    test('SIN idem_key no se reintenta — reintentar a ciegas duplicaría', async () => {
+        // Sin clave Django no tiene con qué reconocer el POST anterior, así
+        // que un reintento automático crearía la segunda venta él solito.
+        axios.post.mockRejectedValue(sinRespuesta())
+        const sock = { sendMessage: jest.fn() }
+
+        await conSesionCerrada(sock, undefined)
+
+        expect(postsDeVenta()).toHaveLength(1)
+    })
+
+    test('un 400 no se reintenta: es una respuesta definitiva', async () => {
+        axios.post.mockRejectedValue(conStatus(400, { error: 'items vacíos' }))
+        await conSesionCerrada({ sendMessage: jest.fn() }, 'WA-400')
+        expect(postsDeVenta()).toHaveLength(1)
+    })
+
+    test('un 409 no se reintenta: la venta está retenida, no perdida', async () => {
+        axios.post.mockRejectedValue(conStatus(409, { sin_tipo: [] }))
+        await conSesionCerrada({ sendMessage: jest.fn() }, 'WA-409')
+        expect(postsDeVenta()).toHaveLength(1)
+        // Y la sesión sobrevive, como siempre.
+        expect(ordersReales.getSession(ORDERS).items).toHaveLength(1)
+    })
+
+    test('un 500 sí se reintenta: tampoco sabemos si alcanzó a grabar', async () => {
+        axios.post
+            .mockRejectedValueOnce(conStatus(500, { error: 'boom' }))
+            .mockResolvedValueOnce({ data: { pedido_id: 106, total: '500.00' } })
+        await conSesionCerrada({ sendMessage: jest.fn() }, 'WA-500')
+        expect(postsDeVenta()).toHaveLength(2)
+    })
+
+    test('agotados los reintentos, el bot NO dice «intenta de nuevo»', async () => {
+        // Ese texto es exactamente la instrucción que duplica la venta.
+        axios.post.mockRejectedValue(sinRespuesta())
+        const sock = { sendMessage: jest.fn() }
+
+        await conSesionCerrada(sock, 'WA-MUERTO')
+
+        expect(postsDeVenta()).toHaveLength(3)
+        const texto = textoEnviado(sock)
+        expect(texto).not.toMatch(/intenta de nuevo/i)
+        expect(texto).toMatch(/no pude confirmar/i)
+        expect(texto).toMatch(/panel/i)
+        // La sesión NO se toca: los ítems tienen que sobrevivir.
+        expect(ordersReales.getSession(ORDERS).items).toHaveLength(1)
     })
 })
 
