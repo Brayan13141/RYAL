@@ -789,3 +789,40 @@ class MisPedidosNoCruzaPorTelefonoTests(TestCase):
         self.client.force_login(self.intruso)
         resp = self.client.get('/mis-pedidos/')
         self.assertContains(resp, propio.order_code)
+
+
+class CheckoutAvisoSinCuentaTests(TestCase):
+    """El checkout le dice al invitado que no necesita cuenta para pedir."""
+
+    AVISO = "No necesitas una cuenta para hacer tu pedido"
+
+    def setUp(self):
+        cat = Category.objects.create(name="Gorras SC", slug="gorras-sc")
+        self.product = Product.objects.create(
+            sku="RYL-SC-1", name="Gorra SC", category=cat, base_price=Decimal("100"),
+        )
+
+    def _set_cart(self):
+        session = self.client.session
+        session["cart"] = {
+            f"{self.product.pk}_none": {
+                "product_id": self.product.pk, "variant_id": None, "image_pk": None,
+                "variant_name": "", "quantity": 1, "price": 200.0,
+            }
+        }
+        session.save()
+
+    def test_invitado_ve_el_aviso(self):
+        self._set_cart()
+        res = self.client.get(reverse("orders:checkout"))
+        self.assertContains(res, self.AVISO)
+
+    def test_usuario_con_sesion_no_ve_el_aviso(self):
+        from django.contrib.auth.models import User
+        user = User.objects.create_user("cliente_sc", password="Prueba1234!")
+        self.client.force_login(user)
+        self._set_cart()
+        res = self.client.get(reverse("orders:checkout"))
+        # control: la página sí trae el carrito, no es un checkout vacío
+        self.assertContains(res, "Gorra SC")
+        self.assertNotContains(res, self.AVISO)
