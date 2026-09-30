@@ -26,7 +26,6 @@ const MENU_RESPONSES = {
        '• Tenis: 12 pares por modelo y color (puedes combinar tallas)\n' +
        '• Joyería Van Cleef & Arpels: 10 piezas\n' +
        '• Bolsos: 5 piezas\n' +
-       '• Joyería y accesorios: sin mínimo\n' +
        '\n' +
        'Puedes combinar modelos dentro de la misma categoría. Lo único que no se mezcla son categorías para llegar al mínimo.\n' +
        '\n' +
@@ -39,9 +38,9 @@ const MENU_RESPONSES = {
        'https://chat.whatsapp.com/DtVZ8aANnFg8qacSGp9E5s\n' +
        '\n' +
        'Dime qué te interesa y te hacemos la cotización sin pagar nada 😉',
-    2: '¡Excelente decisión! 🚀 El Paquete Emprendedor es surtido listo para revender: te lo armamos nosotros con lo que más rota — playeras, gorras, tenis y accesorios variados.\n' +
+    2: '¡Excelente decisión! 🚀 El Paquete Emprendedor es surtido listo para revender: te lo armamos nosotros con lo que más rota.\n' +
        '\n' +
-       'Desde $4,000 hasta $10,000 pesos.\n' +
+       'Por ahora está disponible solo para gorras, tenis y joyería Van Cleef & Arpels.\n' +
        'Envío no incluido (se cotiza según tu ciudad).\n' +
        '\n' +
        'Tú no adivinas qué comprar: nosotros te surtimos.\n' +
@@ -51,7 +50,7 @@ const MENU_RESPONSES = {
        '\n' +
        '🏭 *Pedidos de fábrica (nuestra página):*\n' +
        '• Catálogo exclusivo para mayoristas, productos G5 idénticos: https://ryalsneackers.com\n' +
-       '• Mínimos por categoría: gorras, playeras, sudaderas y jerseys 20 piezas; tenis 12 pares por modelo y color; joyería Van Cleef & Arpels 10 piezas; bolsos 5 piezas; joyería y accesorios sin mínimo\n' +
+       '• Mínimos por categoría: gorras, playeras, sudaderas y jerseys 20 piezas; tenis 12 pares por modelo y color; joyería Van Cleef & Arpels 10 piezas; bolsos 5 piezas\n' +
        '• Pides tu cotización sin compromiso — no pagas nada hasta confirmar tu pedido\n' +
        '• Envío GRATIS\n' +
        '\n' +

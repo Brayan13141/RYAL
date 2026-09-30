@@ -35,6 +35,12 @@ describe('menuReply', () => {
         }
     })
 
+    test('el Paquete Emprendedor no da presupuesto y se limita a gorras, tenis y Van Cleef', () => {
+        expect(MENU_RESPONSES[2]).not.toMatch(/\$\d/)
+        expect(MENU_RESPONSES[2]).toMatch(/solo para gorras, tenis y joyería Van Cleef & Arpels/)
+        expect(MENU_RESPONSES[2]).not.toMatch(/playeras/)
+    })
+
     test('los mínimos de tenis son por modelo y color, no "hasta 2 colores"', () => {
         for (const k of [1, 3]) {
             expect(MENU_RESPONSES[k]).toMatch(/12 pares por modelo y color/)
