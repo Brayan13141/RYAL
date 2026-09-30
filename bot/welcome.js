@@ -8,7 +8,7 @@ const fs = require('fs')
 const WELCOME_MESSAGE =
     '¡Hola! Soy tu asesor de RYAL 👋\n' +
     '\n' +
-    'Importación directa: playeras 280g, tenis, gorras, bolsos y sudaderas. Más de 20,000 productos a precio de fábrica.\n' +
+    'Importación directa: playeras, tenis, gorras, bolsos y sudaderas. Más de 20,000 productos a precio de fábrica.\n' +
     '\n' +
     'Cuéntame, ¿qué necesitas? Escribe el número:\n' +
     '1. Ya vendo y quiero precios de mayoreo\n' +
