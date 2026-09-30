@@ -28,6 +28,20 @@ describe('menuReply', () => {
         expect(menuReply(null)).toBeNull()
     })
 
+    test('el aviso del asesor va una sola vez: en la bienvenida, no en las respuestas', () => {
+        expect(WELCOME_MESSAGE).toMatch(/Un asesor te atenderá personalmente en breve/)
+        for (const k of [1, 2, 3]) {
+            expect(MENU_RESPONSES[k]).not.toMatch(/asesor/i)
+        }
+    })
+
+    test('los mínimos de tenis son por modelo y color, no "hasta 2 colores"', () => {
+        for (const k of [1, 3]) {
+            expect(MENU_RESPONSES[k]).toMatch(/12 pares por modelo y color/)
+            expect(MENU_RESPONSES[k]).not.toMatch(/hasta 2 colores/)
+        }
+    })
+
     test('número que es talla o precio no dispara menú', () => {
         expect(menuReply('26')).toBeNull()
         expect(menuReply('450')).toBeNull()

@@ -6,24 +6,27 @@ const fs = require('fs')
 // módulo — cada instancia tiene su propio archivo de vistos.
 
 const WELCOME_MESSAGE =
-    '¡Hola! Soy tu asesor de RYAL 👋\n' +
+    '¡Hola! Bienvenido a RYAL 👋\n' +
     '\n' +
-    'Importación directa: playeras 280g, tenis, gorras, bolsos y sudaderas. Más de 20,000 productos a precio de fábrica.\n' +
+    'Importación directa a precio de fábrica: gorras, playeras, sudaderas, jerseys, tenis, bolsos y joyería. Más de 25,000 productos.\n' +
     '\n' +
-    'Cuéntame, ¿qué necesitas? Escribe el número:\n' +
-    '1. Ya vendo y quiero precios de mayoreo\n' +
-    '2. Quiero emprender (paquete con productos variados)\n' +
-    '3. Información general\n' +
+    '¿Qué buscas? Escribe el número:\n' +
+    '1. Precios de mayoreo (ya vendo)\n' +
+    '2. Paquete para emprender\n' +
+    '3. Cómo trabajamos (Catálogo)\n' +
     '\n' +
-    'Responde con un solo número a la vez, por favor 🙂'
+    'Escribe solo un número, por favor. Un asesor te atenderá personalmente en breve.'
 
 const MENU_RESPONSES = {
     1: '¡Perfecto! Vas directo a precio de fábrica 🔥\n' +
        '\n' +
        'Mínimos por categoría:\n' +
-       '• Playeras, gorras y otros: 20 piezas\n' +
-       '• Tenis: 12 pares (mismo modelo, hasta 2 colores)\n' +
+       '• Gorras: 20 piezas\n' +
+       '• Playeras, sudaderas y jerseys: 20 piezas\n' +
+       '• Tenis: 12 pares por modelo y color (puedes combinar tallas)\n' +
+       '• Joyería Van Cleef & Arpels: 10 piezas\n' +
        '• Bolsos: 5 piezas\n' +
+       '• Joyería y accesorios: sin mínimo\n' +
        '\n' +
        'Puedes combinar modelos dentro de la misma categoría. Lo único que no se mezcla son categorías para llegar al mínimo.\n' +
        '\n' +
@@ -48,7 +51,7 @@ const MENU_RESPONSES = {
        '\n' +
        '🏭 *Pedidos de fábrica (nuestra página):*\n' +
        '• Catálogo exclusivo para mayoristas, productos G5 idénticos: https://ryalsneackers.com\n' +
-       '• Mínimos por categoría: playeras/gorras 20 piezas, tenis 12 pares, bolsos 5 piezas\n' +
+       '• Mínimos por categoría: gorras, playeras, sudaderas y jerseys 20 piezas; tenis 12 pares por modelo y color; joyería Van Cleef & Arpels 10 piezas; bolsos 5 piezas; joyería y accesorios sin mínimo\n' +
        '• Pides tu cotización sin compromiso — no pagas nada hasta confirmar tu pedido\n' +
        '• Envío GRATIS\n' +
        '\n' +
