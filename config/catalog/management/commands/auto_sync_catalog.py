@@ -43,6 +43,10 @@ _ALWAYS = (['gorra'], 'Gorra', 'gorra', 'gorras')
 # 2026-09-16: el Paso 4 (import_images --fill-gaps) salió del pipeline por decisión
 # de Bryan: no se completan galerías de productos existentes. images_hint se conserva
 # como referencia para correr import_images a mano.
+#
+# 2026-09-28: la raíz "Joyería Chrome Hearts" desapareció; toda la joyería cuelga de
+# "Toda la línea de accesorios de joyería" (Chrome Hearts, Cartier, Pandora, SWAROVSKI…).
+# El slot 6 pasa de 'chrome hearts' (solo la gargantilla) a 'joyería' (la raíz entera).
 _SCHEDULE = {
     0: (['deportiva'],      'Camisetas deportivas',        'deportiva',    'deportivas'),
     1: (['1:1'],            'Camisetas/Sudaderas 1:1',     '1:1',          '1a1'),
@@ -50,7 +54,7 @@ _SCHEDULE = {
     3: (['calzado'],        'Calzado',                     None,           None),
     4: (['van cleef'],      'Van Cleef & Arpels',          'van cleef',    'van-cleef'),
     5: (['reloj'],          'Reloj',                       'reloj',        'reloj'),
-    6: (['chrome hearts'],  'Joyería Chrome Hearts',       'chrome hearts', 'joyeria'),
+    6: (['joyería'],        'Joyería',                     'joyería',      'joyeria'),
     7: (['bolsos'],         'Bolsos de lujo de gama alta', 'bolsos',       'bolsos'),
 }
 

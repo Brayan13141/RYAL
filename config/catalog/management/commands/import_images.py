@@ -45,7 +45,7 @@ _CATEGORY_SLUG_HINT = {
     'airpods':     'electronica',
     'bolsos':      'bolsos-de-lujo',
     'reloj':       'reloj',
-    'joyeria':     'joyeria-chrome-hearts',
+    'joyeria':     'accesorios-de-joyeria',
     'deportivas':  'camisetas-deportivas',
     'g5':          'calidad-g5',
     '1a1':         'calidad-11',
