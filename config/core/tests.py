@@ -189,6 +189,22 @@ class StaffDebeTener2FATests(TestCase):
         )
         self.assertIn('2fa', resp['Location'])
 
+    def test_admin_login_no_se_salta_el_segundo_factor(self):
+        """/admin/login/ es el login de Django: pide contraseña y nada más.
+        Con el TOTP ya enrolado el middleware lo dejaba pasar, así que la
+        contraseña sola abría el admin."""
+        from allauth.mfa.models import Authenticator
+        Authenticator.objects.create(
+            user=self.staff, type=Authenticator.Type.TOTP, data={'secret': 'X'})
+        resp = self.client.post(
+            '/admin/login/', {'username': 'staff_2fa', 'password': 'Prueba1234!'})
+        self.assertNotIn(
+            '_auth_user_id', self.client.session,
+            'La contraseña sola abrió sesión de staff por /admin/login/.',
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/accounts/login/', resp['Location'])
+
     def test_un_usuario_normal_no_queda_atrapado_en_el_flujo_de_2fa(self):
         from django.contrib.auth.models import User
         cliente = User.objects.create_user('cliente_normal', password='Prueba1234!')

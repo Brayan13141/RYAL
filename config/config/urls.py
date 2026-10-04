@@ -16,6 +16,7 @@ Including another URLconf
 """
 from django.conf import settings
 from django.conf.urls.static import static
+from allauth.account.decorators import secure_admin_login
 from django.contrib import admin
 from django.contrib.sitemaps.views import sitemap
 from django.urls import path, include
@@ -23,6 +24,11 @@ from django.views.generic import TemplateView
 
 from accounts.views import RateLimitedLoginView, RateLimitedSignupView
 from catalog.sitemaps import CategorySitemap, ProductSitemap, StaticSitemap
+
+# El login propio del admin solo pide contraseña y se saltaba el segundo factor:
+# el middleware de MFA solo revisa que el TOTP esté enrolado, no que se haya
+# usado. Con esto /admin/login/ manda al login de allauth, que sí lo pide.
+admin.site.login = secure_admin_login(admin.site.login)
 
 _sitemaps = {
     'products':   ProductSitemap,
