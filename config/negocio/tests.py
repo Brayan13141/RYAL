@@ -3802,3 +3802,38 @@ class FechaLocalNoUTCTests(TestCase):
             codigo='HOYFL2', descuento=Decimal('50'), is_active=True, valid_hasta=self.HOY_LOCAL,
         )
         self.assertTrue(validar_codigo('HOYFL2', descriptions=[])['valido'])
+
+
+@override_settings(NEGOCIO_API_KEY='test-key-123')
+class ApiMinimosTest(TestCase):
+    """El bot arma los mínimos del menú con esto: si cambian en el panel, el
+    bot los repite sin tocar su código."""
+
+    AUTH = {'HTTP_AUTHORIZATION': 'Bearer test-key-123'}
+
+    def setUp(self):
+        self.gorra = Category.objects.create(name='Gorra', slug='gorra', min_order_qty=20)
+        self.calzado = Category.objects.create(
+            name='Calzado', slug='calzado', min_order_qty=1, min_qty_per_item=12)
+        Category.objects.create(name='Reloj', slug='reloj', min_order_qty=3, is_active=False)
+        Category.objects.create(
+            name='Gorras Virales', slug='gorras-virales', parent=self.gorra, min_order_qty=50)
+
+    def test_sin_token_401(self):
+        self.assertEqual(self.client.get('/api/negocio/minimos/').status_code, 401)
+
+    def test_devuelve_raices_activas_con_sus_minimos(self):
+        res = self.client.get('/api/negocio/minimos/', **self.AUTH)
+        self.assertEqual(res.status_code, 200)
+        cats = {c['slug']: c for c in res.json()['categorias']}
+        self.assertEqual(set(cats), {'gorra', 'calzado'})
+        self.assertEqual(cats['gorra'], {
+            'slug': 'gorra', 'nombre': 'Gorra', 'min_pedido': 20, 'min_por_modelo': 0})
+        self.assertEqual(cats['calzado']['min_pedido'], 1)
+        self.assertEqual(cats['calzado']['min_por_modelo'], 12)
+
+    def test_refleja_el_cambio_hecho_en_el_panel(self):
+        Category.objects.filter(pk=self.gorra.pk).update(min_order_qty=30)
+        res = self.client.get('/api/negocio/minimos/', **self.AUTH)
+        cats = {c['slug']: c for c in res.json()['categorias']}
+        self.assertEqual(cats['gorra']['min_pedido'], 30)

@@ -64,6 +64,72 @@ const MENU_RESPONSES = {
        'Si quieres empezar de cero, escribe 2.',
 }
 
+// --- Mínimos tomados de Django ----------------------------------------------
+// Cada renglón del menú junta una o más categorías raíz por slug. Los nombres
+// son del bot; los números, de Django. Si un renglón junta categorías con
+// mínimos distintos se anuncia el mayor: mejor pedir de más que dejar que el
+// carrito rechace al cliente después.
+const GRUPOS_MINIMOS = [
+    { slugs: ['gorra'], nombre: 'Gorras', corto: 'gorras' },
+    { slugs: ['camisetassudaderas-calidad-g5', 'camisetassudaderas-calidad-11',
+              'camisetas-deportivas-y-jerseys-de-futbol'],
+      nombre: 'Playeras, sudaderas y jerseys', corto: 'playeras, sudaderas y jerseys' },
+    { slugs: ['calzado'], nombre: 'Tenis', corto: 'tenis', porModelo: true },
+    { slugs: ['van-cleef-arpels'], nombre: 'Joyería Van Cleef & Arpels', corto: 'joyería Van Cleef & Arpels' },
+    { slugs: ['bolsos-de-lujo-de-gama-alta'], nombre: 'Bolsos', corto: 'bolsos' },
+]
+
+/** Renglones {nombre, corto, cantidad, porModelo}; los que no tienen mínimo se omiten. */
+function lineasMinimos(categorias) {
+    const porSlug = new Map((categorias || []).map(c => [c.slug, c]))
+    const lineas = []
+    for (const g of GRUPOS_MINIMOS) {
+        const cats = g.slugs.map(s => porSlug.get(s)).filter(Boolean)
+        if (cats.length === 0) continue
+        if (g.porModelo) {
+            const n = Math.max(...cats.map(c => c.min_por_modelo || 0))
+            if (n > 0) lineas.push({ ...g, cantidad: `${n} pares por modelo y color` })
+            continue
+        }
+        const n = Math.max(...cats.map(c => c.min_pedido || 0))
+        if (n > 1) lineas.push({ ...g, cantidad: `${n} piezas` })
+    }
+    return lineas
+}
+
+/**
+ * Las respuestas del menú con los mínimos de Django. Sin datos (Django caído
+ * desde el arranque) devuelve el texto fijo de MENU_RESPONSES.
+ */
+function buildMenuResponses(categorias) {
+    const lineas = lineasMinimos(categorias)
+    if (lineas.length === 0) return MENU_RESPONSES
+
+    const viñetas = lineas.map(l =>
+        `• ${l.nombre}: ${l.cantidad}${l.porModelo ? ' (puedes combinar tallas)' : ''}\n`).join('')
+
+    // En la opción 3 van en una sola línea, y los renglones seguidos con el
+    // mismo mínimo se juntan ("gorras, playeras, sudaderas y jerseys 20 piezas").
+    const tramos = []
+    for (const l of lineas) {
+        const prev = tramos[tramos.length - 1]
+        if (prev && prev.cantidad === l.cantidad) prev.nombres.push(l.corto)
+        else tramos.push({ nombres: [l.corto], cantidad: l.cantidad })
+    }
+    const enLinea = tramos.map(t => `${t.nombres.join(', ')} ${t.cantidad}`).join('; ')
+
+    return {
+        1: MENU_RESPONSES[1].replace(MINIMOS_1_RE, `$1${viñetas}$2`),
+        2: MENU_RESPONSES[2],
+        3: MENU_RESPONSES[3].replace(MINIMOS_3_RE, `$1${enLinea}$2`),
+    }
+}
+
+// Dónde va cada lista dentro del texto fijo. Si alguien reescribe el texto y
+// rompe el patrón, el test de "texto idéntico" lo delata.
+const MINIMOS_1_RE = /(Mínimos por categoría:\n)(?:• [^\n]*\n)+(\n)/
+const MINIMOS_3_RE = /(• Mínimos por categoría: )[^\n]*(\n)/
+
 // JIDs que nunca deben recibir bienvenida (no son chats de personas)
 const IGNORED_JID_SUFFIXES = ['@broadcast', '@newsletter', '@g.us']
 
@@ -83,12 +149,13 @@ function isGreetableJid(jid, internalJids) {
 /**
  * Devuelve la respuesta del menú si el texto es una opción válida ("1"-"3",
  * con espacios tolerados) o el menú completo si pide "menu"/"menú".
+ * `categorias` (de /api/negocio/minimos/) pone los mínimos; sin ellas, texto fijo.
  * null si el texto no es una interacción de menú.
  */
-function menuReply(text) {
+function menuReply(text, categorias) {
     const t = (text || '').trim().toLowerCase()
     if (t === 'menu' || t === 'menú') return WELCOME_MESSAGE
-    if (/^[123]$/.test(t)) return MENU_RESPONSES[t]
+    if (/^[123]$/.test(t)) return buildMenuResponses(categorias)[t]
     return null
 }
 
@@ -210,4 +277,4 @@ function createWelcomeStore({ filePath, maxEntries = 20000 } = {}) {
     }
 }
 
-module.exports = { WELCOME_MESSAGE, MENU_RESPONSES, menuReply, isGreetableJid, createWelcomeStore, jidsFromKey, phoneFromKey }
+module.exports = { WELCOME_MESSAGE, MENU_RESPONSES, buildMenuResponses, menuReply, isGreetableJid, createWelcomeStore, jidsFromKey, phoneFromKey }

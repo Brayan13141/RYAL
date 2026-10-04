@@ -199,6 +199,25 @@ def api_tipos_list(request):
 
 
 @csrf_exempt
+@require_GET
+def api_minimos(request):
+    """Mínimos de compra de las categorías raíz activas, para el menú del bot.
+
+    El bot los tenía escritos a mano y se desfasaban al editarlos en el panel.
+    Solo raíces: es donde viven los mínimos que exige el carrito.
+    """
+    if not _authorized(request):
+        return JsonResponse({'error': 'unauthorized'}, status=401)
+    from catalog.models import Category
+    categorias = [
+        {'slug': c.slug, 'nombre': c.name,
+         'min_pedido': c.min_order_qty, 'min_por_modelo': c.min_qty_per_item}
+        for c in Category.objects.filter(parent__isnull=True, is_active=True).order_by('name')
+    ]
+    return JsonResponse({'categorias': categorias})
+
+
+@csrf_exempt
 @require_POST
 def api_articulo_buscar(request):
     if not _authorized(request):

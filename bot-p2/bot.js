@@ -23,6 +23,7 @@ const { avisoSinTipo } = require('./avisoSinTipo')
 const { mensajeSinTipo } = require('./ventaSinTipo')
 const { parsePeerJids, esDeOtraInstancia } = require('./peerBots')
 const { avisoTipoItem } = require('./avisoTipoItem')
+const { createMinimosSource } = require('./minimos')
 
 const AUTH_DIR = '.baileys_auth'
 const QR_STATE_FILE = '.qr_state.json'
@@ -41,6 +42,12 @@ const DJANGO_KEY      = process.env.DJANGO_API_KEY
 const ORDERS_GID = process.env.ORDERS_GROUP_ID  // undefined → feature deshabilitada
 
 const logger = pino({ level: 'info' })
+// Mínimos del menú (opciones 1 y 3), leídos del panel. Sin respuesta de
+// Django el menú sale con su texto fijo.
+const minimos = createMinimosSource({
+    fetchFn: async () => (await axios.get(`${DJANGO_URL}/api/negocio/minimos/`,
+        { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 5000 })).data.categorias,
+})
 const batch = createBatchBuffer()
 const orders = createOrderSessionStore()
 // JIDs privados ya saludados — persiste junto a la sesión de esta instancia
@@ -232,7 +239,9 @@ async function handleClientMessage(sock, msg) {
 
     // Respuestas del menú (1/2/3 o "menu") — solo texto exacto, no interfiere
     // con precios/tallas porque esos nunca son un solo dígito 1-3
-    const option = menuReply(getText(msg))
+    const texto = getText(msg)
+    // Solo se consulta Django cuando el texto es una opción del menú.
+    const option = menuReply(texto) && menuReply(texto, await minimos.get())
     if (option) {
         await sock.sendMessage(jid, { text: option })
         return

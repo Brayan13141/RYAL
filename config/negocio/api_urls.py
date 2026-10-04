@@ -8,6 +8,7 @@ urlpatterns = [
     path('tienda/',                 api_views.api_tienda_create,    name='api_negocio_tienda_create'),
     path('alias/',                  api_views.api_alias_create,     name='api_negocio_alias_create'),
     path('tipos/',                  api_views.api_tipos_list,       name='api_negocio_tipos'),
+    path('minimos/',                api_views.api_minimos,          name='api_negocio_minimos'),
     path('articulo/buscar/',        api_views.api_articulo_buscar,  name='api_negocio_articulo_buscar'),
     path('codigos/validar/',        api_views.api_codigos_validar,         name='api_negocio_codigos_validar'),
     path('codigos/validar-publico/', api_views.api_codigos_validar_publico, name='api_negocio_codigos_validar_publico'),
