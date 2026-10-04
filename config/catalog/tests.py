@@ -10,6 +10,7 @@ from django.core.management import call_command
 from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 import datetime
 
@@ -679,6 +680,19 @@ class ReconcileCatalogTests(TestCase):
         self.assertFalse(p.auto_deactivated)
         self.assertIn('dry-run', stdout.lower())
 
+    def test_baja_marca_hidden_at_y_reactivacion_lo_limpia(self):
+        p = self._make_product('PID001')
+        for pid in ('PID002', 'PID003', 'PID004'):
+            self._make_product(pid)
+        self._call(json_data=self._json(['PID002', 'PID003', 'PID004']))
+        p.refresh_from_db()
+        self.assertIsNotNone(p.hidden_at)
+        ProductImage.objects.create(product=p, image='products/x.jpg', is_cover=True)
+        self._call(json_data=self._json(['PID001', 'PID002', 'PID003', 'PID004']))
+        p.refresh_from_db()
+        self.assertTrue(p.is_active)
+        self.assertIsNone(p.hidden_at)
+
     def test_category_solo_toca_productos_del_scope(self):
         """--category gorras desactiva en Gorras pero no toca productos de Ropa.
         3 productos de Gorras permanecen → 1/4 = 25 % < 30 % (threshold no dispara)."""
@@ -735,6 +749,39 @@ class ReconcileCatalogTests(TestCase):
         stdout, _ = self._call('--prune', '--dry-run', json_data=self._json([]))
         self.assertTrue(Product.objects.filter(pk=p_dead.pk).exists())
         self.assertIn('dry-run', stdout.lower())
+
+    def _pedido_con(self, product):
+        from orders.models import Order
+        order = Order.objects.create(
+            order_code=f'TEST-PRUNE-{product.pk}', customer_name='Ana',
+            customer_phone='5512345678',
+        )
+        return order.items.create(
+            product=product, quantity=1, price_snapshot=Decimal('100'),
+            cost_snapshot=None, sku_snapshot=product.sku, name_snapshot=product.name,
+        )
+
+    def test_prune_conserva_productos_con_pedidos(self):
+        """Un producto con pedidos no se borra: sin él, el costo de los pedidos
+        sin cost_snapshot cae al último recurso y cambia la ganancia histórica."""
+        p_vendido = self._make_product('PID001', is_active=False, auto_deactivated=True)
+        p_dead = self._make_product('PID002', is_active=False, auto_deactivated=True)
+        item = self._pedido_con(p_vendido)
+        self._call('--prune', json_data=self._json([]))
+        self.assertTrue(Product.objects.filter(pk=p_vendido.pk).exists())
+        self.assertFalse(Product.objects.filter(pk=p_dead.pk).exists())
+        item.refresh_from_db()
+        self.assertEqual(item.product_id, p_vendido.pk)
+
+    def test_prune_con_renglon_de_pedido_sin_producto_sigue_borrando(self):
+        """Un OrderItem con product NULL no debe vaciar la exclusión (NOT IN con NULL)."""
+        p_dead = self._make_product('PID001', is_active=False, auto_deactivated=True)
+        p_huerfano = self._make_product('PID002', is_active=False, auto_deactivated=True)
+        item = self._pedido_con(p_huerfano)
+        item.product = None
+        item.save()
+        self._call('--prune', json_data=self._json([]))
+        self.assertFalse(Product.objects.filter(pk=p_dead.pk).exists())
 
     def test_prune_category_solo_borra_en_scope(self):
         """--prune --category gorras no toca productos auto-desactivados de otra categoría."""
@@ -902,6 +949,18 @@ class ReconcileYupooTests(TestCase):
         self._call('--prune', json_data=self._json([]))
         self.assertFalse(Product.objects.filter(pk=p_dead.pk).exists())
         self.assertTrue(Product.objects.filter(pk=p_alive.pk).exists())
+
+    def test_prune_conserva_productos_con_pedidos(self):
+        from orders.models import Order
+        p_vendido = self._make_product('A001', is_active=False, auto_deactivated=True)
+        Order.objects.create(
+            order_code='TEST-PRUNE-Y', customer_name='Ana', customer_phone='5512345678',
+        ).items.create(
+            product=p_vendido, quantity=1, price_snapshot=Decimal('100'),
+            sku_snapshot=p_vendido.sku, name_snapshot=p_vendido.name,
+        )
+        self._call('--prune', json_data=self._json([]))
+        self.assertTrue(Product.objects.filter(pk=p_vendido.pk).exists())
 
     def test_prune_dry_run_no_borra(self):
         p_dead = self._make_product('A001', is_active=False, auto_deactivated=True)
@@ -1104,8 +1163,34 @@ class AutoSyncCatalogScheduleTests(TestCase):
     def test_slot_5_es_reloj(self):
         self.assertIn('reloj', self._kw(5))
 
-    def test_slot_6_es_chrome_hearts(self):
-        self.assertIn('chrome hearts', self._kw(6))
+    def test_slot_6_cubre_todas_las_subcategorias_de_joyeria(self):
+        # 2026-09-28: la raíz "Joyería Chrome Hearts" desapareció y la joyería
+        # vive bajo "Toda la línea de accesorios de joyería" (7 subs). Con la
+        # keyword vieja 'chrome hearts' el cron solo tocaba la gargantilla.
+        from catalog.modaverse import category_filter_ids
+        arbol = [
+            {'id': 'JOY', 'name_es': 'Toda la línea de accesorios de joyería', 'subcategories': [
+                {'id': 'CH', 'name_es': 'Gargantilla Chrome Hearts'},
+                {'id': 'CA', 'name_es': 'Colección completa de joyas Cartier'},
+                {'id': 'PA', 'name_es': 'Pulsera Pandora'},
+                {'id': 'SW', 'name_es': 'SWAROVSKI'},
+                {'id': 'S1', 'name_es': '1'},
+            ]},
+            {'id': 'G5', 'name_es': 'Camisetas/Sudaderas Calidad G5', 'subcategories': [
+                {'id': 'G5CH', 'name_es': ' Chrome Hearts'},
+            ]},
+        ]
+        ids = category_filter_ids(arbol, self._kw(6))
+        self.assertEqual(ids, {'JOY', 'CH', 'CA', 'PA', 'SW', 'S1'})
+
+    def test_slot_6_el_scraper_usa_la_misma_keyword_de_joyeria(self):
+        from catalog.management.commands.auto_sync_catalog import _SCHEDULE
+        self.assertEqual(_SCHEDULE[6][2], 'joyería')
+
+    def test_images_hint_de_joyeria_alcanza_la_raiz_vigente(self):
+        # import_images filtra con category__slug__contains / parent__slug__contains.
+        from catalog.management.commands.import_images import _CATEGORY_SLUG_HINT
+        self.assertIn(_CATEGORY_SLUG_HINT['joyeria'], 'toda-la-linea-de-accesorios-de-joyeria')
 
     def test_slot_7_es_bolsos(self):
         self.assertIn('bolsos', self._kw(7))
@@ -2583,3 +2668,79 @@ class SugerenciasDeTipoTests(TestCase):
 
     def test_texto_vacio_devuelve_vacio(self):
         self.assertEqual(sugerencias_de_tipo('   '), [])
+
+
+# ── Product.hidden_at: desde cuándo está oculto ──────────────────────────────
+
+class HiddenAtTests(TestCase):
+    """`hidden_at` registra cuándo se ocultó un producto, para poder purgar los
+    que llevan más de N días ocultos. Ocultar uno ya oculto no reinicia el reloj."""
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+        self.cat = Category.objects.create(name='Gorras', slug='gorras')
+        User.objects.create_user(username='staff_ha', password='pass', is_staff=True)
+        self.client.login(username='staff_ha', password='pass')
+
+    def _product(self, sku='HA-1', **kw):
+        return Product.objects.create(
+            name='Gorra', sku=sku, category=self.cat, base_price=Decimal('100'), **kw
+        )
+
+    def test_save_oculto_marca_hidden_at_y_activo_lo_limpia(self):
+        p = self._product()
+        self.assertIsNone(p.hidden_at)
+        p.is_active = False
+        p.save()
+        self.assertIsNotNone(p.hidden_at)
+        p.is_active = True
+        p.save(update_fields=['is_active'])
+        p.refresh_from_db()
+        self.assertIsNone(p.hidden_at)
+
+    def test_save_con_update_fields_persiste_hidden_at(self):
+        p = self._product()
+        p.is_active = False
+        p.save(update_fields=['is_active'])
+        p.refresh_from_db()
+        self.assertIsNotNone(p.hidden_at)
+
+    def test_resave_de_oculto_no_reinicia_el_reloj(self):
+        viejo = timezone.now() - datetime.timedelta(days=40)
+        p = self._product(is_active=False)
+        Product.objects.filter(pk=p.pk).update(hidden_at=viejo)
+        p.refresh_from_db()
+        p.name = 'Otra'
+        p.save()
+        p.refresh_from_db()
+        self.assertEqual(p.hidden_at, viejo)
+
+    def test_toggle_del_panel_marca_y_limpia(self):
+        p = self._product()
+        self.client.post(reverse('panel:product_toggle', args=[p.pk]))
+        p.refresh_from_db()
+        self.assertIsNotNone(p.hidden_at)
+        self.client.post(reverse('panel:product_toggle', args=[p.pk]))
+        p.refresh_from_db()
+        self.assertIsNone(p.hidden_at)
+
+    def test_bulk_ocultar_marca_solo_los_que_estaban_activos(self):
+        viejo = timezone.now() - datetime.timedelta(days=40)
+        activo = self._product('HA-1')
+        oculto = self._product('HA-2', is_active=False)
+        Product.objects.filter(pk=oculto.pk).update(hidden_at=viejo)
+        self.client.post(reverse('panel:product_bulk_action'), {
+            'action': 'deactivate', 'scope': 'selected', 'pks': [activo.pk, oculto.pk],
+        })
+        activo.refresh_from_db()
+        oculto.refresh_from_db()
+        self.assertIsNotNone(activo.hidden_at)
+        self.assertEqual(oculto.hidden_at, viejo)
+
+    def test_bulk_activar_limpia_hidden_at(self):
+        p = self._product(is_active=False)
+        self.client.post(reverse('panel:product_bulk_action'), {
+            'action': 'activate', 'scope': 'selected', 'pks': [p.pk],
+        })
+        p.refresh_from_db()
+        self.assertIsNone(p.hidden_at)

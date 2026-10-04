@@ -1177,3 +1177,55 @@ class SupplierOrderRunLanzamientoTests(TestCase):
         self.assertNotIn('--headless', cmd)
         self.assertEqual(kwargs['env']['PYTHONUNBUFFERED'], '1')
         self.assertEqual(kwargs['env']['PYTHONUTF8'], '1')
+
+
+class CategoryDeleteConPendientesTest(TestCase):
+    """Borrar una categoría con pendientes los dejaba con category=None
+    (SET_NULL) y después `approve()` reventaba contra el NOT NULL de Product."""
+
+    def setUp(self):
+        from catalog.models import PendingProduct
+        self.PendingProduct = PendingProduct
+        User.objects.create_user(username='staff_catdel', password='pass', is_staff=True)
+        self.client.login(username='staff_catdel', password='pass')
+        self.root = Category.objects.create(
+            name='Gorra Del', slug='gorra-del',
+            shipping_cost=Decimal('50'), profit_margin=Decimal('100'),
+        )
+        self.sub = Category.objects.create(
+            name='Gorras Virales Del', slug='gorras-virales-del', parent=self.root,
+            shipping_cost=Decimal('50'), profit_margin=Decimal('100'),
+        )
+        self.pending = PendingProduct.objects.create(
+            supplier_url='https://modaverse.vip/#/proinfo/CATDEL1',
+            display_name='ZA-410', category=self.sub,
+            base_price=Decimal('200'), raw_data={'sku': 'RYL-CAP-00001'},
+        )
+
+    def test_eliminar_no_borra_una_subcategoria_con_pendientes(self):
+        res = self.client.post(f'/panel/categorias/{self.sub.pk}/eliminar/')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('pendiente', res.json()['error'])
+        self.assertTrue(Category.objects.filter(pk=self.sub.pk).exists())
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.category_id, self.sub.pk)
+
+    def test_borrar_no_borra_una_categoria_con_pendientes(self):
+        res = self.client.post(f'/panel/categorias/{self.sub.pk}/borrar/')
+        self.assertEqual(res.status_code, 302)
+        self.assertIn('delete_error', res.url)
+        self.assertTrue(Category.objects.filter(pk=self.sub.pk).exists())
+
+    def test_eliminar_si_borra_si_los_pendientes_ya_se_revisaron(self):
+        """Los aprobados/rechazados ya no dependen de la categoría."""
+        self.pending.status = 'rejected'
+        self.pending.save(update_fields=['status'])
+        res = self.client.post(f'/panel/categorias/{self.sub.pk}/eliminar/')
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(Category.objects.filter(pk=self.sub.pk).exists())
+
+    def test_eliminar_una_subcategoria_vacia_sigue_funcionando(self):
+        self.pending.delete()
+        res = self.client.post(f'/panel/categorias/{self.sub.pk}/eliminar/')
+        self.assertEqual(res.json(), {'ok': True})
+        self.assertFalse(Category.objects.filter(pk=self.sub.pk).exists())

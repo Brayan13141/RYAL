@@ -24,6 +24,7 @@ import json
 from pathlib import Path
 
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 
 from catalog.models import Product, ProductImage
 
@@ -132,10 +133,10 @@ class Command(BaseCommand):
             return
 
         Product.objects.filter(pk__in=to_deactivate_pks).update(
-            is_active=False, auto_deactivated=True
+            is_active=False, auto_deactivated=True, hidden_at=timezone.now()
         )
         Product.objects.filter(pk__in=to_reactivate_pks).update(
-            is_active=True, auto_deactivated=False
+            is_active=True, auto_deactivated=False, hidden_at=None
         )
 
         imgs_deleted = 0
@@ -154,7 +155,10 @@ class Command(BaseCommand):
         ))
 
     def _prune(self, options):
-        qs = Product.objects.filter(supplier_url__icontains='yupoo', auto_deactivated=True)
+        # Los que tienen pedidos se quedan (ver reconcile_catalog._prune).
+        qs = Product.objects.filter(
+            supplier_url__icontains='yupoo', auto_deactivated=True, order_items__isnull=True,
+        )
         count = qs.count()
         if count == 0:
             self.stdout.write('Nada que limpiar (0 productos auto-desactivados de Yupoo).')

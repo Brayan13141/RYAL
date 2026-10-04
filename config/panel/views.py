@@ -774,8 +774,10 @@ def product_bulk_action(request):
         return JsonResponse({'ok': False, 'error': 'Alcance inválido'}, status=400)
 
     if action == 'activate':
-        count = qs.update(is_active=True)
+        count = qs.update(is_active=True, hidden_at=None)
     elif action == 'deactivate':
+        # Primero el reloj, solo a los que estaban activos: re-ocultar no lo reinicia.
+        qs.filter(is_active=True).update(hidden_at=timezone.now())
         count = qs.update(is_active=False)
     elif action == 'delete':
         count, _ = qs.delete()
@@ -1248,6 +1250,11 @@ def category_hard_delete(request, cat_pk):
     prod_count = cat.products.count()
     if prod_count:
         return redirect(f'/panel/categorias/{cat_pk}/editar/?delete_error=Tiene+{prod_count}+producto(s)+asignado(s).+Desactívalos+o+cámbiales+la+categoría+primero.')
+    # Los pendientes quedarían con category=None (SET_NULL) y después no se
+    # podrían aprobar: Product.category es obligatoria.
+    pend_count = cat.pending_products.filter(status='pending').count()
+    if pend_count:
+        return redirect(f'/panel/categorias/{cat_pk}/editar/?delete_error=Tiene+{pend_count}+producto(s)+pendiente(s)+de+aprobación.+Apruébalos+o+recházalos+primero.')
     cat.delete()
     return redirect('panel:catalog_config')
 
@@ -1269,6 +1276,12 @@ def category_delete(request, cat_pk):
     if count:
         return JsonResponse(
             {'ok': False, 'error': f'No se puede eliminar: tiene {count} producto{"s" if count != 1 else ""}. Desactívala o mueve los productos primero.'},
+            status=400,
+        )
+    pend_count = cat.pending_products.filter(status='pending').count()
+    if pend_count:
+        return JsonResponse(
+            {'ok': False, 'error': f'No se puede eliminar: tiene {pend_count} producto{"s" if pend_count != 1 else ""} pendiente{"s" if pend_count != 1 else ""} de aprobación. Apruébalos o recházalos primero.'},
             status=400,
         )
     cat.delete()

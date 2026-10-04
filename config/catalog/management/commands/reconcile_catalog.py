@@ -9,6 +9,7 @@ Solo afecta supplier_url que contenga 'modaverse.vip'.
 Calzado (yupoo) y productos manuales quedan intactos.
 """
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 from django.db.models import Count
 
 from catalog.models import Category, Product, ProductImage
@@ -174,10 +175,10 @@ class Command(BaseCommand):
 
         # ── Aplicar ───────────────────────────────────────────────────────────
         Product.objects.filter(pk__in=to_deactivate_pks).update(
-            is_active=False, auto_deactivated=True
+            is_active=False, auto_deactivated=True, hidden_at=timezone.now()
         )
         Product.objects.filter(pk__in=to_reactivate_pks).update(
-            is_active=True, auto_deactivated=False
+            is_active=True, auto_deactivated=False, hidden_at=None
         )
 
         self.stdout.write(self.style.SUCCESS(
@@ -199,7 +200,11 @@ class Command(BaseCommand):
 
     def _prune(self, options):
         """Elimina permanentemente los productos con auto_deactivated=True en el scope."""
-        qs = modaverse_scope(options['category']).filter(auto_deactivated=True)
+        # Los que tienen pedidos se quedan: sin el producto, el costo de un pedido
+        # sin cost_snapshot cae al último recurso y cambia la ganancia histórica.
+        qs = modaverse_scope(options['category']).filter(
+            auto_deactivated=True, order_items__isnull=True,
+        )
 
         count = qs.count()
         if count == 0:

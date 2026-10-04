@@ -168,6 +168,10 @@ class Product(models.Model):
         help_text='Desactivado por reconcile_catalog (removido del proveedor). '
                   'Distingue de ocultamientos manuales; habilita reactivación segura.',
     )
+    hidden_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text='Cuándo se ocultó (is_active pasó a False). Vacío si está activo.',
+    )
     is_featured = models.BooleanField(default=False, help_text='Aparece en "Nuevos ingresos" del inicio')
     display_order = models.PositiveIntegerField(default=0)
     created_at  = models.DateTimeField(auto_now_add=True)
@@ -177,6 +181,19 @@ class Product(models.Model):
         verbose_name = 'Producto'
         verbose_name_plural = 'Productos'
         ordering = ['display_order', '-created_at']
+
+    def save(self, *args, **kwargs):
+        # Ocultar uno ya oculto no reinicia el reloj. Los .update() masivos no
+        # pasan por aquí: ellos fijan hidden_at a mano.
+        if self.is_active:
+            self.hidden_at = None
+        elif self.hidden_at is None:
+            from django.utils import timezone
+            self.hidden_at = timezone.now()
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None and 'is_active' in update_fields:
+            kwargs['update_fields'] = {*update_fields, 'hidden_at'}
+        super().save(*args, **kwargs)
 
     @property
     def _root_category(self):
