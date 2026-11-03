@@ -1,68 +1,81 @@
-{% extends "panel/base_panel.html" %}
+{% extends "inventario/_base.html" %}
 {% block title %}Alta manual{% endblock %}
 
-{% block content %}
-<div class="mb-4">
-  <h4 class="mb-0" style="font-family:var(--f-display)">Alta manual de lote</h4>
-  <p class="small mb-0 mt-1" style="color:var(--pm)">
-    Captura cuántos pares de cada talla llegan. Los pares quedan «por recibir» hasta que se escaneen.
-  </p>
+{% block inv_content %}
+<div class="inv-head">
+  <div>
+    <h1 class="inv-title">Alta manual</h1>
+    <p class="inv-sub">Captura cuántos pares de cada talla llegan. Quedan «Por recibir» hasta que escaneas su etiqueta. Si tienes el CSV del proveedor, <a href="{% url 'inventario:importar' %}" class="text-reset">impórtalo</a> en su lugar.</p>
+  </div>
 </div>
 
-<div id="alta-error" class="d-none" style="border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13px;background:rgba(224,85,85,.08);border:1px solid rgba(224,85,85,.45);color:#f0a0a0"></div>
+<div id="alta-error" class="inv-alert inv-alert-bad d-none" role="alert"></div>
 
-<div class="row g-3 mb-3">
-  <div class="col-12 col-md-4">
-    <label class="form-label small" for="f-via">Vía</label>
-    <select id="f-via" class="form-select">
-      <option value="aereo">Aéreo</option>
-      <option value="maritimo">Marítimo</option>
-    </select>
-  </div>
-  <div class="col-12 col-md-4">
-    <label class="form-label small" for="f-origen">Origen</label>
-    <select id="f-origen" class="form-select">
-      <option value="manual">Manual (con precio del proveedor)</option>
-      <option value="inicial">Inventario inicial (usa el costo del tipo)</option>
-    </select>
-  </div>
-  <div class="col-12 col-md-4">
-    <label class="form-label small" for="f-ref">Referencia</label>
-    <input id="f-ref" class="form-control" maxlength="80" placeholder="Opcional">
+<div class="inv-panel inv-panel-pad mb-4">
+  <div class="row g-3">
+    <div class="col-12 col-md-4">
+      <label class="form-label" for="f-via">Vía</label>
+      <select id="f-via" class="form-select">
+        <option value="aereo">Aéreo</option>
+        <option value="maritimo">Marítimo</option>
+      </select>
+    </div>
+    <div class="col-12 col-md-4">
+      <label class="form-label" for="f-origen">Origen</label>
+      <select id="f-origen" class="form-select">
+        <option value="manual">Llegada nueva (con precio del proveedor)</option>
+        <option value="inicial">Inventario inicial (usa el costo del tipo)</option>
+      </select>
+    </div>
+    <div class="col-12 col-md-4">
+      <label class="form-label" for="f-ref">Referencia</label>
+      <input id="f-ref" class="form-control" maxlength="80" placeholder="Opcional, ej. Llegada 3 de noviembre">
+    </div>
   </div>
 </div>
 
 <div id="lineas"></div>
-<div class="d-flex flex-wrap gap-2 mt-3">
-  <button type="button" id="btn-linea" class="btn-g"><i class="bi bi-plus-lg"></i> Agregar modelo</button>
+
+<button type="button" id="btn-linea" class="inv-btn-ghost w-100 justify-content-center py-3" style="border-style:dashed">
+  <i class="bi bi-plus-lg"></i> Agregar otro modelo
+</button>
+
+<div class="inv-sticky">
+  <span class="inv-sticky-count"><b id="alta-total">0</b>pares en el lote</span>
   <button type="button" id="btn-guardar" class="btn-g"><i class="bi bi-check-lg"></i> Crear lote</button>
 </div>
 
 <template id="tpl-linea">
-  <div class="linea p-3 mb-3 rounded" style="border:1px solid var(--bd, #333)">
-    <div class="row g-2 mb-2">
-      <div class="col-12 col-md-5">
-        <label class="form-label small">Tipo</label>
-        <select class="form-select s-tipo"></select>
+  <div class="linea inv-panel inv-line">
+    <div class="inv-panel-head">
+      <span class="inv-line-total"><b class="js-linea-total">0</b> pares</span>
+      <button type="button" class="inv-btn-danger btn-sm b-quitar"><i class="bi bi-trash"></i> Quitar</button>
+    </div>
+    <div class="inv-line-body">
+      <div class="row g-2">
+        <div class="col-12 col-md-5">
+          <label class="form-label">Modelo</label>
+          <select class="form-select s-tipo"></select>
+        </div>
+        <div class="col-6 col-md-4">
+          <label class="form-label">Color</label>
+          <select class="form-select s-color"></select>
+        </div>
+        <div class="col-6 col-md-3 precio-wrap">
+          <label class="form-label">Precio proveedor</label>
+          <input class="form-control i-precio" inputmode="decimal" placeholder="0.00">
+        </div>
       </div>
-      <div class="col-6 col-md-4">
-        <label class="form-label small">Color</label>
-        <select class="form-select s-color"></select>
-      </div>
-      <div class="col-6 col-md-3 precio-wrap">
-        <label class="form-label small">Precio proveedor</label>
-        <input class="form-control i-precio" inputmode="decimal" placeholder="0.00">
+      <div class="inv-sizes tallas">
+        {% for t in tallas %}
+        <div class="inv-size">
+          <label>{{ t.mx_cm|floatformat:"-1" }}</label>
+          <input class="form-control form-control-sm i-talla" type="number" min="0" step="1" inputmode="numeric" placeholder=" "
+                 data-talla="{{ t.mx_cm|stringformat:'s' }}" aria-label="Pares talla {{ t.mx_cm|floatformat:'-1' }}">
+        </div>
+        {% endfor %}
       </div>
     </div>
-    <div class="d-flex flex-wrap gap-2 tallas">
-      {% for t in tallas %}
-      <div style="width:64px">
-        <label class="small d-block text-center" style="color:var(--pm)">{{ t.mx_cm|floatformat:"-1" }}</label>
-        <input class="form-control form-control-sm text-center i-talla" type="number" min="0" step="1" data-talla="{{ t.mx_cm|stringformat:'s' }}">
-      </div>
-      {% endfor %}
-    </div>
-    <button type="button" class="btn btn-sm btn-outline-danger mt-2 b-quitar"><i class="bi bi-trash"></i> Quitar</button>
   </div>
 </template>
 
@@ -99,11 +112,22 @@
         });
       });
   }
+  function totales() {
+    var general = 0;
+    document.querySelectorAll('.linea').forEach(function (l) {
+      var n = 0;
+      l.querySelectorAll('.i-talla').forEach(function (i) { var v = parseInt(i.value, 10); if (v > 0) n += v; });
+      $('.js-linea-total', l).textContent = n;
+      general += n;
+    });
+    $('#alta-total').textContent = general;
+  }
   function agregarLinea() {
     var n = document.importNode($('#tpl-linea').content, true), linea = $('.linea', n);
     llenarTipos($('.s-tipo', linea));
     $('.s-tipo', linea).addEventListener('change', function () { cargarColores(linea); });
-    $('.b-quitar', linea).addEventListener('click', function () { linea.remove(); });
+    $('.b-quitar', linea).addEventListener('click', function () { linea.remove(); totales(); });
+    linea.addEventListener('input', totales);
     cont.appendChild(n);
     cargarColores(linea);
     aplicarOrigen();
@@ -146,7 +170,7 @@
     }).then(function (r) { return r.json(); }).then(function (d) {
       if (d.ok) window.location.href = d.url;
       else { error(d.error || 'No se pudo crear el lote.'); btn.disabled = false; }
-    }).catch(function () { error('Error de red.'); btn.disabled = false; });
+    }).catch(function () { error('No hay conexión con el servidor. Revisa tu red e inténtalo de nuevo.'); btn.disabled = false; });
   });
   agregarLinea();
 })();

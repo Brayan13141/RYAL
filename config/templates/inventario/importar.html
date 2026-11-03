@@ -1,39 +1,78 @@
-{% extends "panel/base_panel.html" %}
-{% block title %}Recibir llegada{% endblock %}
+{% extends "inventario/_base.html" %}
+{% block title %}Importar llegada{% endblock %}
 
-{% block content %}
-<div class="mb-4">
-  <h4 class="mb-0" style="font-family:var(--f-display)">Recibir llegada</h4>
-  <p class="small mb-0 mt-1" style="color:var(--pm)">
-    Sube el CSV del proveedor (modelo, color, talla_mx, cantidad, precio_proveedor). Primero ves una vista previa: no se guarda nada hasta confirmar.
-  </p>
+{% block inv_content %}
+<div class="inv-head">
+  <div>
+    <h1 class="inv-title">Importar llegada</h1>
+    <p class="inv-sub">Sube el CSV de lo que manda el proveedor. Primero revisas una vista previa; no se guarda nada hasta que confirmas.</p>
+  </div>
+</div>
+
+<div class="inv-steps" aria-label="Pasos">
+  <span class="inv-step is-active">Subir el CSV</span>
+  <span class="inv-step">Revisar</span>
+  <span class="inv-step">Confirmar y crear el lote</span>
 </div>
 
 {% if error %}
-<div style="border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13px;background:rgba(224,85,85,.08);border:1px solid rgba(224,85,85,.45);color:#f0a0a0">
-  <i class="bi bi-x-octagon-fill me-1"></i>{{ error }}
-</div>
+<div class="inv-alert inv-alert-bad" role="alert"><i class="bi bi-x-octagon-fill"></i><div>{{ error }}</div></div>
 {% endif %}
 
-<form method="post" enctype="multipart/form-data" class="row g-3">
-  {% csrf_token %}
-  <div class="col-12 col-md-6">
-    <label class="form-label small" for="f-archivo">Archivo CSV (máx. 1 MB)</label>
-    <input id="f-archivo" class="form-control" type="file" name="archivo" accept=".csv,text/csv" required>
+<div class="row g-4">
+  <div class="col-12 col-lg-7">
+    <form method="post" enctype="multipart/form-data" class="inv-panel inv-panel-pad">
+      {% csrf_token %}
+      <label class="inv-drop mb-3" id="drop" for="f-archivo">
+        <i class="bi bi-filetype-csv"></i>
+        <span class="inv-drop-name" id="drop-name">Toca para elegir el archivo o suéltalo aquí</span>
+        <span class="small inv-muted">CSV en UTF-8, máx. 1 MB</span>
+        <input id="f-archivo" type="file" name="archivo" accept=".csv,text/csv" required>
+      </label>
+      <div class="row g-3">
+        <div class="col-6">
+          <label class="form-label" for="f-via">Vía</label>
+          <select id="f-via" class="form-select" name="via">
+            <option value="aereo"{% if via == 'aereo' %} selected{% endif %}>Aéreo</option>
+            <option value="maritimo"{% if via == 'maritimo' %} selected{% endif %}>Marítimo</option>
+          </select>
+        </div>
+        <div class="col-6">
+          <label class="form-label" for="f-ref">Referencia</label>
+          <input id="f-ref" class="form-control" name="referencia" maxlength="100" value="{{ ref|default:'' }}" placeholder="Opcional">
+        </div>
+      </div>
+      <button type="submit" class="btn-g mt-4"><i class="bi bi-eye"></i> Ver vista previa</button>
+    </form>
   </div>
-  <div class="col-6 col-md-3">
-    <label class="form-label small" for="f-via">Vía</label>
-    <select id="f-via" class="form-select" name="via">
-      <option value="aereo"{% if via == 'aereo' %} selected{% endif %}>Aéreo</option>
-      <option value="maritimo"{% if via == 'maritimo' %} selected{% endif %}>Marítimo</option>
-    </select>
+  <div class="col-12 col-lg-5">
+    <div class="inv-panel inv-panel-pad h-100">
+      <h2 class="inv-h3">Formato del archivo</h2>
+      <p class="small inv-muted">Un renglón por modelo, color y talla. La columna <code>tarjeta</code> es opcional.</p>
+<pre class="inv-pre">tarjeta,modelo,color,talla_mx,cantidad,precio_proveedor
+1,Jordan 4,negro,26,2,1250
+1,Jordan 4,negro,26.5,1,1250
+2,Dunk Low,panda,25,1,980</pre>
+      <ul class="small inv-muted mt-3 mb-0 ps-3">
+        <li>El <b>modelo</b> se escribe como el modelo base, sin la A o la M de la vía.</li>
+        <li>La <b>talla</b> va con punto decimal: 26.5.</li>
+        <li>El <b>precio</b> va sin comas de miles y sin flete: 1250.</li>
+      </ul>
+    </div>
   </div>
-  <div class="col-6 col-md-3">
-    <label class="form-label small" for="f-ref">Referencia</label>
-    <input id="f-ref" class="form-control" name="referencia" maxlength="100" value="{{ ref|default:'' }}" placeholder="Opcional">
-  </div>
-  <div class="col-12">
-    <button type="submit" class="btn-g"><i class="bi bi-eye"></i> Ver vista previa</button>
-  </div>
-</form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var drop = document.getElementById('drop'), input = document.getElementById('f-archivo'),
+      nombre = document.getElementById('drop-name');
+  input.addEventListener('change', function () {
+    if (input.files.length) nombre.textContent = input.files[0].name;
+  });
+  ['dragenter', 'dragover'].forEach(function (e) { drop.addEventListener(e, function () { drop.classList.add('is-over'); }); });
+  ['dragleave', 'drop'].forEach(function (e) { drop.addEventListener(e, function () { drop.classList.remove('is-over'); }); });
+})();
+</script>
 {% endblock %}

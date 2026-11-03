@@ -1,75 +1,97 @@
-{% extends "panel/base_panel.html" %}
+{% extends "inventario/_base.html" %}
 {% block title %}Stock{% endblock %}
 
-{% block content %}
-<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-  <h4 class="mb-0" style="font-family:var(--f-display)">Stock</h4>
-  <form method="get" class="d-flex flex-wrap gap-2">
-    <select name="base_id" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+{% block inv_content %}
+<div class="inv-head">
+  <div>
+    <h1 class="inv-title">Stock</h1>
+    <p class="inv-sub">Pares por modelo, color y talla MX. Cada celda separa lo que llegó por avión (A) y por barco (M).</p>
+  </div>
+  <form method="get" class="inv-filters">
+    <input type="hidden" name="estado" value="{{ estado }}">
+    <select name="base_id" class="form-select form-select-sm" onchange="this.form.submit()" aria-label="Modelo">
       <option value="">Todos los modelos</option>
       {% for b in bases %}<option value="{{ b.pk }}" {% if b.pk == base_id %}selected{% endif %}>{{ b.nombre }}</option>{% endfor %}
     </select>
-    <select name="via" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+    <select name="via" class="form-select form-select-sm" onchange="this.form.submit()" aria-label="Vía">
       <option value="">Aéreo y marítimo</option>
       <option value="aereo" {% if via == 'aereo' %}selected{% endif %}>Aéreo</option>
       <option value="maritimo" {% if via == 'maritimo' %}selected{% endif %}>Marítimo</option>
     </select>
-    <select name="estado" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
-      {% for valor, etiqueta in estados %}<option value="{{ valor }}" {% if estado == valor %}selected{% endif %}>{{ etiqueta }}</option>{% endfor %}
-    </select>
+    <noscript><button class="btn-o btn-sm" type="submit">Filtrar</button></noscript>
   </form>
 </div>
 
+<nav class="inv-seg mb-4" aria-label="Estado de los pares">
+  {% for p in pestanas %}
+  <a href="?{{ p.query }}" class="{% if p.valor == estado %}is-active{% endif %}"{% if p.valor == estado %} aria-current="page"{% endif %}>
+    {{ p.etiqueta }} <span class="n">{{ p.n }}</span>
+  </a>
+  {% endfor %}
+</nav>
+
 {% if alertas.ventas_bot_sin_par or alertas.lotes_abiertos_con_faltantes or alertas.vendidos_bot_sin_escaneo %}
-<div class="mb-4" style="border-radius:10px;padding:12px 16px;background:rgba(224,170,60,.08);border:1px solid rgba(224,170,60,.45);font-size:13px">
-  {% if alertas.ventas_bot_sin_par %}
-  <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle-fill me-1"></i>Ventas del bot sin par asignado</div>
-  <ul class="mb-3">
-    {% for a in alertas.ventas_bot_sin_par %}
-    <li>
-      <a href="{% url 'negocio:pedido_detail' a.item.pedido_id %}">Pedido #{{ a.item.pedido_id }}</a>
-      · {{ a.item.pedido.fecha|date:"d/m/Y" }} · {{ a.item.nombre_snapshot }}
-      · faltan {{ a.faltan }} de {{ a.item.cantidad }}
-    </li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-  {% if alertas.lotes_abiertos_con_faltantes %}
-  <div class="fw-semibold mb-1"><i class="bi bi-box-seam me-1"></i>Lotes abiertos con faltantes</div>
-  <ul class="mb-3">
-    {% for l in alertas.lotes_abiertos_con_faltantes %}
-    <li><a href="{% url 'inventario:lote_detalle' l.pk %}">Lote #{{ l.pk }}{% if l.referencia %} · {{ l.referencia }}{% endif %}</a> · creado {{ l.creado_at|date:"d/m/Y" }}</li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-  {% if alertas.vendidos_bot_sin_escaneo %}
-  <div class="mb-0"><i class="bi bi-info-circle me-1"></i>{{ alertas.vendidos_bot_sin_escaneo }} par{{ alertas.vendidos_bot_sin_escaneo|pluralize:",es" }} vendido{{ alertas.vendidos_bot_sin_escaneo|pluralize }} por el bot sin confirmar con escaneo (revisar en el siguiente conteo).</div>
-  {% endif %}
+<div class="inv-alert inv-alert-warn">
+  <i class="bi bi-exclamation-triangle-fill"></i>
+  <div class="flex-grow-1">
+    {% if alertas.ventas_bot_sin_par %}
+    <div class="fw-semibold">Ventas del bot sin par asignado</div>
+    <ul class="mb-2">
+      {% for a in alertas.ventas_bot_sin_par %}
+      <li><a href="{% url 'negocio:pedido_detail' a.item.pedido_id %}">Pedido #{{ a.item.pedido_id }}</a>, {{ a.item.pedido.fecha|date:"d/m/Y" }}: {{ a.item.nombre_snapshot }}. Faltan {{ a.faltan }} de {{ a.item.cantidad }}.</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if alertas.lotes_abiertos_con_faltantes %}
+    <div class="fw-semibold">Lotes abiertos con faltantes</div>
+    <ul class="mb-2">
+      {% for l in alertas.lotes_abiertos_con_faltantes %}
+      <li><a href="{% url 'inventario:lote_detalle' l.pk %}">Lote #{{ l.pk }}{% if l.referencia %} {{ l.referencia }}{% endif %}</a>, creado el {{ l.creado_at|date:"d/m/Y" }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if alertas.vendidos_bot_sin_escaneo %}
+    <div>{{ alertas.vendidos_bot_sin_escaneo }} par{{ alertas.vendidos_bot_sin_escaneo|pluralize:",es" }} vendido{{ alertas.vendidos_bot_sin_escaneo|pluralize }} por el bot sin confirmar con escaneo. Revísalos en el siguiente conteo.</div>
+    {% endif %}
+  </div>
 </div>
 {% endif %}
 
 {% for t in tablas %}
-<h5 class="mt-4" style="font-family:var(--f-display)">{{ t.base.nombre }} <span class="small" style="color:var(--pm)">· {{ t.total }} {{ estado_label }}</span></h5>
-<div class="table-responsive">
-  <table class="table table-sm align-middle text-center">
-    <thead>
-      <tr><th class="text-start">Color</th>{% for c in t.columnas %}<th>{{ c }}</th>{% endfor %}<th>Total</th></tr>
-    </thead>
-    <tbody>
-      {% for f in t.filas %}
-      <tr>
-        <td class="text-start">{{ f.color.nombre }}</td>
-        {% for c in f.celdas %}<td>{% if c.aereo or c.maritimo %}{{ c.aereo|add:c.maritimo }}<div class="small" style="color:var(--pm)">A{{ c.aereo }} · M{{ c.maritimo }}</div>{% endif %}</td>{% endfor %}
-        <td class="fw-semibold">{{ f.total }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-    <tfoot>
-      <tr class="fw-semibold"><td class="text-start">Total</td>{% for c in t.totales %}<td>{{ c.aereo|add:c.maritimo }}</td>{% endfor %}<td>{{ t.total }}</td></tr>
-    </tfoot>
-  </table>
-</div>
+<section class="inv-section{% if forloop.first %} mt-0{% endif %}">
+  <div class="inv-section-head">
+    <h2 class="inv-h2">{{ t.base.nombre }}</h2>
+    <span class="inv-muted">{{ t.total }} par{{ t.total|pluralize:",es" }} {{ estado_label }}</span>
+  </div>
+  <div class="inv-table-wrap">
+    <table class="inv-table inv-matrix">
+      <thead>
+        <tr><th>Color</th>{% for c in t.columnas %}<th class="inv-size-head">{{ c }}</th>{% endfor %}<th class="tot">Total</th></tr>
+      </thead>
+      <tbody>
+        {% for f in t.filas %}
+        <tr>
+          <td>{{ f.color.nombre|capfirst }}</td>
+          {% for c in f.celdas %}<td>{% with n=c.aereo|add:c.maritimo %}<span class="inv-cell {% if not n %}h0{% elif n >= 4 %}h3{% elif n >= 2 %}h2{% else %}h1{% endif %}">{% if n %}<b>{{ n }}</b>{% if c.aereo and c.maritimo %}<i>A{{ c.aereo }} M{{ c.maritimo }}</i>{% elif c.aereo %}<i>A</i>{% else %}<i>M</i>{% endif %}{% else %}·{% endif %}</span>{% endwith %}</td>{% endfor %}
+          <td class="tot"><b>{{ f.total }}</b></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr><td>Total</td>{% for c in t.totales %}<td>{{ c.aereo|add:c.maritimo }}</td>{% endfor %}<td class="tot">{{ t.total }}</td></tr>
+      </tfoot>
+    </table>
+  </div>
+</section>
 {% empty %}
-<p class="small" style="color:var(--pm)">No hay pares ({{ estado_label }}) con estos filtros.</p>
+<div class="inv-empty">
+  <i class="bi bi-box2"></i>
+  {% if estado == 'en_stock' %}
+  <p>No hay pares en stock con estos filtros. Lo que das de alta queda «Por recibir» hasta que escaneas su etiqueta.</p>
+  <a href="{% url 'inventario:escanear' %}" class="btn-g"><i class="bi bi-upc-scan"></i> Escanear para recibir</a>
+  {% else %}
+  <p>No hay pares {{ estado_label }} con estos filtros.</p>
+  {% endif %}
+</div>
 {% endfor %}
 {% endblock %}

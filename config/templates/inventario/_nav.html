@@ -1,0 +1,14 @@
+{% with u=request.resolver_match.url_name %}
+<nav class="inv-nav" aria-label="Inventario">
+  <a href="{% url 'inventario:stock' %}" class="inv-nav-link{% if u == 'stock' %} is-active{% endif %}"><i class="bi bi-grid-3x3-gap"></i>Stock</a>
+  <a href="{% url 'inventario:escanear' %}" class="inv-nav-link{% if u == 'escanear' %} is-active{% endif %}"><i class="bi bi-upc-scan"></i>Escanear</a>
+  <a href="{% url 'inventario:lotes' %}" class="inv-nav-link{% if u == 'lotes' or u == 'lote_detalle' %} is-active{% endif %}"><i class="bi bi-box-seam"></i>Lotes</a>
+  <span class="inv-nav-sep" aria-hidden="true"></span>
+  <a href="{% url 'inventario:importar' %}" class="inv-nav-link{% if u == 'importar' or u == 'importar_preview' or u == 'importar_confirmar' %} is-active{% endif %}"><i class="bi bi-filetype-csv"></i>Importar CSV</a>
+  <a href="{% url 'inventario:alta_manual' %}" class="inv-nav-link{% if u == 'alta_manual' %} is-active{% endif %}"><i class="bi bi-plus-square"></i>Alta manual</a>
+  <a href="{% url 'inventario:conteos' %}" class="inv-nav-link{% if u == 'conteos' or u == 'conteo_resumen' %} is-active{% endif %}"><i class="bi bi-clipboard-check"></i>Conteos</a>
+  <span class="inv-nav-sep" aria-hidden="true"></span>
+  <a href="{% url 'inventario:catalogos' %}" class="inv-nav-link{% if u == 'catalogos' %} is-active{% endif %}"><i class="bi bi-palette"></i>Catálogos</a>
+  <a href="{% url 'inventario:tipos_convertir' %}" class="inv-nav-link{% if u == 'tipos_convertir' %} is-active{% endif %}"><i class="bi bi-diagram-2"></i>Modelos y vías</a>
+</nav>
+{% endwith %}

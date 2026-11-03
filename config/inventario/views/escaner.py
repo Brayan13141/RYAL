@@ -9,6 +9,10 @@ from django.utils import timezone
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
+from django.conf import settings
+from django.utils.safestring import mark_safe
+
+from inventario import etiquetas
 from inventario.models import Conteo, Lote, Par, fmt_talla
 from inventario.services import conteos, escaneo, ventas
 from inventario.validacion import cabe_en
@@ -99,7 +103,11 @@ def par_ficha(request, codigo):
         codigo__iexact=codigo)
     movimientos = par.movimientos.select_related('usuario').order_by('creado_at', 'pk')
     return render(request, 'inventario/par_ficha.html', {
-        'par': par, 'talla': fmt_talla(par.talla.mx_cm), 'movimientos': movimientos})
+        'par': par, 'talla': fmt_talla(par.talla.mx_cm), 'movimientos': movimientos,
+        # Réplica de la etiqueta: el mismo QR y las mismas equivalencias que se imprimen.
+        'qr_svg': mark_safe(etiquetas.qr_svg(
+            etiquetas.url_par(settings.INVENTARIO_QR_BASE_URL, par.codigo))),
+        'equivalencias': etiquetas.equivalencias(par.talla)})
 
 
 def _dos_decimales(valor):

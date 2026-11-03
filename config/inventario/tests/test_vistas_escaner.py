@@ -117,8 +117,9 @@ class FichaTests(EscanerBase):
         recibir()
         r = self.client.get(reverse('inventario:par_ficha', args=[self.par.codigo]))
         html = r.content.decode()
-        tabla = html[html.index('<tbody>'):html.index('</tbody>')]
-        origenes = re.findall(r'<td[^>]*>(Alta|Escáner|Deshacer)</td>', tabla)
+        # El historial es una línea de tiempo (<ol class="inv-timeline">), un <li> por movimiento.
+        tabla = html[html.index('<ol class="inv-timeline">'):html.index('</ol>')]
+        origenes = re.findall(r'<span class="origen">(Alta|Escáner|Deshacer)</span>', tabla)
         self.assertEqual(origenes, ['Alta', 'Escáner', 'Deshacer', 'Escáner'])
         self.assertIn('nota-uno', tabla)
         # Etiquetas legibles, no códigos crudos.

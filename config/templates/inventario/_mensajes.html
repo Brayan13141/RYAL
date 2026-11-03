@@ -1,0 +1,6 @@
+{% for m in messages %}
+<div class="inv-alert {% if m.tags == 'success' %}inv-alert-ok{% elif m.tags == 'warning' %}inv-alert-warn{% elif m.tags == 'info' %}inv-alert-info{% else %}inv-alert-bad{% endif %}" role="status">
+  <i class="bi {% if m.tags == 'success' %}bi-check-circle-fill{% elif m.tags == 'warning' %}bi-exclamation-triangle-fill{% elif m.tags == 'info' %}bi-info-circle-fill{% else %}bi-x-octagon-fill{% endif %}"></i>
+  <div>{{ m }}</div>
+</div>
+{% endfor %}

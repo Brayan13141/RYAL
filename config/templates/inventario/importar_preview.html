@@ -1,57 +1,66 @@
-{% extends "panel/base_panel.html" %}
+{% extends "inventario/_base.html" %}
 {% block title %}Vista previa de la llegada{% endblock %}
 
-{% block content %}
-<div class="mb-4">
-  <h4 class="mb-0" style="font-family:var(--f-display)">Vista previa de la llegada</h4>
-  <p class="small mb-0 mt-1" style="color:var(--pm)">
-    {{ via_display }}{% if ref %} · {{ ref }}{% endif %} · Todavía no se guardó nada.
-  </p>
+{% block inv_content %}
+<div class="inv-head">
+  <div>
+    <h1 class="inv-title">Vista previa de la llegada</h1>
+    <div class="inv-meta">
+      <span><i class="bi {% if via == 'maritimo' %}bi-water{% else %}bi-airplane{% endif %}"></i>{{ via_display }}</span>
+      {% if ref %}<span><i class="bi bi-tag"></i>{{ ref }}</span>{% endif %}
+      <span><i class="bi bi-info-circle"></i>Todavía no se guardó nada</span>
+    </div>
+  </div>
 </div>
 
-<div id="imp-error" class="d-none" style="border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13px;background:rgba(224,85,85,.08);border:1px solid rgba(224,85,85,.45);color:#f0a0a0"></div>
+<div class="inv-steps" aria-label="Pasos">
+  <span class="inv-step is-done">Subir el CSV</span>
+  <span class="inv-step is-active">Revisar</span>
+  <span class="inv-step">Confirmar y crear el lote</span>
+</div>
+
+<div id="imp-error" class="inv-alert inv-alert-bad d-none" role="alert"></div>
 
 {% for e in a.errores %}
-<div style="border-radius:10px;padding:10px 16px;margin-bottom:8px;font-size:13px;background:rgba(224,85,85,.08);border:1px solid rgba(224,85,85,.45);color:#f0a0a0">
-  <i class="bi bi-x-octagon-fill me-1"></i>{{ e }}
-</div>
+<div class="inv-alert inv-alert-bad"><i class="bi bi-x-octagon-fill"></i><div>{{ e }}</div></div>
 {% endfor %}
 
 {% for av in a.avisos %}
-<div style="border-radius:10px;padding:10px 16px;margin-bottom:8px;font-size:13px;background:rgba(230,180,60,.09);border:1px solid rgba(230,180,60,.45);color:#e6c47a">
-  <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ av }}
-</div>
+<div class="inv-alert inv-alert-warn"><i class="bi bi-exclamation-triangle-fill"></i><div>{{ av }}</div></div>
 {% endfor %}
 
 {% if a.faltantes.modelos or a.faltantes.variantes or a.faltantes.colores or a.faltantes.tallas or sin_asignar %}
-<div class="p-3 mb-4 rounded" style="border:1px solid rgba(224,85,85,.45);background:rgba(224,85,85,.05)">
-  <div class="mb-2" style="color:#f0a0a0"><i class="bi bi-exclamation-octagon-fill me-1"></i>Faltan datos en el catálogo. Dalos de alta para poder confirmar.</div>
-  <ul class="list-unstyled mb-0">
+<div class="inv-panel mb-4" style="border-color:rgba(240,122,122,.35)">
+  <div class="inv-panel-head">
+    <span class="fw-semibold" style="color:#f7b0b0"><i class="bi bi-exclamation-octagon-fill me-2"></i>Faltan datos en el catálogo</span>
+    <span class="small inv-muted">Dalos de alta aquí y la vista previa se recalcula sola.</span>
+  </div>
+  <ul class="list-unstyled mb-0 inv-panel-pad">
     {% for m in a.faltantes.modelos %}
-    <li class="mb-2" style="color:#f0a0a0">Modelo «{{ m }}» no existe. Créalo primero en el catálogo y vuelve a subir el archivo.</li>
+    <li class="py-2 border-bottom" style="border-color:var(--inv-line)!important">El modelo «{{ m }}» no existe. Créalo primero en el catálogo y vuelve a subir el archivo.</li>
     {% endfor %}
     {% for m in a.faltantes.variantes %}
-    <li class="mb-2 d-flex flex-wrap align-items-center gap-2">
-      <span style="color:#f0a0a0">«{{ m }}» no tiene variante {{ via_display|lower }}.</span>
-      <button type="button" class="btn btn-sm btn-outline-light js-alta" data-url="{% url 'inventario:importar_alta_variante' %}" data-modelo="{{ m }}">Crear variante</button>
+    <li class="py-2 d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <span>«{{ m }}» no tiene variante {{ via_display|lower }}.</span>
+      <button type="button" class="inv-btn-ghost btn-sm js-alta" data-url="{% url 'inventario:importar_alta_variante' %}" data-modelo="{{ m }}"><i class="bi bi-plus-lg"></i> Crear variante</button>
     </li>
     {% endfor %}
     {% for c in a.faltantes.colores %}
-    <li class="mb-2 d-flex flex-wrap align-items-center gap-2">
-      <span style="color:#f0a0a0">Color «{{ c }}» no existe.</span>
-      <button type="button" class="btn btn-sm btn-outline-light js-alta" data-url="{% url 'inventario:importar_alta_color' %}" data-color="{{ c }}">Crear color</button>
+    <li class="py-2 d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <span>El color «{{ c }}» no existe.</span>
+      <button type="button" class="inv-btn-ghost btn-sm js-alta" data-url="{% url 'inventario:importar_alta_color' %}" data-color="{{ c }}"><i class="bi bi-plus-lg"></i> Crear color</button>
     </li>
     {% endfor %}
     {% for s in sin_asignar %}
-    <li class="mb-2 d-flex flex-wrap align-items-center gap-2">
-      <span style="color:#f0a0a0">«{{ s.modelo }}» no tiene asignado el color «{{ s.color }}».</span>
-      <button type="button" class="btn btn-sm btn-outline-light js-alta" data-url="{% url 'inventario:importar_alta_color' %}" data-color="{{ s.color }}" data-modelo="{{ s.modelo }}">Asignar al modelo</button>
+    <li class="py-2 d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <span>«{{ s.modelo }}» no tiene asignado el color «{{ s.color }}».</span>
+      <button type="button" class="inv-btn-ghost btn-sm js-alta" data-url="{% url 'inventario:importar_alta_color' %}" data-color="{{ s.color }}" data-modelo="{{ s.modelo }}"><i class="bi bi-link-45deg"></i> Asignar al modelo</button>
     </li>
     {% endfor %}
     {% for t in a.faltantes.tallas %}
-    <li class="mb-2 d-flex flex-wrap align-items-center gap-2">
-      <span style="color:#f0a0a0">Talla {{ t }} MX no existe.</span>
-      <button type="button" class="btn btn-sm btn-outline-light js-alta" data-url="{% url 'inventario:importar_alta_talla' %}" data-mx_cm="{{ t }}">Crear talla</button>
+    <li class="py-2 d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <span>La talla {{ t }} MX no existe.</span>
+      <button type="button" class="inv-btn-ghost btn-sm js-alta" data-url="{% url 'inventario:importar_alta_talla' %}" data-mx_cm="{{ t }}"><i class="bi bi-plus-lg"></i> Crear talla</button>
     </li>
     {% endfor %}
   </ul>
@@ -59,70 +68,66 @@
 {% endif %}
 
 {% if a.renglones %}
-<div class="row g-2 mb-3">
-  <div class="col-6 col-md-3"><div class="p-3 rounded" style="border:1px solid var(--bd, #333)"><div class="small" style="color:var(--pm)">Pares</div><div class="fs-4">{{ a.total_pares }}</div></div></div>
-  <div class="col-6 col-md-3"><div class="p-3 rounded" style="border:1px solid var(--bd, #333)"><div class="small" style="color:var(--pm)">Total proveedor</div><div class="fs-4">${{ a.total_proveedor|floatformat:2 }}</div></div></div>
+<div class="inv-stats mb-4">
+  <div class="inv-stat inv-c-gold"><div class="inv-stat-n">{{ a.total_pares }}</div><div class="inv-stat-l">Pares</div></div>
+  <div class="inv-stat"><div class="inv-stat-n">${{ a.total_proveedor|floatformat:2 }}</div><div class="inv-stat-l">Total al proveedor, sin flete</div></div>
+  <div class="inv-stat"><div class="inv-stat-n">{{ a.renglones|length }}</div><div class="inv-stat-l">Combinaciones de modelo, color y talla</div></div>
 </div>
 
-<div style="overflow-x:auto;">
-  <table class="table table-dark table-borderless align-middle mb-4" style="background:transparent;">
-    <thead>
-      <tr>
-        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Modelo</th>
-        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Color</th>
-        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Talla MX</th>
-        <th class="text-end" style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Cant.</th>
-        <th class="text-end" style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Precio prov.</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in a.renglones %}
-      <tr>
-        <td style="background:transparent{% if not r.variante %};color:#f0a0a0{% endif %}">{{ r.modelo }}</td>
-        <td style="background:transparent{% if not r.color %};color:#f0a0a0{% endif %}">{% if r.color %}{{ r.color.nombre }}{% else %}—{% endif %}</td>
-        <td style="background:transparent{% if not r.talla %};color:#f0a0a0{% endif %}">{% if r.talla %}{{ r.talla.mx_cm|floatformat:"-1" }}{% else %}—{% endif %}</td>
-        <td class="text-end" style="background:transparent">{{ r.cantidad }}</td>
-        <td class="text-end" style="background:transparent">${{ r.precio_proveedor|floatformat:2 }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% endif %}
-
-{% if a.cambios_costo %}
-<h6 class="mb-2">Cambios de costo</h6>
-<div style="overflow-x:auto;">
-  <table class="table table-dark table-borderless align-middle mb-4" style="background:transparent;">
-    <thead>
-      <tr>
-        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Variante</th>
-        <th class="text-end" style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Costo actual</th>
-        <th class="text-end" style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Costo nuevo</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for c in a.cambios_costo %}
-      <tr>
-        <td style="background:transparent">{{ c.variante.nombre }}</td>
-        <td class="text-end" style="background:transparent">${{ c.costo_actual|floatformat:2 }}</td>
-        <td class="text-end" style="background:transparent">${{ c.costo_nuevo|floatformat:2 }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<div class="row g-4">
+  <div class="col-12 {% if a.cambios_costo %}col-xl-8{% endif %}">
+    <h2 class="inv-h2 mb-3">Lo que llega</h2>
+    <div class="inv-table-wrap">
+      <table class="inv-table">
+        <thead><tr><th>Color</th><th>Talla MX</th><th class="num">Cant.</th><th class="num">Precio prov.</th></tr></thead>
+        <tbody>
+          {% for r in a.renglones %}
+          {% ifchanged r.modelo %}<tr class="inv-group"><td colspan="4"><span class="inv-group-name{% if not r.variante %} text-danger{% endif %}">{{ r.modelo }}</span></td></tr>{% endifchanged %}
+          <tr>
+            <td{% if not r.color %} class="text-danger"{% endif %}>{% if r.color %}{{ r.color.nombre|capfirst }}{% else %}—{% endif %}</td>
+            <td{% if not r.talla %} class="text-danger"{% endif %}>{% if r.talla %}<span class="inv-code">{{ r.talla.mx_cm|floatformat:"-1" }}</span>{% else %}—{% endif %}</td>
+            <td class="num">{{ r.cantidad }}</td>
+            <td class="num">${{ r.precio_proveedor|floatformat:2 }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% if a.cambios_costo %}
+  <div class="col-12 col-xl-4">
+    <h2 class="inv-h2 mb-3">Cambios de costo</h2>
+    <div class="inv-table-wrap">
+      <table class="inv-table">
+        <thead><tr><th>Variante</th><th class="num">Actual</th><th class="num">Nuevo</th></tr></thead>
+        <tbody>
+          {% for c in a.cambios_costo %}
+          <tr>
+            <td>{{ c.variante.nombre }}</td>
+            <td class="num inv-muted">${{ c.costo_actual|floatformat:2 }}</td>
+            <td class="num fw-semibold">${{ c.costo_nuevo|floatformat:2 }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="small inv-muted mt-2">Costo nuevo = precio más alto del proveedor en el CSV + flete de la vía.</p>
+  </div>
+  {% endif %}
 </div>
 {% endif %}
 
-<div class="d-flex flex-wrap gap-2">
+<div class="inv-sticky">
+  <a href="{% url 'inventario:importar' %}" class="inv-btn-ghost"><i class="bi bi-arrow-left"></i> Subir otro archivo</a>
   {% if a.ok %}
   <form method="post" action="{% url 'inventario:importar_confirmar' %}" onsubmit="this.querySelector('button[type=submit]').disabled = true;">
     {% csrf_token %}
     <input type="hidden" name="token" value="{{ token }}">
     <button type="submit" class="btn-g"><i class="bi bi-check-lg"></i> Confirmar y crear lote</button>
   </form>
+  {% else %}
+  <span class="small inv-muted">Corrige lo marcado en rojo para poder confirmar.</span>
   {% endif %}
-  <a href="{% url 'inventario:importar' %}" class="btn-g"><i class="bi bi-arrow-left"></i> Subir otro archivo</a>
 </div>
 
 <form id="f-recalcular" method="post" action="{% url 'inventario:importar_preview' %}" class="d-none">
@@ -152,7 +157,7 @@
         err.classList.remove('d-none');
       }).catch(function () {
         b.disabled = false;
-        err.textContent = 'Error de red.';
+        err.textContent = 'No hay conexión con el servidor. Revisa tu red e inténtalo de nuevo.';
         err.classList.remove('d-none');
       });
     });

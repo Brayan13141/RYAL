@@ -1,101 +1,123 @@
-{% extends "panel/base_panel.html" %}
+{% extends "inventario/_base.html" %}
 {% block title %}Catálogos de inventario{% endblock %}
 
-{% block content %}
-<div class="mb-3">
-  <h4 class="mb-0" style="font-family:var(--f-display)">Catálogos de inventario</h4>
-  <p class="small mb-0 mt-1" style="color:var(--pm)">Colores, tallas, fletes y precios de venta.</p>
+{% block inv_content %}
+<div class="inv-head">
+  <div>
+    <h1 class="inv-title">Catálogos</h1>
+    <p class="inv-sub">Colores, tallas, fletes y precios de venta que usan las altas, las etiquetas y el escáner.</p>
+  </div>
 </div>
 
-{% if messages %}
-{% for m in messages %}
-<div style="border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13px;
-            {% if m.tags == 'success' %}background:rgba(60,180,110,.09);border:1px solid rgba(60,180,110,.45);color:#7fd6a4{% else %}background:rgba(224,85,85,.08);border:1px solid rgba(224,85,85,.45);color:#f0a0a0{% endif %}">{{ m }}</div>
-{% endfor %}
-{% endif %}
-
-<ul class="nav nav-tabs mb-3" style="flex-wrap:nowrap;overflow-x:auto;">
+<nav class="inv-seg mb-4" aria-label="Catálogo">
   {% for clave, nombre in tabs %}
-  <li class="nav-item"><a class="nav-link {% if activa == clave %}active{% endif %}" href="?tab={{ clave }}" style="white-space:nowrap">{{ nombre }}</a></li>
+  <a href="?tab={{ clave }}" class="{% if activa == clave %}is-active{% endif %}"{% if activa == clave %} aria-current="page"{% endif %}>{{ nombre }}</a>
   {% endfor %}
-</ul>
+</nav>
 
-{% comment %}Un formulario genérico: cada pestaña lo reusa con su acción.{% endcomment %}
 {% if activa == 'colores' %}
-<div class="row g-3">
-  <div class="col-12 col-lg-6">
-    <div class="p-card"><div class="p-card-head"><h2>Nuevo color</h2></div><div class="p-card-body">
-      <form method="post" action="?tab=colores">{% csrf_token %}<input type="hidden" name="accion" value="color">
-        {% include "inventario/_campos.html" with form=forms.color %}
-        <button class="btn-g mt-2" type="submit">Guardar color</button>
-      </form>
-    </div></div>
-    <div class="p-card mt-3"><div class="p-card-head"><h2>Colores de un modelo</h2></div><div class="p-card-body">
-      <form method="post" action="?tab=colores">{% csrf_token %}<input type="hidden" name="accion" value="colores_modelo">
-        {% include "inventario/_campos.html" with form=forms.colores_modelo %}
-        <button class="btn-g mt-2" type="submit">Asignar colores</button>
-      </form>
-    </div></div>
+<div class="row g-4">
+  <div class="col-12 col-lg-5">
+    <div class="inv-panel mb-3">
+      <div class="inv-panel-head"><h2 class="inv-h3 m-0">Nuevo color</h2></div>
+      <div class="inv-panel-pad">
+        <form method="post" action="?tab=colores">{% csrf_token %}<input type="hidden" name="accion" value="color">
+          {% include "inventario/_campos.html" with form=forms.color %}
+          <button class="btn-g mt-2" type="submit"><i class="bi bi-plus-lg"></i> Guardar color</button>
+        </form>
+      </div>
+    </div>
+    <div class="inv-panel">
+      <div class="inv-panel-head"><h2 class="inv-h3 m-0">Colores de un modelo</h2></div>
+      <div class="inv-panel-pad">
+        <form method="post" action="?tab=colores">{% csrf_token %}<input type="hidden" name="accion" value="colores_modelo">
+          {% include "inventario/_campos.html" with form=forms.colores_modelo %}
+          <button class="btn-g mt-2" type="submit"><i class="bi bi-link-45deg"></i> Asignar colores</button>
+        </form>
+      </div>
+    </div>
   </div>
-  <div class="col-12 col-lg-6">
-    <table class="table table-dark table-sm" style="background:transparent">
-      <thead><tr><th>Color</th><th>Alias</th><th>Activo</th></tr></thead>
-      <tbody>{% for c in colores %}<tr><td>{{ c.nombre }}</td><td>{{ c.alias }}</td><td>{{ c.activo|yesno:"sí,no" }}</td></tr>
-      {% empty %}<tr><td colspan="3" style="color:var(--pm)">Sin colores.</td></tr>{% endfor %}</tbody>
-    </table>
-    <div class="small" style="color:var(--pm)">
-      {% for t in modelos %}{% if t.colores.all %}<div><strong>{{ t.nombre }}:</strong> {% for c in t.colores.all %}{{ c.nombre }}{% if not forloop.last %}, {% endif %}{% endfor %}</div>{% endif %}{% endfor %}
+  <div class="col-12 col-lg-7">
+    <div class="inv-table-wrap mb-4">
+      <table class="inv-table">
+        <thead><tr><th>Color</th><th>Alias que reconoce el bot</th><th>Estado</th></tr></thead>
+        <tbody>{% for c in colores %}<tr><td>{{ c.nombre|capfirst }}</td><td class="inv-muted">{{ c.alias|default:"—" }}</td><td>{% if c.activo %}<span class="inv-chip inv-chip-ok">Activo</span>{% else %}<span class="inv-chip inv-chip-cerrado">Inactivo</span>{% endif %}</td></tr>
+        {% empty %}<tr><td colspan="3" class="inv-muted">Sin colores.</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+    <h2 class="inv-h3">Colores por modelo</h2>
+    <div class="inv-panel inv-panel-pad">
+      {% for t in modelos %}{% if t.colores.all %}
+      <div class="py-2{% if not forloop.last %} border-bottom{% endif %}" style="border-color:var(--inv-line)!important">
+        <div class="fw-semibold mb-1">{{ t.nombre }}</div>
+        <div class="d-flex flex-wrap gap-1">{% for c in t.colores.all %}<span class="inv-chip inv-chip-cerrado">{{ c.nombre }}</span>{% endfor %}</div>
+      </div>
+      {% endif %}{% empty %}<p class="inv-muted mb-0">Ningún modelo tiene colores asignados.</p>{% endfor %}
     </div>
   </div>
 </div>
 
 {% elif activa == 'tallas' %}
-<div class="row g-3">
+<div class="row g-4">
   <div class="col-12 col-lg-5">
-    <div class="p-card"><div class="p-card-head"><h2>Nueva talla</h2></div><div class="p-card-body">
-      <form method="post" action="?tab=tallas">{% csrf_token %}<input type="hidden" name="accion" value="talla">
-        {% include "inventario/_campos.html" with form=forms.talla %}
-        <button class="btn-g mt-2" type="submit">Guardar talla</button>
-      </form>
-    </div></div>
+    <div class="inv-panel">
+      <div class="inv-panel-head"><h2 class="inv-h3 m-0">Nueva talla</h2></div>
+      <div class="inv-panel-pad">
+        <form method="post" action="?tab=tallas">{% csrf_token %}<input type="hidden" name="accion" value="talla">
+          {% include "inventario/_campos.html" with form=forms.talla %}
+          <button class="btn-g mt-2" type="submit"><i class="bi bi-plus-lg"></i> Guardar talla</button>
+        </form>
+      </div>
+    </div>
   </div>
-  <div class="col-12 col-lg-7" style="overflow-x:auto">
-    <table class="table table-dark table-sm" style="background:transparent">
-      <thead><tr><th>MX</th><th>EU</th><th>US H</th><th>US M</th><th>CN mm</th><th>Orden</th><th>Activa</th></tr></thead>
-      <tbody>{% for t in tallas %}<tr><td>{{ t.mx_cm|floatformat:"-1" }}</td><td>{{ t.eu|default_if_none:"" }}</td><td>{{ t.us_hombre|default_if_none:"" }}</td><td>{{ t.us_mujer|default_if_none:"" }}</td><td>{{ t.cn_mm|default_if_none:"" }}</td><td>{{ t.orden }}</td><td>{{ t.activa|yesno:"sí,no" }}</td></tr>
-      {% empty %}<tr><td colspan="7" style="color:var(--pm)">Sin tallas.</td></tr>{% endfor %}</tbody>
-    </table>
+  <div class="col-12 col-lg-7">
+    <div class="inv-table-wrap">
+      <table class="inv-table">
+        <thead><tr><th>MX</th><th class="ctr">EU</th><th class="ctr">US H</th><th class="ctr">US M</th><th class="ctr">CN mm</th><th class="ctr">Orden</th><th>Estado</th></tr></thead>
+        <tbody>{% for t in tallas %}<tr><td><span class="inv-code">{{ t.mx_cm|floatformat:"-1" }}</span></td><td class="ctr">{{ t.eu|default_if_none:"—" }}</td><td class="ctr">{{ t.us_hombre|default_if_none:"—" }}</td><td class="ctr">{{ t.us_mujer|default_if_none:"—" }}</td><td class="ctr">{{ t.cn_mm|default_if_none:"—" }}</td><td class="ctr inv-muted">{{ t.orden }}</td><td>{% if t.activa %}<span class="inv-chip inv-chip-ok">Activa</span>{% else %}<span class="inv-chip inv-chip-cerrado">Inactiva</span>{% endif %}</td></tr>
+        {% empty %}<tr><td colspan="7" class="inv-muted">Sin tallas.</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
   </div>
 </div>
 
 {% elif activa == 'fletes' %}
-<div class="p-card" style="max-width:520px"><div class="p-card-head"><h2>Flete por par</h2></div><div class="p-card-body">
-  <p class="small" style="color:var(--pm)">Cambiar la tarifa no re-costea lotes ya creados.</p>
-  {% for t, f in tarifas %}
-  <form method="post" action="?tab=fletes" class="d-flex gap-2 align-items-center mb-2">{% csrf_token %}
-    <input type="hidden" name="accion" value="tarifa"><input type="hidden" name="tarifa_id" value="{{ t.pk }}">
-    <span style="min-width:90px">{{ t.get_via_display }}</span>
-    {{ f.monto_por_par }}
-    <button class="btn-g" type="submit">Guardar</button>
-  </form>
-  {% endfor %}
-</div></div>
+<div class="inv-panel" style="max-width:560px">
+  <div class="inv-panel-head"><h2 class="inv-h3 m-0">Flete por par</h2></div>
+  <div class="inv-panel-pad">
+    <p class="small inv-muted">Se suma al precio del proveedor para calcular el costo. Cambiar la tarifa no vuelve a costear los lotes ya creados.</p>
+    {% for t, f in tarifas %}
+    <form method="post" action="?tab=fletes" class="d-flex gap-2 align-items-center py-2">{% csrf_token %}
+      <input type="hidden" name="accion" value="tarifa"><input type="hidden" name="tarifa_id" value="{{ t.pk }}">
+      <span class="inv-via" style="min-width:110px"><i class="bi {% if t.via == 'maritimo' %}bi-water{% else %}bi-airplane{% endif %}"></i>{{ t.get_via_display }}</span>
+      {{ f.monto_por_par }}
+      <button class="btn-g" type="submit">Guardar</button>
+    </form>
+    {% endfor %}
+  </div>
+</div>
 
 {% elif activa == 'precios' %}
-<div class="row g-3">
+<div class="row g-4">
   <div class="col-12 col-lg-5">
-    <div class="p-card"><div class="p-card-head"><h2>Nuevo precio de venta</h2></div><div class="p-card-body">
-      <form method="post" action="?tab=precios">{% csrf_token %}<input type="hidden" name="accion" value="precio">
-        {% include "inventario/_campos.html" with form=forms.precio %}
-        <button class="btn-g mt-2" type="submit">Guardar precio</button>
-      </form>
-    </div></div>
+    <div class="inv-panel">
+      <div class="inv-panel-head"><h2 class="inv-h3 m-0">Nuevo precio de venta</h2></div>
+      <div class="inv-panel-pad">
+        <form method="post" action="?tab=precios">{% csrf_token %}<input type="hidden" name="accion" value="precio">
+          {% include "inventario/_campos.html" with form=forms.precio %}
+          <button class="btn-g mt-2" type="submit"><i class="bi bi-plus-lg"></i> Guardar precio</button>
+        </form>
+      </div>
+    </div>
   </div>
   <div class="col-12 col-lg-7">
-    <table class="table table-dark table-sm" style="background:transparent">
-      <thead><tr><th>Modelo</th><th>Precio</th><th class="text-end">Monto</th></tr></thead>
-      <tbody>{% for t in modelos %}{% for p in t.precios_venta.all %}<tr><td>{{ t.nombre }}</td><td>{{ p.nombre }}</td><td class="text-end">${{ p.precio }}</td></tr>{% endfor %}{% endfor %}</tbody>
-    </table>
+    <div class="inv-table-wrap">
+      <table class="inv-table">
+        <thead><tr><th>Modelo</th><th>Precio</th><th class="num">Monto</th></tr></thead>
+        <tbody>{% for t in modelos %}{% for p in t.precios_venta.all %}<tr><td>{{ t.nombre }}</td><td>{{ p.nombre }}</td><td class="num fw-semibold">${{ p.precio }}</td></tr>{% endfor %}{% endfor %}</tbody>
+      </table>
+    </div>
+    <p class="small inv-muted mt-2">El escáner ofrece estos precios al vender; también se puede escribir otro a mano.</p>
   </div>
 </div>
 {% endif %}

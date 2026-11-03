@@ -1,82 +1,84 @@
-{% extends "panel/base_panel.html" %}
+{% extends "inventario/_base.html" %}
 {% load static %}
 {% block title %}Escanear{% endblock %}
 
-{% block extra_css %}
-<style>
-  #esc-panel { border-radius:12px; padding:16px; border:1px solid var(--bd, #333); transition:background .15s; }
-  #esc-panel.verde { background:rgba(60,180,110,.18); }
-  #esc-panel.amarillo { background:rgba(230,190,60,.18); }
-  #esc-panel.rojo { background:rgba(224,85,85,.2); }
-  #esc-video { width:100%; max-height:260px; background:#000; border-radius:10px; display:none; }
-  #esc-video.on { display:block; }
-</style>
-{% endblock %}
-
-{% block content %}
-<div class="mb-3">
-  <h4 class="mb-0" style="font-family:var(--f-display)">Escanear</h4>
-</div>
-
-<ul class="nav nav-pills mb-3">
-  <li class="nav-item"><button type="button" id="tab-recibir" class="nav-link active">Recibir</button></li>
-  <li class="nav-item"><button type="button" id="tab-vender" class="nav-link">Vender</button></li>
-  <li class="nav-item"><button type="button" id="tab-contar" class="nav-link">Contar</button></li>
-</ul>
-
-<div id="esc-lote-box" class="mb-3">
-  <label class="small" for="esc-lote" style="color:var(--pm)">Lote</label>
-  <select id="esc-lote" class="form-select">
-    <option value="">— elige un lote —</option>
-    {% for l in lotes %}
-    <option value="{{ l.pk }}" {% if l.pk == lote_sel %}selected{% endif %}>#{{ l.pk }} · {{ l.referencia }}{% if l.cerrado_at %} (cerrado){% endif %}</option>
-    {% endfor %}
-  </select>
-</div>
-
-<div id="esc-panel" class="mb-3">
-  <div class="input-group mb-2">
-    <input id="esc-input" type="text" class="form-control" autofocus autocomplete="off"
-           placeholder="Escanea con la pistola o escribe el código y Enter">
-    <button id="esc-cam" type="button" class="btn-g"><i class="bi bi-camera"></i> Cámara</button>
+{% block inv_content %}
+<div class="inv-scan">
+  <div class="inv-head mb-3">
+    <div>
+      <h1 class="inv-title">Escanear</h1>
+      <p class="inv-sub">Usa la pistola, la cámara o escribe el código. Cada lectura se guarda al momento.</p>
+    </div>
   </div>
-  <video id="esc-video" playsinline muted></video>
-  <div id="esc-msg" class="fs-5 mt-2">Listo para escanear.</div>
-</div>
 
-<div id="esc-recibir">
-  <h6 style="font-family:var(--f-display)">Lecturas recientes</h6>
-  <ul id="esc-lista" class="list-unstyled small"></ul>
-</div>
-
-<div id="esc-contar" hidden>
-  {% if conteo_sel and not conteo_sel.cerrado_at %}
-  <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
-    <span>Conteo #{{ conteo_sel.pk }} abierto</span>
-    <a href="{% url 'inventario:conteo_resumen' conteo_sel.pk %}" class="btn-g">Ver resumen</a>
+  <div class="inv-scan-modes" role="tablist" aria-label="Modo">
+    <button type="button" id="tab-recibir" class="nav-link active" role="tab"><i class="bi bi-box-arrow-in-down"></i>Recibir</button>
+    <button type="button" id="tab-vender" class="nav-link" role="tab"><i class="bi bi-bag-check"></i>Vender</button>
+    <button type="button" id="tab-contar" class="nav-link" role="tab"><i class="bi bi-clipboard-check"></i>Contar</button>
   </div>
-  <h6 style="font-family:var(--f-display)">Lecturas recientes</h6>
-  <ul id="ct-lista" class="list-unstyled small"></ul>
-  {% else %}
-  <p class="small" style="color:var(--pm)">{% if conteo_sel %}El conteo #{{ conteo_sel.pk }} ya está cerrado.{% else %}No hay un conteo en curso.{% endif %}</p>
-  <form method="post" action="{% url 'inventario:conteo_crear' %}">{% csrf_token %}
-    <button type="submit" class="btn-g">Iniciar o continuar conteo</button>
-  </form>
-  {% endif %}
-</div>
 
-<div id="esc-vender" hidden>
-  <h6 style="font-family:var(--f-display)">Carrito</h6>
-  <div id="vd-carrito" class="mb-3"></div>
-  <div id="vd-vacio" class="small mb-3" style="color:var(--pm)">Escanea los pares que se venden.</div>
-  <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
-    <select id="vd-metodo" class="form-select" style="max-width:200px">
-      {% for valor, etiqueta in metodos %}<option value="{{ valor }}">{{ etiqueta }}</option>{% endfor %}
+  <div id="esc-lote-box" class="mb-3">
+    <label class="form-label" for="esc-lote">Lote que estás recibiendo</label>
+    <select id="esc-lote" class="form-select">
+      <option value="">Elige un lote</option>
+      {% for l in lotes %}
+      <option value="{{ l.pk }}" {% if l.pk == lote_sel %}selected{% endif %}>#{{ l.pk }} {{ l.referencia }}{% if l.cerrado_at %} (cerrado){% endif %}</option>
+      {% endfor %}
     </select>
-    <span class="fs-5">Total: $<span id="vd-total">0.00</span></span>
-    <button id="vd-cobrar" type="button" class="btn-g" disabled>Cobrar</button>
   </div>
-  <div id="vd-msg" class="small"></div>
+
+  <div id="esc-panel" class="mb-4">
+    <div class="d-flex gap-2">
+      <input id="esc-input" type="text" class="form-control" autofocus autocomplete="off" autocapitalize="characters" spellcheck="false"
+             placeholder="Código o lectura del QR" aria-label="Código del par">
+      <button id="esc-cam" type="button" class="btn-g flex-shrink-0 px-3"><i class="bi bi-camera"></i><span class="d-none d-sm-inline"> Cámara</span></button>
+    </div>
+    <video id="esc-video" playsinline muted></video>
+    <div id="esc-msg" role="status" aria-live="polite">Listo para escanear.</div>
+  </div>
+
+  <section id="esc-recibir">
+    <h2 class="inv-h3">Lecturas recientes</h2>
+    <ul id="esc-lista" class="inv-reads"></ul>
+  </section>
+
+  <section id="esc-contar" hidden>
+    {% if conteo_sel and not conteo_sel.cerrado_at %}
+    <div class="inv-panel inv-panel-pad d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+      <span><span class="inv-chip inv-chip-abierto">Abierto</span> <span class="ms-2">Conteo #{{ conteo_sel.pk }}</span></span>
+      <a href="{% url 'inventario:conteo_resumen' conteo_sel.pk %}" class="inv-btn-ghost btn-sm"><i class="bi bi-list-check"></i> Ver resumen</a>
+    </div>
+    <h2 class="inv-h3">Lecturas recientes</h2>
+    <ul id="ct-lista" class="inv-reads"></ul>
+    {% else %}
+    <div class="inv-empty">
+      <i class="bi bi-clipboard-check"></i>
+      <p>{% if conteo_sel %}El conteo #{{ conteo_sel.pk }} ya está cerrado.{% else %}No hay un conteo en curso.{% endif %} Un conteo compara lo que escaneas en el estante con lo que el sistema dice que hay, sin cambiar ningún estado.</p>
+      <form method="post" action="{% url 'inventario:conteo_crear' %}">{% csrf_token %}
+        <button type="submit" class="btn-g"><i class="bi bi-play-fill"></i> Iniciar o continuar conteo</button>
+      </form>
+    </div>
+    {% endif %}
+  </section>
+
+  <section id="esc-vender" hidden>
+    <h2 class="inv-h3">Carrito</h2>
+    <div id="vd-carrito" class="mb-2"></div>
+    <div id="vd-vacio" class="inv-empty py-4 mb-3"><i class="bi bi-bag"></i><p class="mb-0">Escanea los pares que se venden.</p></div>
+    <div class="inv-sticky">
+      <div>
+        <div class="small inv-muted">Total</div>
+        <div class="inv-total">$<span id="vd-total">0.00</span></div>
+      </div>
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        <select id="vd-metodo" class="form-select" style="max-width:180px" aria-label="Método de pago">
+          {% for valor, etiqueta in metodos %}<option value="{{ valor }}">{{ etiqueta }}</option>{% endfor %}
+        </select>
+        <button id="vd-cobrar" type="button" class="btn-g" disabled><i class="bi bi-cash-coin"></i> Cobrar</button>
+      </div>
+    </div>
+    <div id="vd-msg" class="small mt-2"></div>
+  </section>
 </div>
 
 <div id="esc-cfg" hidden data-conteo-id="{% if conteo_sel and not conteo_sel.cerrado_at %}{{ conteo_sel.pk }}{% endif %}"

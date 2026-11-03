@@ -165,7 +165,10 @@ def lote_detalle(request, pk):
         'tipo': r['tipo__nombre'], 'color': r['color__nombre'],
         'talla': fmt_talla(r['talla__mx_cm']), 'esperados': r['esperados'],
         'recibidos': r['recibidos'],
-    } for r in lote.pares.values('tipo__nombre', 'color__nombre', 'talla__mx_cm')
+        # Campo de "cuántas imprimir" de este grupo (lo lee views/etiquetas.py).
+        'campo': f'c_{r["tipo_id"]}_{r["color_id"]}_{r["talla_id"]}',
+    } for r in lote.pares.values('tipo_id', 'color_id', 'talla_id',
+                                 'tipo__nombre', 'color__nombre', 'talla__mx_cm')
         .annotate(esperados=Count('pk'),
                   recibidos=Count('pk', filter=Q(estado=Par.Estado.EN_STOCK)))
         .order_by('tipo__nombre', 'color__nombre', 'talla__orden')]

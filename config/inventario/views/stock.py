@@ -1,8 +1,11 @@
+from urllib.parse import urlencode
+
 from django.contrib.admin.views.decorators import staff_member_required
+from django.db.models import Count
 from django.shortcuts import render
 
 from catalog.models import TipoArticulo
-from inventario.models import TallaCalzado, fmt_talla
+from inventario.models import Par, TallaCalzado, fmt_talla
 from inventario.services.stock import alertas, matriz_stock
 
 VIAS = ('aereo', 'maritimo')
@@ -38,6 +41,21 @@ def _tablas(matriz):
     return tablas
 
 
+def _pestanas(base_id, via):
+    """Una pestaña por estado con su conteo (con los mismos filtros de modelo y vía) y el
+    query string que conserva esos filtros: así lo dado de alta y aún sin recibir se ve."""
+    qs = Par.objects.all()
+    if base_id is not None:
+        qs = qs.filter(tipo__padre_id=base_id)
+    if via is not None:
+        qs = qs.filter(tipo__via=via)
+    n = dict(qs.values_list('estado').annotate(c=Count('pk')))
+    filtros = {k: v for k, v in (('base_id', base_id), ('via', via)) if v is not None}
+    return [{'valor': valor, 'etiqueta': etiqueta, 'n': n.get(valor, 0),
+             'query': urlencode({'estado': valor, **filtros})}
+            for valor, etiqueta in ESTADOS]
+
+
 @staff_member_required
 def stock(request):
     base_id = _entero_o_none(request.GET.get('base_id'))
@@ -51,6 +69,7 @@ def stock(request):
     if base_id is not None and not bases.filter(pk=base_id).exists():
         base_id = None
     return render(request, 'inventario/stock.html', {
+        'pestanas': _pestanas(base_id, via),
         'tablas': _tablas(matriz_stock(base_id=base_id, via=via, estado=estado)),
         'alertas': alertas(),
         'bases': bases, 'base_id': base_id, 'via': via,

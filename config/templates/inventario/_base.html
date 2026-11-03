@@ -1,0 +1,23 @@
+{% extends "panel/base_panel.html" %}
+{% load static %}
+{% comment %}
+Marco común del inventario. Las hijas redefinen SOLO inv_css, inv_content y, si hace falta,
+extra_js. Nunca redefinir content ni extra_css aquí abajo: borraría la navegación y la hoja.
+{% endcomment %}
+{% block page_title %}Inventario{% endblock %}
+
+{% block extra_css %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/inventario.css' %}">
+{% block inv_css %}{% endblock %}
+{% endblock %}
+
+{% block content %}
+<div class="inv">
+  {% include "inventario/_nav.html" %}
+  {% include "inventario/_mensajes.html" %}
+  {% block inv_content %}{% endblock %}
+</div>
+{% endblock %}

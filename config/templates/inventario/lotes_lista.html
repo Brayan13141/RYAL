@@ -1,40 +1,48 @@
-{% extends "panel/base_panel.html" %}
+{% extends "inventario/_base.html" %}
 {% block title %}Lotes{% endblock %}
 
-{% block content %}
-<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
-  <h4 class="mb-0" style="font-family:var(--f-display)">Lotes</h4>
-  <a href="{% url 'inventario:alta_manual' %}" class="btn-g"><i class="bi bi-plus-square"></i> Alta manual</a>
+{% block inv_content %}
+<div class="inv-head">
+  <div>
+    <h1 class="inv-title">Lotes</h1>
+    <p class="inv-sub">Cada llegada del proveedor es un lote. Un par cuenta como recibido cuando se escanea su etiqueta.</p>
+  </div>
+  <div class="inv-actions">
+    <a href="{% url 'inventario:importar' %}" class="btn-g"><i class="bi bi-filetype-csv"></i> Importar CSV</a>
+    <a href="{% url 'inventario:alta_manual' %}" class="inv-btn-ghost"><i class="bi bi-plus-square"></i> Alta manual</a>
+  </div>
 </div>
 
 {% if lotes %}
-<div style="overflow-x:auto;">
-  <table class="table table-dark table-borderless align-middle mb-3" style="background:transparent;">
+<div class="inv-table-wrap">
+  <table class="inv-table">
     <thead>
-      <tr>
-        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Lote</th>
-        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Origen</th>
-        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Vía</th>
-        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Fecha</th>
-        <th class="text-end" style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Recibidos</th>
-        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Estado</th>
-      </tr>
+      <tr><th>Lote</th><th>Vía</th><th>Fecha</th><th style="min-width:200px">Recibidos</th><th>Estado</th></tr>
     </thead>
     <tbody>
       {% for l in lotes %}
       <tr>
-        <td style="background:transparent"><a href="{% url 'inventario:lote_detalle' l.pk %}">#{{ l.pk }}{% if l.referencia %} · {{ l.referencia }}{% endif %}</a></td>
-        <td style="background:transparent">{{ l.get_origen_display }}</td>
-        <td style="background:transparent">{{ l.get_via_display }}</td>
-        <td style="background:transparent">{{ l.creado_at|date:"d/m/Y H:i" }}</td>
-        <td class="text-end" style="background:transparent">{{ l.recibidos }} / {{ l.total }}</td>
-        <td style="background:transparent">{% if l.cerrado_at %}Cerrado{% else %}Abierto{% endif %}</td>
+        <td>
+          <a href="{% url 'inventario:lote_detalle' l.pk %}"><span class="inv-code">#{{ l.pk }}</span></a>
+          {% if l.referencia %}<div class="small inv-muted">{{ l.referencia }}</div>{% endif %}
+        </td>
+        <td><span class="inv-via"><i class="bi {% if l.via == 'maritimo' %}bi-water{% else %}bi-airplane{% endif %}"></i>{{ l.get_via_display }}</span><div class="small inv-muted">{{ l.get_origen_display }}</div></td>
+        <td>{{ l.creado_at|date:"d/m/Y" }}<div class="small inv-muted">{{ l.creado_at|date:"H:i" }}</div></td>
+        <td>
+          <div class="d-flex justify-content-between small mb-1"><span><b>{{ l.recibidos }}</b> de {{ l.total }}</span><span class="inv-muted">{% widthratio l.recibidos l.total 100 %}%</span></div>
+          <div class="inv-progress"><span class="p-stock" style="width:{% widthratio l.recibidos l.total 100 %}%"></span></div>
+        </td>
+        <td>{% if l.cerrado_at %}<span class="inv-chip inv-chip-cerrado">Cerrado</span>{% else %}<span class="inv-chip inv-chip-abierto">Abierto</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 {% else %}
-<p style="color:var(--pm)">Todavía no hay lotes.</p>
+<div class="inv-empty">
+  <i class="bi bi-box-seam"></i>
+  <p>Todavía no hay lotes. Importa el CSV de la llegada del proveedor o captura los pares a mano.</p>
+  <a href="{% url 'inventario:importar' %}" class="btn-g"><i class="bi bi-filetype-csv"></i> Importar CSV</a>
+</div>
 {% endif %}
 {% endblock %}
