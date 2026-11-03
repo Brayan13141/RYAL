@@ -18,6 +18,8 @@ from negocio.phone import normalize_telefono
 from catalog.models import Product, ProductVariant, ProductImage
 from .models import Order, OrderItem, SavedCartItem
 from .notifications import notify_new_order_async
+from .minimos import faltantes, lineas_de_carrito
+from .variantes import nombre_variante
 
 
 # ─── Helpers de carrito en sesión ───────────────────────────────────────────
@@ -46,102 +48,12 @@ def _cart_key(product_id, variant_id, size_name=None, image_pk=None, color=None)
 
 
 def _get_category_violations(cart):
-    """
-    Returns violations in two modes:
-    - Category total:  root.min_order_qty > 1  → total pieces from that root category < minimum
-    - Per-item calzado: root.min_qty_per_item > 0
-        • _size_ keys: validated on the SUM of all sizes for the same product
-          (e.g. Balenciaga 3: Talla24=5 + Talla25=7 = 12 ✓ — no violation)
-        • _img_ keys / normal: validated individually (each colorway = separate 12-unit requirement)
-    """
-    if not cart:
-        return []
-
-    product_ids = [item['product_id'] for item in cart.values()]
-    products_by_id = {
-        p.pk: p
-        for p in Product.objects.select_related('category__parent').filter(pk__in=product_ids)
-    }
-
-    violations = []
-    cat_totals = {}
-    # Clave: (product_id, image_pk) — image_pk=None para ítems sin colorway
-    # Permite validar mínimo por color de forma independiente en modo tallas+colorway
-    product_size_totals = {}
-
-    for key, item in cart.items():
-        product = products_by_id.get(item['product_id'])
-        if not product:
-            continue
-        cat = product.category
-        root = cat.parent if cat.parent_id else cat
-
-        # Per-item check (e.g. calzado: 12 por modelo/color)
-        if root.min_qty_per_item > 0:
-            if '_size_' in key:
-                # Acumular por (producto, color) — el mínimo se valida sobre el total de tallas
-                # del mismo color. Si no hay image_pk, image_pk=None agrupa por producto solo.
-                pid     = item['product_id']
-                img_pk  = item.get('image_pk')      # None para ítems talla pura
-                group   = (pid, img_pk)
-                if group not in product_size_totals:
-                    product_size_totals[group] = {
-                        'name':     product.name,
-                        'image_pk': img_pk,
-                        'qty':      0,
-                        'min':      root.min_qty_per_item,
-                    }
-                product_size_totals[group]['qty'] += item['quantity']
-            else:
-                # Color items (_img_ puro) o ítems regulares: verificar individualmente
-                if item['quantity'] < root.min_qty_per_item:
-                    violations.append({
-                        'name':    product.name,
-                        'current': item['quantity'],
-                        'min':     root.min_qty_per_item,
-                        'missing': root.min_qty_per_item - item['quantity'],
-                    })
-
-        # Category-total check (e.g. gorras: 20 en total)
-        if root.min_order_qty > 1:
-            if root.pk not in cat_totals:
-                cat_totals[root.pk] = {'name': root.name, 'qty': 0, 'min': root.min_order_qty}
-            cat_totals[root.pk]['qty'] += item['quantity']
-
-    # Batch-load images para mostrar nombre de color en las violaciones
-    color_img_pks = [v['image_pk'] for v in product_size_totals.values() if v.get('image_pk')]
-    color_imgs_by_pk = (
-        {img.pk: img for img in ProductImage.objects.filter(pk__in=color_img_pks)}
-        if color_img_pks else {}
-    )
-
-    # Validar totales de tallas por modelo/color
-    for v in product_size_totals.values():
-        if v['qty'] < v['min']:
-            display_name = v['name']
-            if v.get('image_pk'):
-                img = color_imgs_by_pk.get(v['image_pk'])
-                color_str = img.color_label if (img and img.color_label) else f"variante"
-                display_name = f"{v['name']} · {color_str}"
-            violations.append({
-                'name':    display_name,
-                'current': v['qty'],
-                'min':     v['min'],
-                'missing': v['min'] - v['qty'],
-            })
-
-    violations += [
-        {
-            'name':    v['name'],
-            'current': v['qty'],
-            'min':     v['min'],
-            'missing': v['min'] - v['qty'],
-        }
-        for v in cat_totals.values()
-        if v['qty'] < v['min']
+    """Violaciones de mínimos del carrito (lista de dicts). La lógica vive en
+    orders.minimos, compartida con la edición de pedidos del panel."""
+    return [
+        {'name': f.nombre, 'current': f.actual, 'min': f.minimo, 'missing': f.missing}
+        for f in faltantes(lineas_de_carrito(cart)).values()
     ]
-
-    return violations
 
 
 # Mismo texto para "código inexistente" y "teléfono que no coincide".
@@ -334,28 +246,7 @@ def cart_add(request):
     price = _price_with_volume_tier(product, total_qty, price)
 
     # Nombre descriptivo del ítem en el carrito
-    if size_name and color:
-        variant_name = f'Talla {size_name} / {color}'
-    elif size_name and img_obj:
-        # Modo combinado: tallas + colorway por imagen → "Blanco · Talla 26"
-        color_part = img_obj.color_label or (f'Color {color_num}' if color_num else f'Color {img_obj.display_order + 1}')
-        variant_name = f'{color_part} · Talla {size_name}'
-    elif color:
-        variant_name = color
-    elif size_name:
-        variant_name = f'Talla {size_name}'
-    elif img_obj:
-        # Modo colorway puro: solo imagen
-        if img_obj.color_label:
-            variant_name = img_obj.color_label
-        elif color_num:
-            variant_name = f'Color {color_num}'
-        else:
-            variant_name = f'Color {img_obj.display_order + 1}'
-    elif variant:
-        variant_name = variant.name
-    else:
-        variant_name = ''
+    variant_name = nombre_variante(size_name, color, img_obj, color_num, variant)
 
     if key in cart:
         cart[key]['quantity'] += qty

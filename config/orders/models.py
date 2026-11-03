@@ -251,9 +251,16 @@ class SupplierOrder(models.Model):
     cart_script     = models.TextField(blank=True)
     created_at      = models.DateTimeField(auto_now_add=True)
     updated_at      = models.DateTimeField(auto_now=True)
+    # Primera vez que se lanzó el robot de Modaverse; los reintentos no lo pisan.
+    run_started_at  = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         verbose_name = 'Pedido proveedor'
+
+    @property
+    def ya_lanzado(self):
+        """True si el robot ya corrió o dejó ítems en el carrito del proveedor."""
+        return self.run_started_at is not None or self.items.filter(status='added').exists()
 
     def __str__(self):
         return f'SupplierOrder #{self.order.order_code} ({self.get_status_display()})'
@@ -272,6 +279,34 @@ class SupplierOrderItem(models.Model):
 
     def __str__(self):
         return f'{self.order_item.sku_snapshot} → {self.get_status_display()}'
+
+
+class OrderItemChange(models.Model):
+    AGREGAR = 'agregar'
+    QUITAR = 'quitar'
+    CANTIDAD = 'cantidad'
+    ACCION_CHOICES = [
+        (AGREGAR, 'Agregar'),
+        (QUITAR, 'Quitar'),
+        (CANTIDAD, 'Cambiar cantidad'),
+    ]
+
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='item_changes')
+    usuario = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    accion = models.CharField(max_length=12, choices=ACCION_CHOICES)
+    descripcion = models.CharField(max_length=300)
+    cantidad_antes = models.PositiveIntegerField(null=True, blank=True)
+    cantidad_despues = models.PositiveIntegerField(null=True, blank=True)
+    precio_antes = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    precio_despues = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+        verbose_name = 'Cambio de renglón'
+
+    def __str__(self):
+        return f'#{self.order_id} {self.accion}: {self.descripcion}'
 
 
 class OrderPayment(models.Model):

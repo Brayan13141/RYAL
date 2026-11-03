@@ -11,6 +11,7 @@ from urllib.parse import urlencode as _urlencode
 
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum, Value
 from django.db.models.functions import Coalesce
 from django.db.models.functions import TruncDate
@@ -22,7 +23,9 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from catalog.models import Category, HeroSlide, PendingProduct, Product, ProductImage, Section, SiteConfig, SizeGroup, SubcategorySection, VolumeTier
+from orders import edicion
 from orders.models import InvalidTransition, Order, OrderItem, OrderPayment, SupplierOrder, SupplierOrderItem
+from orders.supplier_items import crear_supplier_item
 from orders.notifications import notify_status_change_async
 from orders.forms import OrderPaymentForm
 from panel.whatsapp import WHATSAPP_INSTANCES, get_instance, read_qr_state
@@ -528,10 +531,16 @@ def order_detail(request, pk):
         Order.objects.prefetch_related('items__product__images', 'items__variant', 'payments'),
         pk=pk,
     )
+    motivo = edicion.motivo_no_editable(order)
+    saldo = order.balance_due
     return render(request, 'panel/order_detail.html', {
         'order':           order,
         'items_subtotal':  order.total + order.descuento_aplicado,
         'today_iso':       timezone.localdate().isoformat(),
+        'editable':        motivo is None,
+        'motivo_no_editable': motivo,
+        'balance_abs':     abs(saldo),
+        'item_changes':    list(order.item_changes.select_related('usuario')[:50]),
     })
 
 
@@ -1742,25 +1751,17 @@ def category_set_size_group(request, cat_pk):
 @_staff
 @require_POST
 def supplier_order_init(request, pk):
-    order = get_object_or_404(Order, pk=pk)
-    supplier_order, created = SupplierOrder.objects.get_or_create(order=order)
-    if not created:
-        return redirect('panel:supplier_order_detail', pk=pk)
+    get_object_or_404(Order, pk=pk)
+    # Bajo el bloqueo del Order (mismo orden que supplier_order_run): una edición
+    # del pedido no puede colarse entre la lectura de renglones y su copia.
+    with transaction.atomic():
+        order = Order.objects.select_for_update().get(pk=pk)
+        supplier_order, created = SupplierOrder.objects.get_or_create(order=order)
+        if not created:
+            return redirect('panel:supplier_order_detail', pk=pk)
 
-    for oi in order.items.select_related('product').all():
-        url = ''
-        status = 'pending'
-        if oi.product and oi.product.supplier_url and 'modaverse' in oi.product.supplier_url:
-            url = oi.product.supplier_url
-        else:
-            status = 'no_url'
-        SupplierOrderItem.objects.create(
-            supplier_order=supplier_order,
-            order_item=oi,
-            supplier_url=url,
-            variant_target=oi.variant_snapshot or '',
-            status=status,
-        )
+        for oi in order.items.select_related('product').all():
+            crear_supplier_item(supplier_order, oi)
     return redirect('panel:supplier_order_detail', pk=pk)
 
 
@@ -1784,31 +1785,35 @@ def supplier_order_detail(request, pk):
 @require_POST
 def supplier_item_update(request, pk, item_pk):
     """Marca manualmente un SupplierOrderItem como agregado o pendiente y recalcula el estado del pedido proveedor."""
-    order = get_object_or_404(Order, pk=pk)
-    supplier_order = get_object_or_404(SupplierOrder, order=order)
-    item = get_object_or_404(SupplierOrderItem, pk=item_pk, supplier_order=supplier_order)
+    get_object_or_404(Order, pk=pk)
+    # Marcar 'added' vuelve el pedido no editable: se decide bajo el bloqueo del
+    # Order, y luego el del SupplierOrder (mismo orden que supplier_order_run).
+    with transaction.atomic():
+        order = Order.objects.select_for_update().get(pk=pk)
+        supplier_order = get_object_or_404(SupplierOrder.objects.select_for_update(), order=order)
+        item = get_object_or_404(SupplierOrderItem, pk=item_pk, supplier_order=supplier_order)
 
-    new_status = request.POST.get('status', '')
-    if new_status not in ('added', 'pending', 'variant_not_found', 'no_url'):
-        return JsonResponse({'ok': False, 'error': 'Estado inválido'})
+        new_status = request.POST.get('status', '')
+        if new_status not in ('added', 'pending', 'variant_not_found', 'no_url'):
+            return JsonResponse({'ok': False, 'error': 'Estado inválido'})
 
-    item.status = new_status
-    if new_status == 'added' and not item.notes:
-        item.notes = 'Agregado manualmente'
-    elif new_status == 'pending' and item.notes == 'Agregado manualmente':
-        item.notes = ''
-    item.save(update_fields=['status', 'notes'])
+        item.status = new_status
+        if new_status == 'added' and not item.notes:
+            item.notes = 'Agregado manualmente'
+        elif new_status == 'pending' and item.notes == 'Agregado manualmente':
+            item.notes = ''
+        item.save(update_fields=['status', 'notes'])
 
-    all_statuses = set(supplier_order.items.values_list('status', flat=True))
-    if all_statuses <= {'added', 'no_url'}:
-        supplier_order.status = 'done'
-    elif 'added' in all_statuses:
-        supplier_order.status = 'partial'
-    elif 'variant_not_found' in all_statuses:
-        supplier_order.status = 'failed'
-    else:
-        supplier_order.status = 'pending'
-    supplier_order.save(update_fields=['status', 'updated_at'])
+        all_statuses = set(supplier_order.items.values_list('status', flat=True))
+        if all_statuses <= {'added', 'no_url'}:
+            supplier_order.status = 'done'
+        elif 'added' in all_statuses:
+            supplier_order.status = 'partial'
+        elif 'variant_not_found' in all_statuses:
+            supplier_order.status = 'failed'
+        else:
+            supplier_order.status = 'pending'
+        supplier_order.save(update_fields=['status', 'updated_at'])
 
     return JsonResponse({
         'ok':                  True,
@@ -1824,16 +1829,24 @@ def supplier_item_update(request, pk, item_pk):
 @require_POST
 def supplier_order_run(request, pk):
     """Lanza sync_modaverse_order como subproceso en background."""
-    order = get_object_or_404(Order, pk=pk)
-    supplier_order = get_object_or_404(SupplierOrder, order=order)
+    get_object_or_404(Order, pk=pk)
+    # Todo lo previo al Popen va bajo bloqueo: así una edición del pedido no se
+    # cuela entre la lectura de los ítems y el marcado de "ya lanzado".
+    with transaction.atomic():
+        order = Order.objects.select_for_update().get(pk=pk)
+        supplier_order = get_object_or_404(SupplierOrder.objects.select_for_update(), order=order)
 
-    if supplier_order.status == 'running':
-        return JsonResponse({'ok': False, 'error': 'Ya está en progreso'})
+        if supplier_order.status == 'running':
+            return JsonResponse({'ok': False, 'error': 'Ya está en progreso'})
 
-    # Resetear ítems fallidos/no encontrados para reintentar
-    supplier_order.items.filter(status='variant_not_found').update(status='pending', notes='')
-    supplier_order.status = 'pending'
-    supplier_order.save(update_fields=['status'])
+        # Resetear ítems fallidos/no encontrados para reintentar
+        supplier_order.items.filter(status='variant_not_found').update(status='pending', notes='')
+        supplier_order.status = 'pending'
+        update_fields = ['status']
+        if supplier_order.run_started_at is None:
+            supplier_order.run_started_at = timezone.now()
+            update_fields.append('run_started_at')
+        supplier_order.save(update_fields=update_fields)
 
     manage_py = Path(__file__).resolve().parent.parent / 'manage.py'
     # PYTHONUNBUFFERED: sin esto el stdout del hijo se bufferea en bloques de 8 KB

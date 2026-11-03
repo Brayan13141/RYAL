@@ -13,6 +13,39 @@
 @media (max-width: 768px) {
   .od-grid { grid-template-columns: 1fr; }
 }
+.oe-in {
+  background:#0d0d0d;border:1px solid #1a1a1a;color:#ddd;padding:7px 10px;
+  border-radius:4px;font-size:14px;font-family:monospace;outline:none;box-sizing:border-box;
+}
+.oe-edit { display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:210px; }
+.oe-edit .oe-in { width:78px; }
+.oe-hint { flex-basis:100%;font-size:11px;color:#666; }
+.oe-busy { opacity:.55;cursor:progress; }
+.oe-modal {
+  display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:2000;
+  align-items:flex-start;justify-content:center;overflow-y:auto;padding:16px;
+}
+.oe-modal.open { display:flex; }
+.oe-box {
+  background:#111;border:1px solid #222;border-radius:10px;width:100%;max-width:560px;
+  padding:16px;margin:auto 0;
+}
+.oe-box label { font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.08em;display:block;margin:10px 0 4px; }
+.oe-box .oe-in { width:100%;font-family:inherit; }
+.oe-res {
+  display:flex;gap:10px;align-items:center;padding:8px;border:1px solid #1a1a1a;border-radius:6px;
+  margin-top:6px;cursor:pointer;color:#ddd;font-size:13px;
+}
+.oe-res:hover { background:#181818; }
+.oe-thumb { width:40px;height:40px;object-fit:cover;border-radius:5px;border:1px solid #222;flex:none;background:#0d0d0d; }
+.oe-cw { display:flex;flex-wrap:wrap;gap:8px; }
+.oe-cw label {
+  margin:0;display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px;
+  border:2px solid transparent;border-radius:6px;cursor:pointer;font-size:11px;color:#aaa;
+  text-transform:none;letter-spacing:0;
+}
+.oe-cw input { display:none; }
+.oe-cw label.sel { border-color:var(--pg,#50c878); }
 </style>
 {% endblock extra_css %}
 
@@ -88,7 +121,18 @@
 
     <!-- Items -->
     <div class="p-card">
-      <div class="p-card-head"><h2>Productos ({{ order.total_items }} items)</h2></div>
+      <div class="p-card-head" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <h2>Productos ({{ order.total_items }} items)</h2>
+        {% if editable %}
+        <button type="button" id="btnAbrirAgregar" class="btn-g btn-sm">
+          <i class="bi bi-plus-lg"></i> Agregar producto
+        </button>
+        {% endif %}
+      </div>
+      {% if not editable and motivo_no_editable and order.status == 'pending' or not editable and motivo_no_editable and order.status == 'confirmed' %}
+      <div style="padding:8px 16px;font-size:12px;color:#888;">{{ motivo_no_editable }}</div>
+      {% endif %}
+      <div style="overflow-x:auto;">
       <table class="p-table">
         <thead>
           <tr>
@@ -99,11 +143,12 @@
             <th style="text-align:center;">Qty</th>
             <th style="text-align:right;">Precio</th>
             <th style="text-align:right;">Subtotal</th>
+            {% if editable %}<th>Editar</th>{% endif %}
           </tr>
         </thead>
         <tbody>
           {% for item in order.items.all %}
-          <tr>
+          <tr{% if editable %} data-item="{{ item.pk }}" data-product="{{ item.product_id|default:'' }}" data-variant="{{ item.variant_id|default:'' }}"{% endif %}>
             <td style="padding:6px 8px;">
               {% if item.product %}
                 {% with item.product.images.all as imgs %}
@@ -128,6 +173,17 @@
             <td style="text-align:center;">{{ item.quantity }}</td>
             <td style="text-align:right;">${{ item.price_snapshot|floatformat:0 }}</td>
             <td style="text-align:right;font-weight:600;color:#ddd;">${{ item.subtotal|floatformat:0 }}</td>
+            {% if editable %}
+            <td>
+              <div class="oe-edit">
+                <input type="number" class="oe-in oe-qty" min="1" step="1" value="{{ item.quantity }}" title="Cantidad" aria-label="Cantidad">
+                <input type="number" class="oe-in oe-price" min="0" step="0.01" value="{{ item.price_snapshot|stringformat:'s' }}" title="Precio unitario" aria-label="Precio">
+                <button type="button" class="btn-g oe-save" data-url="{% url 'panel:order_item_qty' order.pk item.pk %}" style="padding:6px 10px;" title="Guardar"><i class="bi bi-check-lg"></i></button>
+                <button type="button" class="btn-r oe-del" data-url="{% url 'panel:order_item_remove' order.pk item.pk %}" style="padding:6px 10px;" title="Quitar"><i class="bi bi-trash"></i></button>
+                <div class="oe-hint">Actual ${{ item.price_snapshot|floatformat:"-2" }}<span class="oe-sug"></span></div>
+              </div>
+            </td>
+            {% endif %}
           </tr>
           {% endfor %}
         </tbody>
@@ -138,12 +194,14 @@
             <td style="text-align:right;padding:8px 12px;font-size:14px;font-weight:600;color:#888;border-top:1px solid #222;">
               ${{ items_subtotal|floatformat:0 }} MXN
             </td>
+            {% if editable %}<td style="border-top:1px solid #222;"></td>{% endif %}
           </tr>
           <tr>
             <td colspan="5" style="text-align:right;padding:4px 12px;color:#e8a020;font-size:12px;font-weight:600;">DESCUENTO</td>
             <td style="text-align:right;padding:4px 12px;font-size:14px;font-weight:600;color:#e8a020;">
               -${{ order.descuento_aplicado|floatformat:0 }} MXN
             </td>
+            {% if editable %}<td></td>{% endif %}
           </tr>
           {% endif %}
           <tr>
@@ -151,16 +209,42 @@
             <td style="text-align:right;padding:12px;font-size:16px;font-weight:700;color:var(--pg);border-top:1px solid #222;">
               ${{ order.total|floatformat:0 }} MXN
             </td>
+            {% if editable %}<td style="border-top:1px solid #222;"></td>{% endif %}
           </tr>
           <tr>
             <td colspan="5" style="text-align:right;padding:6px 12px;color:#555;font-size:11px;font-weight:600;letter-spacing:.06em;">GANANCIA EST.</td>
             <td style="text-align:right;padding:6px 12px;font-size:13px;font-weight:600;color:#50c878;">
               ${{ order.ganancia }} MXN
             </td>
+            {% if editable %}<td></td>{% endif %}
           </tr>
         </tfoot>
       </table>
+      </div>
     </div>
+
+    {% if item_changes %}
+    <!-- Historial de cambios -->
+    <div class="p-card" style="margin-top:16px;">
+      <div class="p-card-head"><h2>Historial de cambios</h2></div>
+      <div style="overflow-x:auto;">
+        <table class="p-table">
+          <thead><tr><th>Fecha</th><th>Usuario</th><th>Acción</th><th style="text-align:center;">Cant.</th><th style="text-align:right;">Precio</th></tr></thead>
+          <tbody>
+            {% for c in item_changes %}
+            <tr>
+              <td style="white-space:nowrap;color:#888;font-size:12px;">{{ c.created_at|date:"d/m/Y H:i" }}</td>
+              <td style="color:#aaa;">{{ c.usuario.get_username|default:"—" }}</td>
+              <td style="color:#ddd;"><span style="color:#888;font-size:11px;">{{ c.get_accion_display }}</span><br>{{ c.descripcion }}</td>
+              <td style="text-align:center;white-space:nowrap;">{% if c.cantidad_antes is not None or c.cantidad_despues is not None %}{{ c.cantidad_antes|default_if_none:"—" }} → {{ c.cantidad_despues|default_if_none:"—" }}{% else %}—{% endif %}</td>
+              <td style="text-align:right;white-space:nowrap;">{% if c.precio_antes is not None or c.precio_despues is not None %}{% if c.precio_antes is not None %}${{ c.precio_antes|floatformat:"-2" }}{% else %}—{% endif %} → {% if c.precio_despues is not None %}${{ c.precio_despues|floatformat:"-2" }}{% else %}—{% endif %}{% else %}—{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
   </div>
 
   <!-- Der: estado + info -->
@@ -273,9 +357,9 @@
           <span id="totalPagado" style="font-weight:600;color:#888;">${{ order.total_pagado|floatformat:0 }} MXN</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:12px;color:#666;">Saldo pendiente</span>
+          <span id="balanceLabel" style="font-size:12px;color:#666;">{% if order.balance_due < 0 %}Saldo a favor{% else %}Saldo pendiente{% endif %}</span>
           <span id="balanceDue" style="font-weight:700;color:{% if order.balance_due <= 0 %}#50c878{% else %}#e8a020{% endif %};">
-            ${{ order.balance_due|floatformat:0 }} MXN
+            ${{ balance_abs|floatformat:0 }} MXN
           </span>
         </div>
         <div id="liquidadoBadge" style="text-align:center;font-size:12px;color:#50c878;display:{% if order.balance_due <= 0 %}block{% else %}none{% endif %};">
@@ -338,6 +422,40 @@
   </div>
 
 </div>
+
+{% if editable %}
+<!-- Modal: agregar producto -->
+<div class="oe-modal" id="oeModal" role="dialog" aria-modal="true" aria-label="Agregar producto">
+  <div class="oe-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <h2 style="margin:0;font-size:16px;color:#ddd;">Agregar producto</h2>
+      <button type="button" class="btn-o btn-sm" id="oeCerrar" aria-label="Cerrar"><i class="bi bi-x-lg"></i></button>
+    </div>
+
+    <div id="oeBuscarWrap">
+      <label for="oeQ">Buscar por nombre o SKU</label>
+      <input type="search" id="oeQ" class="oe-in" placeholder="Mínimo 2 letras" autocomplete="off">
+      <div id="oeResultados"></div>
+    </div>
+
+    <div id="oeForm" style="display:none;">
+      <div id="oeElegido" style="display:flex;gap:10px;align-items:center;margin-top:12px;color:#ddd;"></div>
+      <div id="oeCampos"></div>
+      <label for="oeQty">Cantidad</label>
+      <input type="number" id="oeQty" class="oe-in" min="1" step="1" value="1">
+      <div id="oeExistente" style="display:none;margin-top:6px;font-size:12px;color:#d4a017;"></div>
+      <label for="oePrecio">Precio unitario (sugerido de hoy, editable)</label>
+      <input type="number" id="oePrecio" class="oe-in" min="0" step="0.01">
+      <div id="oeGanancia" style="margin-top:8px;font-size:13px;color:#50c878;"></div>
+      <div id="oeMsg" style="display:none;margin-top:8px;font-size:12px;color:#e05560;"></div>
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
+        <button type="button" id="oeAtras" class="btn-o">Cambiar producto</button>
+        <button type="button" id="oeGuardar" class="btn-g" style="flex:1;"><i class="bi bi-plus-lg"></i> Agregar al pedido</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 {% endblock %}
 
@@ -455,7 +573,8 @@ function fmtMoney(n){ return '$' + Math.round(n) + ' MXN'; }
 
 function setBalanceUI(balanceDue){
   const bal = document.getElementById('balanceDue');
-  bal.textContent = fmtMoney(balanceDue);
+  bal.textContent = fmtMoney(Math.abs(balanceDue));
+  document.getElementById('balanceLabel').textContent = balanceDue < 0 ? 'Saldo a favor' : 'Saldo pendiente';
   bal.style.color = balanceDue <= 0 ? '#50c878' : '#e8a020';
   document.getElementById('liquidadoBadge').style.display = balanceDue <= 0 ? 'block' : 'none';
   document.getElementById('btnLiquidar').style.display = balanceDue > 0 ? 'block' : 'none';
@@ -592,5 +711,360 @@ if (statusSel) {
     window.location.reload();
   });
 }
+
+{% if editable %}
+// ── Edición de renglones ─────────────────────────────────────────────────────
+const URL_ITEM_ADD   = '{% url "panel:order_item_add" order.pk %}';
+const URL_BUSCAR     = '{% url "panel:order_product_search" order.pk %}';
+const URL_OPCIONES   = '{% url "panel:order_product_options" order.pk 0 %}';  // /0/ se sustituye por el producto
+const urlOpciones = (pid, params) => {
+  const u = new URL(URL_OPCIONES.replace('/productos/0/', `/productos/${pid}/`), window.location.origin);
+  Object.entries(params || {}).forEach(([k, v]) => { if (v) u.searchParams.set(k, v); });
+  return u.toString();
+};
+
+// Botón "ocupado" mientras llega el sugerido: sigue clicable (el clic espera la
+// respuesta); deshabilitarlo en el `change` tragaría el clic que lo disparó.
+const oeOcupado = (btn, si) => { btn.classList.toggle('oe-busy', si); btn.setAttribute('aria-busy', si ? 'true' : 'false'); };
+
+// POST con CSRF; devuelve siempre {ok, error?, ...}
+async function oePost(url, campos) {
+  const fd = new FormData();
+  fd.append('csrfmiddlewaretoken', CSRF);
+  Object.entries(campos).forEach(([k, v]) => { if (v !== undefined && v !== null) fd.append(k, v); });
+  let res;
+  try {
+    res = await fetch(url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+  } catch (e) {
+    return { ok: false, error: 'Sin conexión con el servidor.' };
+  }
+  try {
+    return await res.json();
+  } catch (e) {
+    // 403 de CSRF, 500 o redirección al login: la respuesta no es JSON.
+    return { ok: false, error: `Error del servidor (código ${res.status}). Recarga la página.` };
+  }
+}
+
+function oeEl(tag, props, ...hijos) {
+  const e = document.createElement(tag);
+  Object.entries(props || {}).forEach(([k, v]) => { if (k === 'class') e.className = v; else e.setAttribute(k, v); });
+  hijos.forEach(h => e.append(h));
+  return e;
+}
+const oeMoney = n => '$' + (Math.round(n * 100) / 100);
+
+// ── Renglones existentes ─────────────────────────────────────────────────────
+document.querySelectorAll('tr[data-item]').forEach(tr => {
+  const qty   = tr.querySelector('.oe-qty');
+  const price = tr.querySelector('.oe-price');
+  const sug   = tr.querySelector('.oe-sug');
+  const save  = tr.querySelector('.oe-save');
+  const del   = tr.querySelector('.oe-del');
+  let seq = 0;              // solo la respuesta más nueva escribe el precio
+  let pendiente = null;     // fetch del sugerido en vuelo; guardar lo espera
+
+  // Al cambiar la cantidad se pide el sugerido de hoy. Sin producto, o si ya no
+  // está disponible (404), se conserva el precio actual del renglón.
+  async function pedirSugerido() {
+    const mio = ++seq;
+    sug.textContent = '';
+    if (!tr.dataset.product) { oeOcupado(save, false); return; }
+    const q = parseInt(qty.value, 10);
+    if (!(q >= 1)) { oeOcupado(save, false); return; }
+    const precioAntes = price.value;
+    oeOcupado(save, true);
+    try {
+      // item_pk: el precio es el de esta cantidad, sin combinarse con el renglón mismo.
+      const res = await fetch(urlOpciones(tr.dataset.product,
+        { qty: q, variant_id: tr.dataset.variant, item_pk: tr.dataset.item }));
+      if (mio !== seq || !res.ok) return;
+      const o = await res.json();
+      if (mio !== seq) return;
+      sug.textContent = ` · Sugerido ${oeMoney(o.sugerido)}`;
+      // Si el admin tecleó un precio mientras tanto, se respeta el suyo.
+      if (price.value === precioAntes) price.value = o.sugerido;
+    } catch (e) { /* se queda el precio actual */ }
+    finally { if (mio === seq) oeOcupado(save, false); }
+  }
+  qty.addEventListener('change', () => { pendiente = pedirSugerido(); });
+
+  save.addEventListener('click', async () => {
+    if (save.disabled) return;
+    save.disabled = true;
+    // El clic llega justo después del `change` de la cantidad: primero el sugerido.
+    await pendiente;
+    if (price.value === '') { save.disabled = false; alert('El precio no puede quedar vacío.'); return; }
+    const d = await oePost(save.dataset.url, { qty: qty.value, precio: price.value });
+    if (d.ok) { window.location.reload(); return; }
+    save.disabled = false;
+    alert(d.error || 'No se pudo guardar.');
+  });
+
+  del.addEventListener('click', async () => {
+    if (!confirm('¿Quitar este producto del pedido?')) return;
+    del.disabled = true;
+    const d = await oePost(del.dataset.url, {});
+    if (d.ok) { window.location.reload(); return; }
+    del.disabled = false;
+    alert(d.error || 'No se pudo quitar.');
+  });
+});
+
+// ── Modal de agregar ─────────────────────────────────────────────────────────
+const oeModal = document.getElementById('oeModal');
+const oeQ = document.getElementById('oeQ');
+const oeResultados = document.getElementById('oeResultados');
+const oeForm = document.getElementById('oeForm');
+const oeBuscarWrap = document.getElementById('oeBuscarWrap');
+const oeCampos = document.getElementById('oeCampos');
+const oeQty = document.getElementById('oeQty');
+const oePrecio = document.getElementById('oePrecio');
+const oeMsg = document.getElementById('oeMsg');
+const oeExistente = document.getElementById('oeExistente');
+const oeGuardar = document.getElementById('oeGuardar');
+let oeProducto = null;   // {id, name, sku, thumb}
+let oeOpc = null;        // última respuesta de opciones
+let oeTimer = null;
+let oeQtyTimer = null;   // debounce de la cantidad
+let oeSeq = 0;           // solo la respuesta de opciones más nueva se aplica
+let oePendiente = null;  // promesa de la carga de opciones en vuelo (true = aplicada)
+
+function oeError(texto) {
+  oeMsg.textContent = texto || '';
+  oeMsg.style.display = texto ? 'block' : 'none';
+}
+
+function oeAbrir() {
+  oeModal.classList.add('open');
+  oeAtras();
+  oeQ.value = '';
+  oeResultados.replaceChildren();
+  oeQ.focus();
+}
+function oeCerrar() { oeModal.classList.remove('open'); }
+function oeAtras() {
+  oeProducto = null; oeOpc = null;
+  oeSeq++;                       // invalida respuestas en vuelo del producto anterior
+  clearTimeout(oeQtyTimer); oeQtyTimer = null;
+  oePendiente = null;
+  oeGuardar.disabled = false;
+  oeOcupado(oeGuardar, false);
+  oeExistente.style.display = 'none';
+  oeForm.style.display = 'none';
+  oeBuscarWrap.style.display = 'block';
+  oeError('');
+}
+
+document.getElementById('btnAbrirAgregar').addEventListener('click', oeAbrir);
+document.getElementById('oeCerrar').addEventListener('click', oeCerrar);
+document.getElementById('oeAtras').addEventListener('click', oeAtras);
+oeModal.addEventListener('click', e => { if (e.target === oeModal) oeCerrar(); });
+
+function oeThumb(url) {
+  return url ? oeEl('img', { class: 'oe-thumb', src: url, alt: '' })
+             : oeEl('div', { class: 'oe-thumb' });
+}
+
+oeQ.addEventListener('input', () => {
+  clearTimeout(oeTimer);
+  const q = oeQ.value.trim();
+  if (q.length < 2) { oeResultados.replaceChildren(); return; }
+  oeTimer = setTimeout(async () => {
+    let lista = [];
+    try {
+      const res = await fetch(`${URL_BUSCAR}?q=${encodeURIComponent(q)}`);
+      lista = await res.json();
+    } catch (e) {
+      oeResultados.replaceChildren(oeEl('div', { style: 'color:#e05560;font-size:12px;margin-top:8px;' }, 'No se pudo buscar.'));
+      return;
+    }
+    if (q !== oeQ.value.trim()) return;  // llegó tarde: ya hay otra búsqueda
+    if (!lista.length) {
+      oeResultados.replaceChildren(oeEl('div', { style: 'color:#666;font-size:12px;margin-top:8px;' }, 'Sin resultados.'));
+      return;
+    }
+    oeResultados.replaceChildren(...lista.map(p => {
+      const fila = oeEl('div', { class: 'oe-res', role: 'button', tabindex: '0' },
+        oeThumb(p.thumb),
+        oeEl('div', { style: 'flex:1;min-width:0;' },
+          oeEl('div', {}, p.name),
+          oeEl('div', { style: 'font-size:11px;color:#666;font-family:monospace;' }, p.sku)),
+        oeEl('div', { style: 'font-weight:600;' }, oeMoney(p.price)));
+      fila.addEventListener('click', () => oeElegir(p));
+      return fila;
+    }));
+  }, 300);
+});
+
+function oeSelect(id, etiqueta, opciones) {
+  const sel = oeEl('select', { id, class: 'oe-in' }, oeEl('option', { value: '' }, etiqueta));
+  opciones.forEach(([v, t]) => sel.append(oeEl('option', { value: v }, t)));
+  return sel;
+}
+const oeVal = id => { const e = document.getElementById(id); return e ? e.value : ''; };
+const oeColorwayPk = () => { const cw = document.querySelector('input[name="oeCw"]:checked'); return cw ? cw.value : ''; };
+
+// Toda recarga de opciones pasa por aquí: guardar espera esta promesa.
+function oeRefrescar(reconstruir) {
+  oePendiente = oeCargarOpciones(reconstruir);
+  return oePendiente;
+}
+
+// Devuelve true si aplicó la respuesta; false si falló o la pisó una más nueva.
+async function oeCargarOpciones(reconstruir) {
+  if (!oeProducto) return false;
+  const mio = ++oeSeq;
+  const precioAntes = oePrecio.value;
+  oeOcupado(oeGuardar, true);
+  try {
+    let o;
+    try {
+      // Con la variante elegida: si ya está en el pedido, el sugerido es el de la
+      // cantidad combinada (agregar suma a ese renglón).
+      const res = await fetch(urlOpciones(oeProducto.id, {
+        qty: oeQty.value, variant_id: oeVal('oeVariante'), size_name: oeVal('oeTalla'),
+        image_pk: oeColorwayPk(), color: oeVal('oeColor'),
+      }));
+      if (!oeProducto || mio !== oeSeq) return false;
+      if (!res.ok) { oeError('Este producto ya no está disponible.'); return false; }
+      o = await res.json();
+    } catch (e) {
+      if (oeProducto && mio === oeSeq) oeError('No se pudieron cargar las opciones.');
+      return false;
+    }
+    if (!oeProducto || mio !== oeSeq) return false;
+    oeOpc = o;
+    oeError('');
+    if (reconstruir) {
+      // La primera carga va sin qty: el servidor calcula el sugerido para min_qty.
+      oeQty.min = o.min_qty;
+      oeQty.value = o.min_qty;
+      oeCampos.replaceChildren();
+      const bloque = (txt, nodo) => oeCampos.append(oeEl('label', {}, txt), nodo);
+      const recargar = () => oeRefrescar(false);
+      if (o.variants.length) {
+        const sel = oeSelect('oeVariante', 'Elige variante', o.variants.map(v => [v.id, `${v.name} — ${oeMoney(v.price)}`]));
+        sel.addEventListener('change', recargar);
+        bloque('Variante', sel);
+      }
+      if (o.sizes.length) {
+        const sel = oeSelect('oeTalla', 'Elige talla', o.sizes.map(s => [s, s]));
+        sel.addEventListener('change', recargar);
+        bloque('Talla', sel);
+      }
+      if (o.colorways.length) {
+        const cont = oeEl('div', { class: 'oe-cw', id: 'oeColorway' });
+        o.colorways.forEach(c => {
+          const radio = oeEl('input', { type: 'radio', name: 'oeCw', value: c.pk });
+          const lbl = oeEl('label', {}, radio, oeThumb(c.thumb), c.label || '');
+          radio.addEventListener('change', () => {
+            cont.querySelectorAll('label').forEach(l => l.classList.remove('sel'));
+            lbl.classList.add('sel');
+            recargar();
+          });
+          cont.append(lbl);
+        });
+        bloque('Color', cont);
+      }
+      if (o.colors.length) {
+        const sel = oeSelect('oeColor', 'Elige color', o.colors.map(c => [c, c]));
+        sel.addEventListener('change', recargar);
+        bloque('Color', sel);
+      }
+    }
+    if (o.existente) {
+      const total = o.existente.quantity + (parseInt(oeQty.value, 10) || 0);
+      oeExistente.textContent = `Se sumará al renglón de ${o.existente.quantity} piezas `
+        + `(precio actual ${oeMoney(o.existente.price)}). El precio aplica a las ${total} piezas.`;
+      oeExistente.style.display = 'block';
+    } else {
+      oeExistente.style.display = 'none';
+    }
+    // Si el admin tecleó un precio mientras llegaba la respuesta, se respeta el suyo.
+    if (reconstruir || oePrecio.value === precioAntes) oePrecio.value = o.sugerido;
+    oeGanancia();
+    return true;
+  } finally {
+    if (mio === oeSeq && !oeQtyTimer) oeOcupado(oeGuardar, false);
+  }
+}
+
+function oeGanancia() {
+  const box = document.getElementById('oeGanancia');
+  const qty = parseInt(oeQty.value, 10);
+  const precio = parseFloat(oePrecio.value);
+  if (!oeOpc || oeOpc.costo === null || !(qty >= 1) || isNaN(precio)) { box.textContent = ''; return; }
+  // Si se suma a un renglón existente, el precio aplica a todo el renglón.
+  const piezas = qty + (oeOpc.existente ? oeOpc.existente.quantity : 0);
+  const g = (precio - oeOpc.costo) * piezas;
+  box.style.color = g < 0 ? '#e05560' : '#50c878';
+  box.textContent = `Ganancia del renglón: ${oeMoney(g)} (costo ${oeMoney(oeOpc.costo)} por pieza)`;
+}
+
+async function oeElegir(p) {
+  oeProducto = p;
+  oeBuscarWrap.style.display = 'none';
+  oeForm.style.display = 'block';
+  oeError('');
+  document.getElementById('oeElegido').replaceChildren(
+    oeThumb(p.thumb),
+    oeEl('div', {}, oeEl('div', { style: 'font-weight:600;' }, p.name),
+      oeEl('div', { style: 'font-size:11px;color:#666;font-family:monospace;' }, p.sku)));
+  oeCampos.replaceChildren();
+  oeExistente.style.display = 'none';
+  oePrecio.value = '';
+  oeQty.value = '';
+  await oeRefrescar(true);
+}
+
+// Al cambiar la cantidad se refresca el sugerido (el tier de volumen depende del qty).
+const oeQtyRecarga = () => {
+  oeQtyTimer = null;
+  if (oeProducto && parseInt(oeQty.value, 10) >= 1) oeRefrescar(false);
+  else oeOcupado(oeGuardar, false);
+};
+oeQty.addEventListener('input', () => {
+  oeGanancia();
+  clearTimeout(oeQtyTimer);
+  oeOcupado(oeGuardar, true);
+  oeQtyTimer = setTimeout(oeQtyRecarga, 300);
+});
+oePrecio.addEventListener('input', oeGanancia);
+
+oeGuardar.addEventListener('click', async () => {
+  if (!oeProducto || !oeOpc || oeGuardar.disabled) return;
+  oeGuardar.disabled = true;
+  // Antes de leer el precio: el debounce de cantidad pendiente se ejecuta ya y se
+  // espera la carga de opciones en vuelo, para no mandar un sugerido viejo.
+  if (oeQtyTimer) { clearTimeout(oeQtyTimer); oeQtyRecarga(); }
+  // Si mientras tanto salió otra carga (cambió la talla), se espera esa también.
+  let listo = true;
+  for (let p = null; oePendiente && p !== oePendiente;) { p = oePendiente; listo = await p; }
+  const fallo = msg => { oeGuardar.disabled = false; if (msg) oeError(msg); };
+  if (!oeProducto || !oeOpc) { fallo(); return; }
+  if (listo === false) { fallo(oeMsg.textContent || 'No se pudo calcular el precio; intenta de nuevo.'); return; }
+  const o = oeOpc;
+  const qty = parseInt(oeQty.value, 10);
+  if (!(qty >= 1)) { fallo('Cantidad inválida.'); return; }
+  if (oePrecio.value === '') { fallo('Indica el precio.'); return; }  // nunca mandar vacío: el servidor repreciaría
+  if (o.variants.length && !oeVal('oeVariante')) { fallo('Elige la variante.'); return; }
+  if (o.sizes.length && !oeVal('oeTalla')) { fallo('Elige la talla.'); return; }
+  if (o.colors.length && !oeVal('oeColor')) { fallo('Elige el color.'); return; }
+  const cw = oeColorwayPk();
+  if (o.colorways.length && !cw) { fallo('Elige el color.'); return; }
+  const d = await oePost(URL_ITEM_ADD, {
+    product_id: oeProducto.id,
+    qty: qty,
+    precio: oePrecio.value,
+    variant_id: oeVal('oeVariante'),
+    size_name: oeVal('oeTalla'),
+    color: oeVal('oeColor'),
+    image_pk: cw,
+  });
+  if (d.ok) { window.location.reload(); return; }
+  fallo(d.error || 'No se pudo agregar.');
+});
+{% endif %}
 </script>
 {% endblock %}

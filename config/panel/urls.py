@@ -1,5 +1,5 @@
 from django.urls import path
-from . import views
+from . import order_edit_views, views
 
 app_name = 'panel'
 
@@ -14,6 +14,11 @@ urlpatterns = [
     path('pedidos/<int:pk>/pago/agregar/',   views.order_payment_add,    name='order_payment_add'),
     path('pagos/<int:payment_pk>/eliminar/',  views.order_payment_delete, name='order_payment_delete'),
     path('pedidos/<int:pk>/liquidar/',        views.order_liquidar,       name='order_liquidar'),
+    path('pedidos/<int:pk>/productos/buscar/', order_edit_views.order_product_search, name='order_product_search'),
+    path('pedidos/<int:pk>/productos/<int:product_pk>/opciones/', order_edit_views.order_product_options, name='order_product_options'),
+    path('pedidos/<int:pk>/productos/agregar/', order_edit_views.order_item_add, name='order_item_add'),
+    path('pedidos/<int:pk>/productos/<int:item_pk>/cantidad/', order_edit_views.order_item_qty, name='order_item_qty'),
+    path('pedidos/<int:pk>/productos/<int:item_pk>/quitar/', order_edit_views.order_item_remove, name='order_item_remove'),
     path('pedidos/<int:pk>/descuento/',   views.order_descuento_apply, name='order_descuento_apply'),
     path('pedidos/<int:pk>/ticket/',         views.order_ticket,            name='order_ticket'),
     path('pedidos/<int:pk>/ticket/pdf/',    views.order_ticket_pdf,        name='order_ticket_pdf'),
