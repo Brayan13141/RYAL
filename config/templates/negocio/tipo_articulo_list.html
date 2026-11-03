@@ -201,6 +201,14 @@
         {% endfor %}
       </div>
 
+      {% if tipo.padre or tipo.prefijo %}
+      <div class="mb-2 small" style="color:var(--pm)">
+        {% if tipo.padre %}Padre: <strong>{{ tipo.padre.nombre }}</strong> · {% endif %}
+        {% if tipo.via %}Vía: {{ tipo.get_via_display }} · {% endif %}
+        {% if tipo.prefijo %}Prefijo: <code>{{ tipo.prefijo }}</code>{% endif %}
+      </div>
+      {% endif %}
+
       <div class="d-flex justify-content-between align-items-center">
         <div>
           <span style="font-size:11px;color:var(--pm)">Costo ref.</span><br>

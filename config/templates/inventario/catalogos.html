@@ -1,0 +1,102 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Catálogos de inventario{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+  <h4 class="mb-0" style="font-family:var(--f-display)">Catálogos de inventario</h4>
+  <p class="small mb-0 mt-1" style="color:var(--pm)">Colores, tallas, fletes y precios de venta.</p>
+</div>
+
+{% if messages %}
+{% for m in messages %}
+<div style="border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13px;
+            {% if m.tags == 'success' %}background:rgba(60,180,110,.09);border:1px solid rgba(60,180,110,.45);color:#7fd6a4{% else %}background:rgba(224,85,85,.08);border:1px solid rgba(224,85,85,.45);color:#f0a0a0{% endif %}">{{ m }}</div>
+{% endfor %}
+{% endif %}
+
+<ul class="nav nav-tabs mb-3" style="flex-wrap:nowrap;overflow-x:auto;">
+  {% for clave, nombre in tabs %}
+  <li class="nav-item"><a class="nav-link {% if activa == clave %}active{% endif %}" href="?tab={{ clave }}" style="white-space:nowrap">{{ nombre }}</a></li>
+  {% endfor %}
+</ul>
+
+{% comment %}Un formulario genérico: cada pestaña lo reusa con su acción.{% endcomment %}
+{% if activa == 'colores' %}
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="p-card"><div class="p-card-head"><h2>Nuevo color</h2></div><div class="p-card-body">
+      <form method="post" action="?tab=colores">{% csrf_token %}<input type="hidden" name="accion" value="color">
+        {% include "inventario/_campos.html" with form=forms.color %}
+        <button class="btn-g mt-2" type="submit">Guardar color</button>
+      </form>
+    </div></div>
+    <div class="p-card mt-3"><div class="p-card-head"><h2>Colores de un modelo</h2></div><div class="p-card-body">
+      <form method="post" action="?tab=colores">{% csrf_token %}<input type="hidden" name="accion" value="colores_modelo">
+        {% include "inventario/_campos.html" with form=forms.colores_modelo %}
+        <button class="btn-g mt-2" type="submit">Asignar colores</button>
+      </form>
+    </div></div>
+  </div>
+  <div class="col-12 col-lg-6">
+    <table class="table table-dark table-sm" style="background:transparent">
+      <thead><tr><th>Color</th><th>Alias</th><th>Activo</th></tr></thead>
+      <tbody>{% for c in colores %}<tr><td>{{ c.nombre }}</td><td>{{ c.alias }}</td><td>{{ c.activo|yesno:"sí,no" }}</td></tr>
+      {% empty %}<tr><td colspan="3" style="color:var(--pm)">Sin colores.</td></tr>{% endfor %}</tbody>
+    </table>
+    <div class="small" style="color:var(--pm)">
+      {% for t in modelos %}{% if t.colores.all %}<div><strong>{{ t.nombre }}:</strong> {% for c in t.colores.all %}{{ c.nombre }}{% if not forloop.last %}, {% endif %}{% endfor %}</div>{% endif %}{% endfor %}
+    </div>
+  </div>
+</div>
+
+{% elif activa == 'tallas' %}
+<div class="row g-3">
+  <div class="col-12 col-lg-5">
+    <div class="p-card"><div class="p-card-head"><h2>Nueva talla</h2></div><div class="p-card-body">
+      <form method="post" action="?tab=tallas">{% csrf_token %}<input type="hidden" name="accion" value="talla">
+        {% include "inventario/_campos.html" with form=forms.talla %}
+        <button class="btn-g mt-2" type="submit">Guardar talla</button>
+      </form>
+    </div></div>
+  </div>
+  <div class="col-12 col-lg-7" style="overflow-x:auto">
+    <table class="table table-dark table-sm" style="background:transparent">
+      <thead><tr><th>MX</th><th>EU</th><th>US H</th><th>US M</th><th>CN mm</th><th>Orden</th><th>Activa</th></tr></thead>
+      <tbody>{% for t in tallas %}<tr><td>{{ t.mx_cm|floatformat:"-1" }}</td><td>{{ t.eu|default_if_none:"" }}</td><td>{{ t.us_hombre|default_if_none:"" }}</td><td>{{ t.us_mujer|default_if_none:"" }}</td><td>{{ t.cn_mm|default_if_none:"" }}</td><td>{{ t.orden }}</td><td>{{ t.activa|yesno:"sí,no" }}</td></tr>
+      {% empty %}<tr><td colspan="7" style="color:var(--pm)">Sin tallas.</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+</div>
+
+{% elif activa == 'fletes' %}
+<div class="p-card" style="max-width:520px"><div class="p-card-head"><h2>Flete por par</h2></div><div class="p-card-body">
+  <p class="small" style="color:var(--pm)">Cambiar la tarifa no re-costea lotes ya creados.</p>
+  {% for t, f in tarifas %}
+  <form method="post" action="?tab=fletes" class="d-flex gap-2 align-items-center mb-2">{% csrf_token %}
+    <input type="hidden" name="accion" value="tarifa"><input type="hidden" name="tarifa_id" value="{{ t.pk }}">
+    <span style="min-width:90px">{{ t.get_via_display }}</span>
+    {{ f.monto_por_par }}
+    <button class="btn-g" type="submit">Guardar</button>
+  </form>
+  {% endfor %}
+</div></div>
+
+{% elif activa == 'precios' %}
+<div class="row g-3">
+  <div class="col-12 col-lg-5">
+    <div class="p-card"><div class="p-card-head"><h2>Nuevo precio de venta</h2></div><div class="p-card-body">
+      <form method="post" action="?tab=precios">{% csrf_token %}<input type="hidden" name="accion" value="precio">
+        {% include "inventario/_campos.html" with form=forms.precio %}
+        <button class="btn-g mt-2" type="submit">Guardar precio</button>
+      </form>
+    </div></div>
+  </div>
+  <div class="col-12 col-lg-7">
+    <table class="table table-dark table-sm" style="background:transparent">
+      <thead><tr><th>Modelo</th><th>Precio</th><th class="text-end">Monto</th></tr></thead>
+      <tbody>{% for t in modelos %}{% for p in t.precios_venta.all %}<tr><td>{{ t.nombre }}</td><td>{{ p.nombre }}</td><td class="text-end">${{ p.precio }}</td></tr>{% endfor %}{% endfor %}</tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

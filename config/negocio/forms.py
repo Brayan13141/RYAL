@@ -61,14 +61,23 @@ from .models import PedidoItem
 class TipoArticuloForm(forms.ModelForm):
     class Meta:
         model = TipoArticulo
-        fields = ['nombre', 'keywords', 'costo']
+        fields = ['nombre', 'keywords', 'costo', 'padre', 'via', 'usa_tallas', 'colores', 'prefijo']
         widgets = {
+            'colores': forms.CheckboxSelectMultiple,
             'keywords': forms.Textarea(attrs={'rows': 3, 'style': 'font-family:monospace'}),
         }
         help_texts = {
             'keywords': 'Palabras clave separadas por coma. Ej: gorra,cap,ny,la,za',
             'costo': 'Costo al proveedor en MXN (sin markup).',
+            'padre': 'Solo para variantes: el modelo base al que pertenece.',
+            'via': 'Solo para variantes: aéreo o marítimo.',
+            'prefijo': '2 a 5 letras/números en mayúscula para el código del par (ej. JD4A).',
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['padre'].queryset = TipoArticulo.objects.filter(
+            padre__isnull=True).exclude(pk=self.instance.pk).order_by('nombre')
 
 
 class CodigoDescuentoForm(forms.ModelForm):
@@ -128,3 +137,15 @@ class PedidoItemForm(forms.ModelForm):
             'costo_unitario':  forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
             'precio_unitario': forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
         }
+
+    def clean(self):
+        datos = super().clean()
+        item = self.instance
+        # Un ítem con pares del inventario ligados se corrige quitando el par, no editando a mano.
+        if item.pk and item.pares.exists():
+            cambio_nombre = 'nombre_snapshot' in datos and datos['nombre_snapshot'] != item.nombre_snapshot
+            baja_cantidad = 'cantidad' in datos and datos['cantidad'] < item.pares.count()
+            if cambio_nombre or baja_cantidad:
+                raise forms.ValidationError(
+                    'Este ítem tiene pares del inventario; usa Quitar par en el pedido.')
+        return datos

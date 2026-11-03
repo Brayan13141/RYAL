@@ -38,6 +38,7 @@ _sitemaps = {
 
 urlpatterns = [
     path('admin/',            admin.site.urls),
+    path('panel/inventario/', include('inventario.urls')),
     path('panel/',            include('panel.urls')),
     path('panel/negocio/',   include('negocio.urls')),
     path('api/negocio/',     include('negocio.api_urls')),

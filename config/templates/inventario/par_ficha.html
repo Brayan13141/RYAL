@@ -1,0 +1,57 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Par {{ par.codigo }}{% endblock %}
+
+{% block content %}
+{% for m in messages %}
+<div class="mb-3 small" style="border-radius:10px;padding:10px 14px;{% if m.tags == 'success' %}background:rgba(60,180,110,.09);border:1px solid rgba(60,180,110,.45);color:#7fd6a4{% else %}background:rgba(224,85,85,.08);border:1px solid rgba(224,85,85,.45);color:#f0a0a0{% endif %}">{{ m }}</div>
+{% endfor %}
+<div class="mb-4">
+  <h4 class="mb-0" style="font-family:var(--f-display)">{{ par.codigo }}</h4>
+  <p class="small mb-0 mt-1" style="color:var(--pm)">
+    {{ par.tipo.nombre }} · {{ par.color.nombre }} · talla MX {{ talla }}
+  </p>
+</div>
+
+<div class="d-flex flex-wrap gap-2 mb-4">
+  <a href="{% url 'inventario:etiqueta_par' par.codigo %}" target="_blank" class="btn-g"><i class="bi bi-printer"></i> Reimprimir etiqueta</a>
+  <a href="{% url 'inventario:lote_detalle' par.lote_id %}" class="btn-g"><i class="bi bi-box-seam"></i> Lote #{{ par.lote_id }}{% if par.lote.referencia %} · {{ par.lote.referencia }}{% endif %}</a>
+  {% if par.pedido_item_id %}
+  <a href="{% url 'negocio:pedido_detail' par.pedido_item.pedido_id %}" class="btn-g"><i class="bi bi-receipt"></i> Pedido #{{ par.pedido_item.pedido_id }}</a>
+  {% endif %}
+</div>
+
+<div class="row g-2 mb-4">
+  <div class="col-6 col-md-3"><div class="p-3 rounded" style="border:1px solid var(--bd, #333)"><div class="small" style="color:var(--pm)">Estado</div><div class="fs-5">{{ par.get_estado_display }}{% if par.motivo_baja %} <span class="small" style="color:var(--pm)">({{ par.get_motivo_baja_display }})</span>{% endif %}</div></div></div>
+  <div class="col-6 col-md-3"><div class="p-3 rounded" style="border:1px solid var(--bd, #333)"><div class="small" style="color:var(--pm)">Precio proveedor</div><div class="fs-5">{% if par.precio_proveedor is None %}—{% else %}${{ par.precio_proveedor }}{% endif %}</div></div></div>
+  <div class="col-6 col-md-3"><div class="p-3 rounded" style="border:1px solid var(--bd, #333)"><div class="small" style="color:var(--pm)">Flete</div><div class="fs-5">{% if par.flete is None %}—{% else %}${{ par.flete }}{% endif %}</div></div></div>
+  <div class="col-6 col-md-3"><div class="p-3 rounded" style="border:1px solid var(--bd, #333)"><div class="small" style="color:var(--pm)">Costo</div><div class="fs-5">{% if par.costo is None %}—{% else %}${{ par.costo }}{% endif %}</div></div></div>
+</div>
+
+<h6 style="font-family:var(--f-display)">Historial</h6>
+<div style="overflow-x:auto;">
+  <table class="table table-dark table-borderless align-middle mb-3" style="background:transparent;">
+    <thead>
+      <tr>
+        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Fecha</th>
+        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Cambio</th>
+        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Origen</th>
+        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Usuario</th>
+        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Nota</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in movimientos %}
+      <tr>
+        <td style="background:transparent">{{ m.creado_at|date:"d/m/Y H:i" }}</td>
+        <td style="background:transparent">{{ m.get_de_estado_display }} → {{ m.get_a_estado_display }}</td>
+        <td style="background:transparent">{{ m.get_origen_display }}</td>
+        <td style="background:transparent">{{ m.usuario|default:"—" }}</td>
+        <td style="background:transparent">{{ m.nota|default:"—" }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" style="background:transparent;color:var(--pm)">Sin movimientos.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

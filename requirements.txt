@@ -2,6 +2,7 @@ Django==6.0.4
 django-allauth==65.16.1
 django-ratelimit==4.1.0
 qrcode==8.2
+reportlab==4.5.0
 fido2==2.2.1  # allauth.mfa (2FA de staff)
 djangorestframework==3.17.1
 Pillow==12.2.0

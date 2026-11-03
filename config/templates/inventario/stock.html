@@ -1,0 +1,75 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Stock{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <h4 class="mb-0" style="font-family:var(--f-display)">Stock</h4>
+  <form method="get" class="d-flex flex-wrap gap-2">
+    <select name="base_id" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+      <option value="">Todos los modelos</option>
+      {% for b in bases %}<option value="{{ b.pk }}" {% if b.pk == base_id %}selected{% endif %}>{{ b.nombre }}</option>{% endfor %}
+    </select>
+    <select name="via" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+      <option value="">Aéreo y marítimo</option>
+      <option value="aereo" {% if via == 'aereo' %}selected{% endif %}>Aéreo</option>
+      <option value="maritimo" {% if via == 'maritimo' %}selected{% endif %}>Marítimo</option>
+    </select>
+    <select name="estado" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+      {% for valor, etiqueta in estados %}<option value="{{ valor }}" {% if estado == valor %}selected{% endif %}>{{ etiqueta }}</option>{% endfor %}
+    </select>
+  </form>
+</div>
+
+{% if alertas.ventas_bot_sin_par or alertas.lotes_abiertos_con_faltantes or alertas.vendidos_bot_sin_escaneo %}
+<div class="mb-4" style="border-radius:10px;padding:12px 16px;background:rgba(224,170,60,.08);border:1px solid rgba(224,170,60,.45);font-size:13px">
+  {% if alertas.ventas_bot_sin_par %}
+  <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle-fill me-1"></i>Ventas del bot sin par asignado</div>
+  <ul class="mb-3">
+    {% for a in alertas.ventas_bot_sin_par %}
+    <li>
+      <a href="{% url 'negocio:pedido_detail' a.item.pedido_id %}">Pedido #{{ a.item.pedido_id }}</a>
+      · {{ a.item.pedido.fecha|date:"d/m/Y" }} · {{ a.item.nombre_snapshot }}
+      · faltan {{ a.faltan }} de {{ a.item.cantidad }}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if alertas.lotes_abiertos_con_faltantes %}
+  <div class="fw-semibold mb-1"><i class="bi bi-box-seam me-1"></i>Lotes abiertos con faltantes</div>
+  <ul class="mb-3">
+    {% for l in alertas.lotes_abiertos_con_faltantes %}
+    <li><a href="{% url 'inventario:lote_detalle' l.pk %}">Lote #{{ l.pk }}{% if l.referencia %} · {{ l.referencia }}{% endif %}</a> · creado {{ l.creado_at|date:"d/m/Y" }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if alertas.vendidos_bot_sin_escaneo %}
+  <div class="mb-0"><i class="bi bi-info-circle me-1"></i>{{ alertas.vendidos_bot_sin_escaneo }} par{{ alertas.vendidos_bot_sin_escaneo|pluralize:",es" }} vendido{{ alertas.vendidos_bot_sin_escaneo|pluralize }} por el bot sin confirmar con escaneo (revisar en el siguiente conteo).</div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% for t in tablas %}
+<h5 class="mt-4" style="font-family:var(--f-display)">{{ t.base.nombre }} <span class="small" style="color:var(--pm)">· {{ t.total }} {{ estado_label }}</span></h5>
+<div class="table-responsive">
+  <table class="table table-sm align-middle text-center">
+    <thead>
+      <tr><th class="text-start">Color</th>{% for c in t.columnas %}<th>{{ c }}</th>{% endfor %}<th>Total</th></tr>
+    </thead>
+    <tbody>
+      {% for f in t.filas %}
+      <tr>
+        <td class="text-start">{{ f.color.nombre }}</td>
+        {% for c in f.celdas %}<td>{% if c.aereo or c.maritimo %}{{ c.aereo|add:c.maritimo }}<div class="small" style="color:var(--pm)">A{{ c.aereo }} · M{{ c.maritimo }}</div>{% endif %}</td>{% endfor %}
+        <td class="fw-semibold">{{ f.total }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr class="fw-semibold"><td class="text-start">Total</td>{% for c in t.totales %}<td>{{ c.aereo|add:c.maritimo }}</td>{% endfor %}<td>{{ t.total }}</td></tr>
+    </tfoot>
+  </table>
+</div>
+{% empty %}
+<p class="small" style="color:var(--pm)">No hay pares ({{ estado_label }}) con estos filtros.</p>
+{% endfor %}
+{% endblock %}

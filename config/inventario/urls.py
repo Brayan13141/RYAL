@@ -1,0 +1,40 @@
+from django.urls import path
+
+from .views import catalogos, escaner, etiquetas, importar, lotes, stock, tipos
+
+app_name = 'inventario'
+
+urlpatterns = [
+    path('', stock.stock, name='stock'),
+    path('tipos/convertir/', tipos.tipos_convertir, name='tipos_convertir'),
+    path('catalogos/', catalogos.catalogos, name='catalogos'),
+    path('alta/', lotes.alta_manual, name='alta_manual'),
+    path('tipos/<int:pk>/colores/', lotes.tipo_colores, name='tipo_colores'),
+    path('lotes/', lotes.lotes, name='lotes'),
+    path('lotes/<int:pk>/', lotes.lote_detalle, name='lote_detalle'),
+    path('lotes/<int:pk>/cerrar/', lotes.lote_cerrar, name='lote_cerrar'),
+    path('lotes/<int:pk>/etiquetas/', etiquetas.etiquetas_lote, name='etiquetas_lote'),
+    path('importar/', importar.importar, name='importar'),
+    path('importar/preview/', importar.importar_preview, name='importar_preview'),
+    path('importar/confirmar/', importar.importar_confirmar, name='importar_confirmar'),
+    path('importar/alta-color/', importar.importar_alta_color, name='importar_alta_color'),
+    path('importar/alta-variante/', importar.importar_alta_variante, name='importar_alta_variante'),
+    path('importar/alta-talla/', importar.importar_alta_talla, name='importar_alta_talla'),
+    path('escanear/', escaner.escanear, name='escanear'),
+    path('escanear/recibir/', escaner.escanear_recibir, name='escanear_recibir'),
+    path('escanear/deshacer/', escaner.deshacer, name='deshacer'),
+    path('escanear/vender/info/', escaner.vender_info, name='vender_info'),
+    path('escanear/vender/ligar/', escaner.vender_ligar, name='vender_ligar'),
+    path('escanear/vender/cerrar/', escaner.vender_cerrar, name='vender_cerrar'),
+    path('escanear/contar/', escaner.escanear_contar, name='escanear_contar'),
+    path('conteos/', escaner.conteos_lista, name='conteos'),
+    path('conteos/nuevo/', escaner.conteo_crear, name='conteo_crear'),
+    path('conteos/<int:pk>/', escaner.conteo_resumen, name='conteo_resumen'),
+    path('conteos/<int:pk>/cerrar/', escaner.conteo_cerrar, name='conteo_cerrar'),
+    path('conteos/<int:pk>/corregir/', escaner.conteo_corregir, name='conteo_corregir'),
+    path('ventas/<int:pedido_pk>/cancelar/', escaner.venta_cancelar, name='venta_cancelar'),
+    path('ventas/par/<str:codigo>/quitar/', escaner.venta_quitar_par, name='venta_quitar_par'),
+    # Esta ruta es la que codifica el QR de la etiqueta: no cambiarla.
+    path('p/<str:codigo>/', escaner.par_ficha, name='par_ficha'),
+    path('etiquetas/<str:codigo>/', etiquetas.etiqueta_par, name='etiqueta_par'),
+]

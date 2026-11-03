@@ -1,0 +1,40 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Lotes{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+  <h4 class="mb-0" style="font-family:var(--f-display)">Lotes</h4>
+  <a href="{% url 'inventario:alta_manual' %}" class="btn-g"><i class="bi bi-plus-square"></i> Alta manual</a>
+</div>
+
+{% if lotes %}
+<div style="overflow-x:auto;">
+  <table class="table table-dark table-borderless align-middle mb-3" style="background:transparent;">
+    <thead>
+      <tr>
+        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Lote</th>
+        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Origen</th>
+        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Vía</th>
+        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Fecha</th>
+        <th class="text-end" style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Recibidos</th>
+        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Estado</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l in lotes %}
+      <tr>
+        <td style="background:transparent"><a href="{% url 'inventario:lote_detalle' l.pk %}">#{{ l.pk }}{% if l.referencia %} · {{ l.referencia }}{% endif %}</a></td>
+        <td style="background:transparent">{{ l.get_origen_display }}</td>
+        <td style="background:transparent">{{ l.get_via_display }}</td>
+        <td style="background:transparent">{{ l.creado_at|date:"d/m/Y H:i" }}</td>
+        <td class="text-end" style="background:transparent">{{ l.recibidos }} / {{ l.total }}</td>
+        <td style="background:transparent">{% if l.cerrado_at %}Cerrado{% else %}Abierto{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p style="color:var(--pm)">Todavía no hay lotes.</p>
+{% endif %}
+{% endblock %}

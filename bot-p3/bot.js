@@ -20,6 +20,7 @@ const { shouldHandleOrders } = require('./routing')
 const { writeQrState } = require('./qrState')
 const { normalizarNumero, debePedirCodigo } = require('./pairing')
 const { mensajeSinTipo } = require('./ventaSinTipo')
+const { mensajeIncompleta, avisoSinStock } = require('./ventaIncompleta')
 
 const AUTH_DIR = '.baileys_auth'
 const QR_STATE_FILE = '.qr_state.json'
@@ -301,6 +302,13 @@ async function enviarVentaTienda(sock, { endpoint, payload }) {
 
     const err = res.err
     if (err.response && err.response.status === 409) {
+        const incompletos = (err.response.data && err.response.data.incompletos) || []
+        // Faltan vía/color/talla: no hay nada que numerar ni que reintentar.
+        // Sin setPending, la sesión queda intacta para corregir el ítem.
+        if (incompletos.length > 0) {
+            await sock.sendMessage(ORDERS_GID, { text: mensajeIncompleta(incompletos) })
+            return { ok: false, incompleta: true }
+        }
         const detalles = (err.response.data && err.response.data.sin_tipo) || []
         const totalItems = (payload.items || []).length
         const { texto, opciones } = mensajeSinTipo(detalles, totalItems)
@@ -419,7 +427,8 @@ async function handleOrdersMessage(sock, msg) {
                     if (!resPrev.ok) return   // no se abre sesión nueva sobre una venta sin cerrar
                     await sock.sendMessage(ORDERS_GID, {
                         text: `✅ Pedido #${resPrev.data.pedido_id} cerrado — Total: $${resPrev.data.total} MXN`
-                            + avisoSinTipo(resPrev.data.sin_tipo),
+                            + avisoSinTipo(resPrev.data.sin_tipo)
+                            + avisoSinStock(resPrev.data.sin_stock),
                     })
                 }
                 orders.startSession(ORDERS_GID, nombre, telefono, pending.payload.tipo || 'pedido')
@@ -531,7 +540,7 @@ async function handleOrdersMessage(sock, msg) {
             const res = await enviarVentaTienda(sock, { endpoint, payload })
             if (!res.ok) return
             orders.cancelSession(ORDERS_GID)
-            await sock.sendMessage(ORDERS_GID, { text: confirmacionVenta(res.data) })
+            await sock.sendMessage(ORDERS_GID, { text: confirmacionVenta(res.data) + avisoSinStock(res.data.sin_stock) })
             return
         }
     }
@@ -799,7 +808,8 @@ async function handleOrdersMessage(sock, msg) {
         if (!res.ok) return          // 409 o error: la sesión queda intacta
         orders.cancelSession(ORDERS_GID)
         await sock.sendMessage(ORDERS_GID, {
-            text: confirmacionVenta(res.data) + avisoSinTipo(res.data.sin_tipo),
+            text: confirmacionVenta(res.data) + avisoSinTipo(res.data.sin_tipo)
+                + avisoSinStock(res.data.sin_stock),
         })
         return
     }

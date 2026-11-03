@@ -1,0 +1,39 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Recibir llegada{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+  <h4 class="mb-0" style="font-family:var(--f-display)">Recibir llegada</h4>
+  <p class="small mb-0 mt-1" style="color:var(--pm)">
+    Sube el CSV del proveedor (modelo, color, talla_mx, cantidad, precio_proveedor). Primero ves una vista previa: no se guarda nada hasta confirmar.
+  </p>
+</div>
+
+{% if error %}
+<div style="border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13px;background:rgba(224,85,85,.08);border:1px solid rgba(224,85,85,.45);color:#f0a0a0">
+  <i class="bi bi-x-octagon-fill me-1"></i>{{ error }}
+</div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data" class="row g-3">
+  {% csrf_token %}
+  <div class="col-12 col-md-6">
+    <label class="form-label small" for="f-archivo">Archivo CSV (máx. 1 MB)</label>
+    <input id="f-archivo" class="form-control" type="file" name="archivo" accept=".csv,text/csv" required>
+  </div>
+  <div class="col-6 col-md-3">
+    <label class="form-label small" for="f-via">Vía</label>
+    <select id="f-via" class="form-select" name="via">
+      <option value="aereo"{% if via == 'aereo' %} selected{% endif %}>Aéreo</option>
+      <option value="maritimo"{% if via == 'maritimo' %} selected{% endif %}>Marítimo</option>
+    </select>
+  </div>
+  <div class="col-6 col-md-3">
+    <label class="form-label small" for="f-ref">Referencia</label>
+    <input id="f-ref" class="form-control" name="referencia" maxlength="100" value="{{ ref|default:'' }}" placeholder="Opcional">
+  </div>
+  <div class="col-12">
+    <button type="submit" class="btn-g"><i class="bi bi-eye"></i> Ver vista previa</button>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,67 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Lote #{{ lote.pk }}{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+  <h4 class="mb-0" style="font-family:var(--f-display)">Lote #{{ lote.pk }}{% if lote.referencia %} · {{ lote.referencia }}{% endif %}</h4>
+  <p class="small mb-0 mt-1" style="color:var(--pm)">
+    {{ lote.get_origen_display }} · {{ lote.get_via_display }} · {{ lote.creado_at|date:"d/m/Y H:i" }}
+    · {% if lote.cerrado_at %}Cerrado el {{ lote.cerrado_at|date:"d/m/Y H:i" }}{% else %}Abierto{% endif %}
+  </p>
+</div>
+
+{% if messages %}
+{% for m in messages %}
+<div style="border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13px;line-height:1.5;
+            {% if m.tags == 'success' %}background:rgba(60,180,110,.09);border:1px solid rgba(60,180,110,.45);color:#7fd6a4{% else %}background:rgba(224,85,85,.08);border:1px solid rgba(224,85,85,.45);color:#f0a0a0{% endif %}">
+  <i class="bi {% if m.tags == 'success' %}bi-check-circle-fill{% else %}bi-x-octagon-fill{% endif %} me-1"></i>{{ m }}
+</div>
+{% endfor %}
+{% endif %}
+
+<div class="row g-2 mb-4">
+  <div class="col-6 col-md-3"><div class="p-3 rounded" style="border:1px solid var(--bd, #333)"><div class="small" style="color:var(--pm)">Por recibir</div><div class="fs-4">{{ conteo.por_recibir }}</div></div></div>
+  <div class="col-6 col-md-3"><div class="p-3 rounded" style="border:1px solid var(--bd, #333)"><div class="small" style="color:var(--pm)">En stock</div><div class="fs-4">{{ conteo.en_stock }}</div></div></div>
+  <div class="col-6 col-md-3"><div class="p-3 rounded" style="border:1px solid var(--bd, #333)"><div class="small" style="color:var(--pm)">Vendidos</div><div class="fs-4">{{ conteo.vendido }}</div></div></div>
+  <div class="col-6 col-md-3"><div class="p-3 rounded" style="border:1px solid var(--bd, #333)"><div class="small" style="color:var(--pm)">Baja</div><div class="fs-4">{{ conteo.baja }}</div></div></div>
+</div>
+
+<div class="d-flex flex-wrap gap-2 mb-4">
+  <a href="{% url 'inventario:etiquetas_lote' lote.pk %}?solo=todos" target="_blank" class="btn-g"><i class="bi bi-printer"></i> Imprimir todo</a>
+  <a href="{% url 'inventario:etiquetas_lote' lote.pk %}?solo=pendientes" target="_blank" class="btn-g"><i class="bi bi-printer"></i> Imprimir pendientes</a>
+  <a href="{% url 'inventario:escanear' %}?lote={{ lote.pk }}" class="btn-g"><i class="bi bi-upc-scan"></i> Escanear</a>
+  {% if not lote.cerrado_at %}
+  <form method="post" action="{% url 'inventario:lote_cerrar' lote.pk %}" class="ms-auto"
+        onsubmit="return confirm('Los pares que no se han recibido pasarán a baja como faltante. ¿Cerrar el lote?')">
+    {% csrf_token %}
+    <button type="submit" class="btn-g"><i class="bi bi-lock"></i> Cerrar lote</button>
+  </form>
+  {% endif %}
+</div>
+
+<div style="overflow-x:auto;">
+  <table class="table table-dark table-borderless align-middle mb-3" style="background:transparent;">
+    <thead>
+      <tr>
+        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Tipo</th>
+        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Color</th>
+        <th style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Talla MX</th>
+        <th class="text-end" style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Esperados</th>
+        <th class="text-end" style="background:transparent;color:var(--pm);font-size:11px;text-transform:uppercase">Recibidos</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in filas %}
+      <tr>
+        <td style="background:transparent">{{ f.tipo }}</td>
+        <td style="background:transparent">{{ f.color }}</td>
+        <td style="background:transparent">{{ f.talla }}</td>
+        <td class="text-end" style="background:transparent">{{ f.esperados }}</td>
+        <td class="text-end" style="background:transparent">{{ f.recibidos }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<a href="{% url 'inventario:lotes' %}" class="small">&larr; Todos los lotes</a>
+{% endblock %}

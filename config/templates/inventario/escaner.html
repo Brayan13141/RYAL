@@ -1,0 +1,99 @@
+{% extends "panel/base_panel.html" %}
+{% load static %}
+{% block title %}Escanear{% endblock %}
+
+{% block extra_css %}
+<style>
+  #esc-panel { border-radius:12px; padding:16px; border:1px solid var(--bd, #333); transition:background .15s; }
+  #esc-panel.verde { background:rgba(60,180,110,.18); }
+  #esc-panel.amarillo { background:rgba(230,190,60,.18); }
+  #esc-panel.rojo { background:rgba(224,85,85,.2); }
+  #esc-video { width:100%; max-height:260px; background:#000; border-radius:10px; display:none; }
+  #esc-video.on { display:block; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+  <h4 class="mb-0" style="font-family:var(--f-display)">Escanear</h4>
+</div>
+
+<ul class="nav nav-pills mb-3">
+  <li class="nav-item"><button type="button" id="tab-recibir" class="nav-link active">Recibir</button></li>
+  <li class="nav-item"><button type="button" id="tab-vender" class="nav-link">Vender</button></li>
+  <li class="nav-item"><button type="button" id="tab-contar" class="nav-link">Contar</button></li>
+</ul>
+
+<div id="esc-lote-box" class="mb-3">
+  <label class="small" for="esc-lote" style="color:var(--pm)">Lote</label>
+  <select id="esc-lote" class="form-select">
+    <option value="">— elige un lote —</option>
+    {% for l in lotes %}
+    <option value="{{ l.pk }}" {% if l.pk == lote_sel %}selected{% endif %}>#{{ l.pk }} · {{ l.referencia }}{% if l.cerrado_at %} (cerrado){% endif %}</option>
+    {% endfor %}
+  </select>
+</div>
+
+<div id="esc-panel" class="mb-3">
+  <div class="input-group mb-2">
+    <input id="esc-input" type="text" class="form-control" autofocus autocomplete="off"
+           placeholder="Escanea con la pistola o escribe el código y Enter">
+    <button id="esc-cam" type="button" class="btn-g"><i class="bi bi-camera"></i> Cámara</button>
+  </div>
+  <video id="esc-video" playsinline muted></video>
+  <div id="esc-msg" class="fs-5 mt-2">Listo para escanear.</div>
+</div>
+
+<div id="esc-recibir">
+  <h6 style="font-family:var(--f-display)">Lecturas recientes</h6>
+  <ul id="esc-lista" class="list-unstyled small"></ul>
+</div>
+
+<div id="esc-contar" hidden>
+  {% if conteo_sel and not conteo_sel.cerrado_at %}
+  <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+    <span>Conteo #{{ conteo_sel.pk }} abierto</span>
+    <a href="{% url 'inventario:conteo_resumen' conteo_sel.pk %}" class="btn-g">Ver resumen</a>
+  </div>
+  <h6 style="font-family:var(--f-display)">Lecturas recientes</h6>
+  <ul id="ct-lista" class="list-unstyled small"></ul>
+  {% else %}
+  <p class="small" style="color:var(--pm)">{% if conteo_sel %}El conteo #{{ conteo_sel.pk }} ya está cerrado.{% else %}No hay un conteo en curso.{% endif %}</p>
+  <form method="post" action="{% url 'inventario:conteo_crear' %}">{% csrf_token %}
+    <button type="submit" class="btn-g">Iniciar o continuar conteo</button>
+  </form>
+  {% endif %}
+</div>
+
+<div id="esc-vender" hidden>
+  <h6 style="font-family:var(--f-display)">Carrito</h6>
+  <div id="vd-carrito" class="mb-3"></div>
+  <div id="vd-vacio" class="small mb-3" style="color:var(--pm)">Escanea los pares que se venden.</div>
+  <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+    <select id="vd-metodo" class="form-select" style="max-width:200px">
+      {% for valor, etiqueta in metodos %}<option value="{{ valor }}">{{ etiqueta }}</option>{% endfor %}
+    </select>
+    <span class="fs-5">Total: $<span id="vd-total">0.00</span></span>
+    <button id="vd-cobrar" type="button" class="btn-g" disabled>Cobrar</button>
+  </div>
+  <div id="vd-msg" class="small"></div>
+</div>
+
+<div id="esc-cfg" hidden data-conteo-id="{% if conteo_sel and not conteo_sel.cerrado_at %}{{ conteo_sel.pk }}{% endif %}"
+     data-contar="{% url 'inventario:escanear_contar' %}"
+     data-recibir="{% url 'inventario:escanear_recibir' %}"
+     data-vender-info="{% url 'inventario:vender_info' %}"
+     data-vender-ligar="{% url 'inventario:vender_ligar' %}"
+     data-vender-cerrar="{% url 'inventario:vender_cerrar' %}"
+     data-pedido="{% url 'negocio:pedido_detail' 0 %}"
+     data-deshacer="{% url 'inventario:deshacer' %}"
+     data-ficha="{% url 'inventario:par_ficha' 'CODIGO' %}"></div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/inventario_escaner.js' %}"></script>
+<!-- jsQR: decodificador QR puro JS, sin dependencias extra -->
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"
+        integrity="sha384-hStSInNIZ8ljtOVrmrgf7zdHMapaLBWoSnPTtF0nzsybp4+LuhDz6sHuEVpWIX8o"
+        crossorigin="anonymous"></script>
+{% endblock %}

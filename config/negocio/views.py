@@ -134,8 +134,9 @@ def pedido_create(request):
 @staff_member_required
 def pedido_detail(request, pk):
     pedido = get_object_or_404(
-        Pedido.objects.prefetch_related('pagos', 'items'), pk=pk
+        Pedido.objects.prefetch_related('pagos', 'items__pares'), pk=pk
     )
+    hay_pares = any(item.pares.all() for item in pedido.items.all())
     pago_form = PagoForm()
     gasto_form = GastoForm(initial={
         'fecha': pedido.fecha,
@@ -146,6 +147,7 @@ def pedido_detail(request, pk):
     gastos = Gasto.objects.filter(descripcion__icontains=f'Pedido #{pedido.pk}').order_by('-fecha')
     return render(request, 'negocio/pedido_detail.html', {
         'pedido': pedido,
+        'hay_pares': hay_pares,
         'pago_form': pago_form,
         'gasto_form': gasto_form,
         'gastos': gastos,
@@ -815,9 +817,15 @@ def tipo_edit(request, pk):
 
 @staff_member_required
 def tipo_delete(request, pk):
+    from django.contrib import messages
+    from django.db.models import ProtectedError
     tipo = get_object_or_404(TipoArticulo, pk=pk)
     if request.method == 'POST':
-        tipo.delete()
+        try:
+            tipo.delete()
+        except ProtectedError:
+            messages.error(request, 'No se puede borrar: tiene variantes o pares.')
+            return redirect('negocio:tipos_list')
         return redirect('negocio:tipos_list')
     return render(request, 'negocio/tipo_articulo_form.html', {
         'form': None, 'titulo': f'Eliminar — {tipo.nombre}', 'objeto': tipo, 'confirm_delete': True,

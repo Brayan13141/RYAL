@@ -16,6 +16,7 @@
     <div class="p-card-body">
       <form method="post">
         {% csrf_token %}
+        {% if form.non_field_errors %}<div style="color:#f87171;font-size:13px;margin-bottom:12px;">{{ form.non_field_errors.0 }}</div>{% endif %}
         <div class="fp" style="display:flex;flex-direction:column;gap:16px;">
           {% for field in form %}
           <div>

@@ -164,6 +164,35 @@ describe('reintento cuando no sabemos si la venta entró', () => {
         expect(ordersReales.getSession(ORDERS).items).toHaveLength(1)
     })
 
+    test('un 409 con incompletos avisa qué falta, sin pending ni reintento', async () => {
+        axios.post.mockRejectedValue(conStatus(409, {
+            sin_tipo: [],
+            incompletos: [{ texto: 'jordan 4', falta: 'talla', mensaje: 'Falta la talla.' }],
+        }))
+        const sock = { sendMessage: jest.fn() }
+
+        await conSesionCerrada(sock, 'WA-INCOMPLETA')
+
+        expect(postsDeVenta()).toHaveLength(1)
+        expect(ordersReales.getPending(ORDERS)).toBeFalsy()
+        expect(textoEnviado(sock)).toContain('«jordan 4»: Falta la talla.')
+        expect(textoEnviado(sock)).toContain('/quitar N')
+        expect(ordersReales.getSession(ORDERS).items).toHaveLength(1)
+    })
+
+    test('el éxito con sin_stock anexa el aviso a la confirmación', async () => {
+        axios.post.mockResolvedValue({ data: {
+            pedido_id: 7, total: '500.00',
+            sin_stock: [{ texto: 'jordan 4', faltan: 1, mensaje: 'Sin stock de jordan 4.' }],
+        } })
+        const sock = { sendMessage: jest.fn() }
+
+        await conSesionCerrada(sock, 'WA-SINSTOCK')
+
+        expect(textoEnviado(sock)).toContain('#7')
+        expect(textoEnviado(sock)).toContain('Sin stock de jordan 4.')
+    })
+
     test('un 500 sí se reintenta: tampoco sabemos si alcanzó a grabar', async () => {
         axios.post
             .mockRejectedValueOnce(conStatus(500, { error: 'boom' }))

@@ -1,0 +1,154 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Alta manual{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+  <h4 class="mb-0" style="font-family:var(--f-display)">Alta manual de lote</h4>
+  <p class="small mb-0 mt-1" style="color:var(--pm)">
+    Captura cuántos pares de cada talla llegan. Los pares quedan «por recibir» hasta que se escaneen.
+  </p>
+</div>
+
+<div id="alta-error" class="d-none" style="border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13px;background:rgba(224,85,85,.08);border:1px solid rgba(224,85,85,.45);color:#f0a0a0"></div>
+
+<div class="row g-3 mb-3">
+  <div class="col-12 col-md-4">
+    <label class="form-label small" for="f-via">Vía</label>
+    <select id="f-via" class="form-select">
+      <option value="aereo">Aéreo</option>
+      <option value="maritimo">Marítimo</option>
+    </select>
+  </div>
+  <div class="col-12 col-md-4">
+    <label class="form-label small" for="f-origen">Origen</label>
+    <select id="f-origen" class="form-select">
+      <option value="manual">Manual (con precio del proveedor)</option>
+      <option value="inicial">Inventario inicial (usa el costo del tipo)</option>
+    </select>
+  </div>
+  <div class="col-12 col-md-4">
+    <label class="form-label small" for="f-ref">Referencia</label>
+    <input id="f-ref" class="form-control" maxlength="80" placeholder="Opcional">
+  </div>
+</div>
+
+<div id="lineas"></div>
+<div class="d-flex flex-wrap gap-2 mt-3">
+  <button type="button" id="btn-linea" class="btn-g"><i class="bi bi-plus-lg"></i> Agregar modelo</button>
+  <button type="button" id="btn-guardar" class="btn-g"><i class="bi bi-check-lg"></i> Crear lote</button>
+</div>
+
+<template id="tpl-linea">
+  <div class="linea p-3 mb-3 rounded" style="border:1px solid var(--bd, #333)">
+    <div class="row g-2 mb-2">
+      <div class="col-12 col-md-5">
+        <label class="form-label small">Tipo</label>
+        <select class="form-select s-tipo"></select>
+      </div>
+      <div class="col-6 col-md-4">
+        <label class="form-label small">Color</label>
+        <select class="form-select s-color"></select>
+      </div>
+      <div class="col-6 col-md-3 precio-wrap">
+        <label class="form-label small">Precio proveedor</label>
+        <input class="form-control i-precio" inputmode="decimal" placeholder="0.00">
+      </div>
+    </div>
+    <div class="d-flex flex-wrap gap-2 tallas">
+      {% for t in tallas %}
+      <div style="width:64px">
+        <label class="small d-block text-center" style="color:var(--pm)">{{ t.mx_cm|floatformat:"-1" }}</label>
+        <input class="form-control form-control-sm text-center i-talla" type="number" min="0" step="1" data-talla="{{ t.mx_cm|stringformat:'s' }}">
+      </div>
+      {% endfor %}
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-danger mt-2 b-quitar"><i class="bi bi-trash"></i> Quitar</button>
+  </div>
+</template>
+
+<script>
+(function () {
+  var VARIANTES = [
+    {% for v in variantes %}{id: {{ v.pk }}, via: "{{ v.via }}", nombre: "{{ v.nombre|escapejs }}"}{% if not forloop.last %},{% endif %}
+    {% endfor %}
+  ];
+  var URL_COLORES = "{% url 'inventario:tipo_colores' 0 %}";
+  var CSRF = "{{ csrf_token }}";
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var via = $('#f-via'), origen = $('#f-origen'), cont = $('#lineas');
+
+  function llenarTipos(sel) {
+    var actual = sel.value;
+    sel.innerHTML = '';
+    VARIANTES.filter(function (v) { return v.via === via.value; }).forEach(function (v) {
+      var o = document.createElement('option');
+      o.value = v.id; o.textContent = v.nombre; sel.appendChild(o);
+    });
+    if (actual) sel.value = actual;
+  }
+  function cargarColores(linea) {
+    var tipo = $('.s-tipo', linea).value, sc = $('.s-color', linea);
+    sc.innerHTML = '';
+    if (!tipo) return;
+    fetch(URL_COLORES.replace(/0\/colores\/$/, tipo + '/colores/'), {credentials: 'same-origin'})
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        d.colores.forEach(function (c) {
+          var o = document.createElement('option');
+          o.value = c.id; o.textContent = c.nombre; sc.appendChild(o);
+        });
+      });
+  }
+  function agregarLinea() {
+    var n = document.importNode($('#tpl-linea').content, true), linea = $('.linea', n);
+    llenarTipos($('.s-tipo', linea));
+    $('.s-tipo', linea).addEventListener('change', function () { cargarColores(linea); });
+    $('.b-quitar', linea).addEventListener('click', function () { linea.remove(); });
+    cont.appendChild(n);
+    cargarColores(linea);
+    aplicarOrigen();
+  }
+  function aplicarOrigen() {
+    var inicial = origen.value === 'inicial';
+    document.querySelectorAll('.precio-wrap').forEach(function (w) { w.style.display = inicial ? 'none' : ''; });
+  }
+  function error(msg) {
+    var e = $('#alta-error');
+    e.textContent = msg; e.classList.toggle('d-none', !msg);
+    if (msg) window.scrollTo(0, 0);
+  }
+  via.addEventListener('change', function () {
+    document.querySelectorAll('.linea').forEach(function (l) { llenarTipos($('.s-tipo', l)); cargarColores(l); });
+  });
+  origen.addEventListener('change', aplicarOrigen);
+  $('#btn-linea').addEventListener('click', agregarLinea);
+  // Una clave por carga de página: un doble clic o reenvío no crea un segundo lote.
+  var CLIENT_TOKEN = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+    : Date.now() + '-' + Math.random().toString(36).slice(2);
+  $('#btn-guardar').addEventListener('click', function () {
+    var btn = this;
+    if (btn.disabled) return;
+    btn.disabled = true;
+    var lineas = [];
+    document.querySelectorAll('.linea').forEach(function (l) {
+      var cant = {};
+      l.querySelectorAll('.i-talla').forEach(function (i) { if (i.value) cant[i.dataset.talla] = parseInt(i.value, 10); });
+      lineas.push({
+        tipo_id: $('.s-tipo', l).value, color_id: $('.s-color', l).value,
+        cantidades: cant, precio_proveedor: $('.i-precio', l).value.trim() || null
+      });
+    });
+    error('');
+    fetch(window.location.href, {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+      body: JSON.stringify({via: via.value, origen: origen.value, referencia: $('#f-ref').value, lineas: lineas, client_token: CLIENT_TOKEN})
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.ok) window.location.href = d.url;
+      else { error(d.error || 'No se pudo crear el lote.'); btn.disabled = false; }
+    }).catch(function () { error('Error de red.'); btn.disabled = false; });
+  });
+  agregarLinea();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,24 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Conteos{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <h4 class="mb-0" style="font-family:var(--f-display)">Conteos</h4>
+  <form method="post" action="{% url 'inventario:conteo_crear' %}">{% csrf_token %}
+    <button type="submit" class="btn-g"><i class="bi bi-upc-scan"></i> Iniciar o continuar conteo</button>
+  </form>
+</div>
+
+{% if not conteos %}
+<p class="small" style="color:var(--pm)">Aún no hay conteos.</p>
+{% else %}
+<div class="list-group">
+  {% for c in conteos %}
+  <a href="{% url 'inventario:conteo_resumen' c.pk %}" class="list-group-item list-group-item-action d-flex justify-content-between">
+    <span>Conteo #{{ c.pk }} · {{ c.creado_at|date:"d/m/Y H:i" }}{% if c.creado_por %} · {{ c.creado_por }}{% endif %}</span>
+    <span class="small">{% if c.cerrado_at %}cerrado {{ c.cerrado_at|date:"d/m/Y H:i" }}{% else %}abierto{% endif %}</span>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

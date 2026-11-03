@@ -2,6 +2,14 @@
 {% block title %}Pedido #{{ pedido.pk }} — RYAL{% endblock %}
 {% block page_title %}Pedido #{{ pedido.pk }}{% endblock %}
 {% block content %}
+{% if messages %}
+{% for m in messages %}
+<div style="border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13px;line-height:1.5;
+            {% if m.tags == 'success' %}background:rgba(60,180,110,.09);border:1px solid rgba(60,180,110,.45);color:#7fd6a4{% else %}background:rgba(224,85,85,.08);border:1px solid rgba(224,85,85,.45);color:#f0a0a0{% endif %}">
+  <i class="bi {% if m.tags == 'success' %}bi-check-circle-fill{% else %}bi-x-octagon-fill{% endif %} me-1"></i>{{ m }}
+</div>
+{% endfor %}
+{% endif %}
 <div style="display:flex;gap:18px;flex-wrap:wrap;">
 
   <!-- Info pedido -->
@@ -67,6 +75,33 @@
           </tr>
         </tfoot>
       </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if hay_pares %}
+  <!-- Pares escaneados de este pedido: deshacer la venta -->
+  <div class="p-card" style="flex:2;min-width:280px;">
+    <div class="p-card-head"><h2>Pares vendidos</h2></div>
+    <div class="p-card-body" style="font-size:13px;">
+      {% for item in pedido.items.all %}{% for par in item.pares.all %}
+      <form method="post" action="{% url 'inventario:venta_quitar_par' par.codigo %}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+        {% csrf_token %}
+        <a href="{% url 'inventario:par_ficha' par.codigo %}" style="color:#ddd;min-width:90px;">{{ par.codigo }}</a>
+        <span style="color:#888;flex:1;min-width:120px;">{{ item.nombre_snapshot }}</span>
+        {% if pedido.estado == 'pagado' %}
+        <input type="text" name="nota" required maxlength="200" placeholder="Motivo (obligatorio)" style="flex:1;min-width:140px;">
+        <button type="submit" class="btn-o" style="padding:4px 9px;font-size:11px;">Quitar par</button>
+        {% endif %}
+      </form>
+      {% endfor %}{% endfor %}
+      {% if pedido.estado != 'cancelado' %}
+      <form method="post" action="{% url 'inventario:venta_cancelar' pedido.pk %}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:14px;border-top:1px solid #1a1a1a;padding-top:12px;">
+        {% csrf_token %}
+        <input type="text" name="nota" required maxlength="200" placeholder="Motivo (obligatorio)" style="flex:1;min-width:140px;">
+        <button type="submit" class="btn-r" onclick="return confirm('¿Cancelar toda la venta? Los pares vuelven a stock y se reembolsa lo cobrado.')">Cancelar venta</button>
+      </form>
+      {% endif %}
     </div>
   </div>
   {% endif %}
