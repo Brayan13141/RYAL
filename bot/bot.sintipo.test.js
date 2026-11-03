@@ -309,13 +309,22 @@ describe('enviarVentaTienda', () => {
         expect(ordersReales.getPending(ORDERS)).toBeNull()
     })
 
-    test('un 500 avisa error y NO arma pending', async () => {
+    test('un 500 avisa SIN mandar a reintentar y NO arma pending', async () => {
+        // Cambió el contrato, no el comportamiento esperado: un 500 pudo haber
+        // grabado la venta antes de fallar, así que «intenta de nuevo» era
+        // justo la instrucción que la duplicaba. Este PAYLOAD no trae
+        // `idem_key`, de modo que el bot tampoco puede reintentar por su
+        // cuenta — sin clave el reintento sería igual de ciego. Solo queda
+        // avisar la verdad y que alguien mire el panel.
         axios.post.mockRejectedValue({ response: { status: 500, data: {} }, message: 'boom' })
         const sock = { sendMessage: jest.fn() }
         const res = await enviarVentaTienda(sock, { endpoint: ENDPOINT, payload: PAYLOAD })
 
         expect(res.error).toBe(true)
         expect(ordersReales.getPending(ORDERS)).toBeNull()
-        expect(sock.sendMessage.mock.calls[0][1].text).toContain('Error al crear el pedido')
+        expect(axios.post).toHaveBeenCalledTimes(1)
+        const texto = sock.sendMessage.mock.calls[0][1].text
+        expect(texto).toMatch(/no pude confirmar/i)
+        expect(texto).not.toMatch(/intenta de nuevo/i)
     })
 })
