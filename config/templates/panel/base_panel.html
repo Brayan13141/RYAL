@@ -363,6 +363,38 @@
       text-align: center;
     }
 
+    /* ── Ayuda contextual (core/help_registry.py) ─────────────────────────── */
+    .p-topbar-right .p-help-btn {
+      width: 26px;
+      height: 26px;
+      justify-content: center;
+      border-radius: 50%;
+      border: 1px solid rgba(212, 175, 55, .45);
+      color: var(--pg);
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .p-topbar-right .p-help-btn:hover { color: #111; background: var(--pg); }
+    .p-topbar-right .p-help-btn.is-off { border-color: #333; color: #555; }
+    .p-topbar-right .p-help-btn.is-off:hover { color: var(--pg); background: none; border-color: var(--pg); }
+    .p-help-btn.pulse { animation: pHelpPulse 1.8s ease-out 3; }
+    @keyframes pHelpPulse {
+      0%   { box-shadow: 0 0 0 0 rgba(212, 175, 55, .55); }
+      100% { box-shadow: 0 0 0 10px rgba(212, 175, 55, 0); }
+    }
+    @media (prefers-reduced-motion: reduce) { .p-help-btn.pulse { animation: none; } }
+    #ryHelpModal .modal-content { background: var(--ps); color: var(--pt); border: 1px solid #2a2a2a; }
+    #ryHelpModal .modal-header,
+    #ryHelpModal .modal-footer { border-color: #222; }
+    #ryHelpModal .modal-title { font-size: 15px; color: var(--pg); }
+    #ryHelpModal .p-help-card { min-height: 96px; padding: 4px 36px; font-size: 14px; line-height: 1.55; }
+    #ryHelpModal .carousel-control-prev,
+    #ryHelpModal .carousel-control-next { width: 32px; }
+    #ryHelpModal .carousel-indicators { position: static; margin: 12px 0 0; }
+    #ryHelpModal .carousel-indicators [data-bs-target] { background-color: var(--pg); width: 18px; }
+    #ryHelpModal .p-help-off { background: none; border: none; color: var(--pm); font-size: 12px; padding: 0; }
+    #ryHelpModal .p-help-off:hover { color: var(--pt); text-decoration: underline; }
+
     #sidebarToggle {
       background: none;
       border: none;
@@ -1337,6 +1369,18 @@
           <h1>{% block page_title %}Panel{% endblock %}</h1>
         </div>
         <div class="p-topbar-right">
+          {% if page_help_cards %}
+          <button type="button" class="p-help-btn" id="ryHelpBtn" data-bs-toggle="modal" data-bs-target="#ryHelpModal"
+            title="Ayuda de esta pantalla" aria-label="Ayuda de esta pantalla">?</button>
+          {% elif page_help_dismissed %}
+          <form method="post" action="{% url 'accounts:toggle_help' %}" style="margin:0;">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="enable">
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button type="submit" class="p-help-btn is-off" title="Activar la ayuda de las pantallas"
+              aria-label="Activar la ayuda de las pantallas">?</button>
+          </form>
+          {% endif %}
           <a href="{% url 'panel:orders_list' %}" class="p-bell" title="Pedidos web nuevos" aria-label="Pedidos web nuevos">
             <i class="bi bi-bell"></i>
             <span id="pedidosBellBadge" class="p-bell-badge" style="display:none;">0</span>
@@ -1537,6 +1581,73 @@
       });
     }
   </script>
+
+  {% if page_help_cards %}
+  <div class="modal fade" id="ryHelpModal" tabindex="-1" aria-labelledby="ryHelpTitle" aria-hidden="true"
+    data-help-view="{{ page_help_view }}">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title" id="ryHelpTitle"><i class="bi bi-question-circle"></i> Cómo funciona esta pantalla</h2>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <div id="ryHelpCarousel" class="carousel slide" data-bs-interval="false" data-bs-touch="true">
+            <div class="carousel-inner">
+              {% for card in page_help_cards %}
+              <div class="carousel-item {% if forloop.first %}active{% endif %}">
+                <p class="p-help-card mb-0">{{ card }}</p>
+              </div>
+              {% endfor %}
+            </div>
+            {% if page_help_cards|length > 1 %}
+            <button class="carousel-control-prev" type="button" data-bs-target="#ryHelpCarousel" data-bs-slide="prev">
+              <span class="carousel-control-prev-icon" aria-hidden="true"></span><span class="visually-hidden">Anterior</span>
+            </button>
+            <button class="carousel-control-next" type="button" data-bs-target="#ryHelpCarousel" data-bs-slide="next">
+              <span class="carousel-control-next-icon" aria-hidden="true"></span><span class="visually-hidden">Siguiente</span>
+            </button>
+            <div class="carousel-indicators">
+              {% for card in page_help_cards %}
+              <button type="button" data-bs-target="#ryHelpCarousel" data-bs-slide-to="{{ forloop.counter0 }}"
+                {% if forloop.first %}class="active" aria-current="true"{% endif %} aria-label="Tarjeta {{ forloop.counter }}"></button>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        <div class="modal-footer justify-content-between">
+          <form method="post" action="{% url 'accounts:toggle_help' %}" style="margin:0;">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="dismiss">
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button type="submit" class="p-help-off">No volver a mostrar la ayuda</button>
+          </form>
+          <button type="button" class="btn btn-sm btn-outline-warning" data-bs-dismiss="modal">Entendido</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Abre la ayuda sola la primera vez que este navegador entra a cada pantalla.
+    // Sin localStorage (modo privado o bloqueado) no se abre sola y no pasa nada más.
+    (function () {
+      var el = document.getElementById('ryHelpModal');
+      if (!el || !window.bootstrap) return;
+      var key = 'ryal_help_seen:' + el.getAttribute('data-help-view');
+      var seen = true;
+      try {
+        seen = localStorage.getItem(key) === '1';
+        if (!seen) localStorage.setItem(key, '1');
+      } catch (e) { seen = true; }
+      if (!seen) {
+        var btn = document.getElementById('ryHelpBtn');
+        if (btn) btn.classList.add('pulse');
+        bootstrap.Modal.getOrCreateInstance(el).show();
+      }
+    })();
+  </script>
+  {% endif %}
 
   {% block extra_js %}{% endblock %}
 </body>

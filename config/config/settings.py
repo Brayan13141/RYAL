@@ -80,6 +80,7 @@ TEMPLATES = [
                 'core.context_processors.active_categories',
                 'core.context_processors.site_config',
                 'core.context_processors.meta_pixel',
+                'core.context_processors.page_help',
             ],
         },
     },

@@ -9,6 +9,8 @@ class Profile(models.Model):
     phone = models.CharField(max_length=20, blank=True)
     address = models.TextField(blank=True)
     avatar = models.ImageField(upload_to='avatars/', blank=True)
+    # Staff que apagó la ayuda contextual del panel (core/help_registry.py).
+    help_dismissed = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

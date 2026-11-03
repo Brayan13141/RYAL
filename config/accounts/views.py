@@ -1,9 +1,12 @@
 from allauth.account.views import LoginView as AllauthLoginView, SignupView as AllauthSignupView
 from django.contrib import messages
+from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import logout
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
 from django.shortcuts import render, redirect
+from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.decorators import method_decorator
 from django.views.decorators.http import require_POST
 from django_ratelimit.decorators import ratelimit
@@ -60,6 +63,22 @@ class RateLimitedSignupView(AllauthSignupView):
 def logout_view(request):
     logout(request)
     return redirect('catalog:home')
+
+
+@require_POST
+@staff_member_required
+def toggle_help(request):
+    """Apaga (`dismiss`) o enciende (`enable`) la ayuda contextual del panel y
+    vuelve a la pantalla de donde vino. `next` solo se sigue si es del mismo
+    host: sin la guarda sería un open redirect."""
+    profile = request.user.profile
+    profile.help_dismissed = request.POST.get('action') == 'dismiss'
+    profile.save(update_fields=['help_dismissed'])
+    nxt = request.POST.get('next') or ''
+    if not url_has_allowed_host_and_scheme(
+            nxt, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+        nxt = reverse('panel:dashboard')
+    return redirect(nxt)
 
 
 @login_required
