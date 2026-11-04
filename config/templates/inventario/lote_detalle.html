@@ -1,0 +1,127 @@
+{% extends "inventario/_base.html" %}
+{% load inventario_tags %}
+{% block title %}Lote #{{ lote.pk }}{% endblock %}
+
+{% block inv_content %}
+{% url 'inventario:etiquetas_lote' lote.pk as url_etiquetas %}
+<div class="inv-head">
+  <div>
+    <a href="{% url 'inventario:lotes' %}" class="small inv-muted text-decoration-none"><i class="bi bi-arrow-left"></i> Lotes</a>
+    <h1 class="inv-title mt-1">Lote #{{ lote.pk }}{% if lote.referencia %} <small>{{ lote.referencia }}</small>{% endif %}</h1>
+    <div class="inv-meta">
+      {% if lote.cerrado_at %}<span class="inv-chip inv-chip-cerrado">Cerrado el {{ lote.cerrado_at|date:"d/m/Y" }}</span>{% else %}<span class="inv-chip inv-chip-abierto">Abierto</span>{% endif %}
+      <span><i class="bi {{ lote.via|via_icono }}"></i>{{ lote.get_via_display }}</span>
+      <span><i class="bi bi-cash-coin"></i>Flete ${{ lote.flete_por_par|floatformat:"-2" }} por par</span>
+      <span><i class="bi bi-file-earmark"></i>{{ lote.get_origen_display }}</span>
+      <span><i class="bi bi-calendar3"></i>{{ lote.creado_at|date:"d/m/Y H:i" }}</span>
+    </div>
+  </div>
+  <div class="inv-actions">
+    <a href="{% url 'inventario:escanear' %}?lote={{ lote.pk }}" class="btn-g"><i class="bi bi-upc-scan"></i> Escanear este lote</a>
+    {% if not lote.cerrado_at %}
+    <form method="post" action="{% url 'inventario:lote_cerrar' lote.pk %}"
+          onsubmit="return confirm('Los pares que no se han recibido pasarán a baja como faltante. ¿Cerrar el lote?')">
+      {% csrf_token %}
+      <button type="submit" class="inv-btn-danger"><i class="bi bi-lock"></i> Cerrar lote</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="inv-panel inv-panel-pad mb-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-baseline gap-2 mb-2">
+    <span><span class="inv-stat-n">{{ conteo.en_stock }}</span> <span class="inv-muted">de {{ total }} recibidos</span></span>
+    <span class="inv-muted small">{% widthratio conteo.en_stock total 100 %}% del lote</span>
+  </div>
+  <div class="inv-progress inv-progress-lg mb-3">
+    <span class="p-stock" style="width:{% widthratio conteo.en_stock total 100 %}%"></span>
+    <span class="p-vendido" style="width:{% widthratio conteo.vendido total 100 %}%"></span>
+    <span class="p-baja" style="width:{% widthratio conteo.baja total 100 %}%"></span>
+  </div>
+  <div class="inv-stats">
+    <div class="inv-stat inv-c-recibir"><div class="inv-stat-n">{{ conteo.por_recibir }}</div><div class="inv-stat-l">Por recibir</div></div>
+    <div class="inv-stat inv-c-stock"><div class="inv-stat-n">{{ conteo.en_stock }}</div><div class="inv-stat-l">En stock</div></div>
+    <div class="inv-stat inv-c-vendido"><div class="inv-stat-n">{{ conteo.vendido }}</div><div class="inv-stat-l">Vendidos</div></div>
+    <div class="inv-stat inv-c-baja"><div class="inv-stat-n">{{ conteo.baja }}</div><div class="inv-stat-l">Baja</div></div>
+  </div>
+</div>
+
+<div class="inv-section-head">
+  <h2 class="inv-h2">Etiquetas</h2>
+  <div class="inv-actions">
+    <span class="inv-split">
+      <a href="{{ url_etiquetas }}?solo=todos" target="_blank" class="inv-btn-ghost"><i class="bi bi-printer"></i> Imprimir todo</a>
+      <a href="{{ url_etiquetas }}?solo=todos&amp;descargar=1" class="inv-btn-ghost inv-btn-icon" title="Descargar todo" aria-label="Descargar todo"><i class="bi bi-download"></i></a>
+    </span>
+    <span class="inv-split">
+      <a href="{{ url_etiquetas }}?solo=pendientes" target="_blank" class="inv-btn-ghost"><i class="bi bi-printer"></i> Imprimir pendientes</a>
+      <a href="{{ url_etiquetas }}?solo=pendientes&amp;descargar=1" class="inv-btn-ghost inv-btn-icon" title="Descargar pendientes" aria-label="Descargar pendientes"><i class="bi bi-download"></i></a>
+    </span>
+  </div>
+</div>
+<p class="inv-sub mt-0 mb-3">Para imprimir solo algunas, escribe cuántas quieres en cada renglón. Vacío o 0 no imprime ese renglón.</p>
+
+<form method="get" action="{{ url_etiquetas }}" target="_blank" id="f-seleccion">
+<div class="inv-table-wrap">
+  <table class="inv-table">
+    <thead>
+      <tr><th>Color</th><th>Talla MX</th><th class="num">Esperados</th><th class="num">Recibidos</th><th class="num">Imprimir</th></tr>
+    </thead>
+    <tbody>
+      {% for f in filas %}
+      {% ifchanged f.tipo %}<tr class="inv-group"><td colspan="5"><span class="inv-group-name">{{ f.tipo }}</span></td></tr>{% endifchanged %}
+      <tr>
+        <td>{{ f.color|capfirst }}</td>
+        <td><span class="inv-code">{{ f.talla }}</span></td>
+        <td class="num">{{ f.esperados }}</td>
+        <td class="num">{% if f.recibidos == f.esperados %}<span class="inv-chip inv-chip-ok">{{ f.recibidos }}</span>{% else %}{{ f.recibidos }}{% endif %}</td>
+        <td class="num">
+          <input type="number" name="{{ f.campo }}" min="0" max="{{ f.esperados }}" step="1" inputmode="numeric" placeholder=" "
+                 class="form-control form-control-sm d-inline-block inv-qty js-qty"
+                 aria-label="Etiquetas a imprimir de {{ f.tipo }} {{ f.color }} {{ f.talla }}">
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="inv-sticky">
+  <div class="d-flex flex-wrap align-items-center gap-3">
+    <span class="inv-sticky-count"><b id="sel-n">0</b>etiquetas seleccionadas</span>
+    <label class="small mb-0 d-inline-flex align-items-center gap-2">
+      <input type="checkbox" name="solo" value="pendientes" class="form-check-input m-0"> Solo pendientes
+    </label>
+    <button type="button" id="sel-limpiar" class="inv-btn-ghost btn-sm">Limpiar</button>
+  </div>
+  <div class="inv-actions">
+    <button type="submit" class="btn-g js-sel"><i class="bi bi-printer"></i> Imprimir selección</button>
+    <button type="submit" name="descargar" value="1" formtarget="_self" class="inv-btn-ghost js-sel"><i class="bi bi-download"></i> Descargar selección</button>
+  </div>
+</div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var qtys = document.querySelectorAll('.js-qty'), n = document.getElementById('sel-n');
+  var botones = document.querySelectorAll('.js-sel');
+  function contar() {
+    var total = 0;
+    qtys.forEach(function (i) {
+      var v = parseInt(i.value, 10), max = parseInt(i.max, 10);
+      if (v > 0) total += Math.min(v, max || v);
+    });
+    n.textContent = total;
+    botones.forEach(function (b) { b.disabled = total === 0; });
+  }
+  qtys.forEach(function (i) { i.addEventListener('input', contar); });
+  document.getElementById('sel-limpiar').addEventListener('click', function () {
+    qtys.forEach(function (i) { i.value = ''; });
+    contar();
+  });
+  contar();
+})();
+</script>
+{% endblock %}

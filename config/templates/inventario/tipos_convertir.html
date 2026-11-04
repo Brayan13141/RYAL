@@ -1,0 +1,141 @@
+{% extends "inventario/_base.html" %}
+{% load inventario_tags %}
+{% block title %}Modelos y vías{% endblock %}
+
+{% block inv_content %}
+<style>
+  .mv-cell { min-width: 150px; }
+  .mv-ok { display: flex; flex-direction: column; gap: 2px; }
+  .mv-ok .mv-costo { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .mv-ok .mv-pref { font-family: ui-monospace, monospace; font-size: 12px; color: var(--inv-mute); }
+  .inv-table .mv-ok a { border-bottom: 0; }
+  .mv-new { display: flex; flex-direction: column; gap: 6px; }
+  .mv-new label { display: inline-flex; align-items: center; gap: 6px; color: var(--inv-mute); cursor: pointer; font-size: 13px; }
+  .mv-new .mv-campo { display: none; }
+  .mv-new input[type=text] { max-width: 120px; }
+  .mv-cuenta { font-size: 11.5px; color: var(--inv-mute); font-variant-numeric: tabular-nums; }
+  .mv-prov { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; color: var(--inv-mute); }
+  .mv-prov input { max-width: 100px; }
+  .mv-flete { font-weight: 400; font-size: 11.5px; color: var(--inv-mute); text-transform: none; letter-spacing: 0; }
+  .mv-new.is-on label { color: var(--inv-gold); }
+  .mv-new.is-on .mv-campo { display: block; }
+  .mv-tools { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-bottom: 14px; }
+  .mv-tools input[type=search] { max-width: 280px; }
+  .mv-tools .form-check { margin: 0; color: var(--inv-mute); font-size: 13px; }
+</style>
+
+<div class="inv-head">
+  <div>
+    <h1 class="inv-title">Modelos y vías</h1>
+    <p class="inv-sub">Cada modelo puede tener una variante por vía, con su propio costo: <b>aéreo</b>, <b>marítimo</b> y <b>nacional</b>. El costo de cada vía se calcula como <b>precio del proveedor + flete de la vía</b> (tarifas de Catálogos). El precio del proveedor se sugiere como el costo actual del tipo menos el flete aéreo, porque así se capturaron los tipos; corrígelo en la fila si no es así. Marca las vías que quieres crear; el costo de cada una también se puede cambiar a mano. Los tipos que no son tenis con etiqueta (gorras, cajas, MODA IA…) se dejan sin variantes y el bot los sigue vendiendo igual.</p>
+    <div class="inv-meta"><span>{{ n_con_variantes }} de {{ filas|length }} modelos con variantes</span></div>
+  </div>
+</div>
+
+{% if filas %}
+<form method="post">
+  {% csrf_token %}
+  <div class="mv-tools">
+    <input type="search" class="form-control form-control-sm" id="mv-buscar" placeholder="Buscar modelo…" aria-label="Buscar modelo">
+    <div class="form-check"><input class="form-check-input" type="checkbox" id="mv-solo"><label class="form-check-label" for="mv-solo">Solo modelos con variantes</label></div>
+  </div>
+  <div class="inv-table-wrap">
+    <table class="inv-table">
+      <thead><tr>
+        <th>Modelo</th>
+        {% for valor, nombre in vias.items %}<th><i class="bi {{ valor|via_icono }}"></i> {{ nombre }}<div class="mv-flete">flete ${% for v, m in tarifas.items %}{% if v == valor %}{{ m }}{% endif %}{% endfor %}</div></th>{% endfor %}
+      </tr></thead>
+      <tbody>
+        {% for f in filas %}
+        <tr class="js-fila" data-nombre="{{ f.base.nombre|lower }}" data-con="{{ f.con_variantes|yesno:'1,0' }}">
+          <td>
+            <div class="fw-semibold">{{ f.base.nombre }}</div>
+            <div class="inv-muted small">Costo del tipo ${{ f.base.costo|floatformat:2 }}</div>
+            <label class="mv-prov">Proveedor $<input type="text" inputmode="decimal" class="form-control form-control-sm js-prov" name="proveedor-{{ f.base.pk }}" value="{{ f.proveedor|stringformat:'s' }}" aria-label="Precio del proveedor de {{ f.base.nombre }}"></label>
+          </td>
+          {% for via, v, sugerido in f.celdas %}
+          <td class="mv-cell">
+            {% if v %}
+            <div class="mv-ok">
+              <a href="{% url 'negocio:tipo_edit' v.pk %}" class="mv-costo" title="Editar {{ v.nombre }}">${{ v.costo|floatformat:2 }}</a>
+              <span class="mv-pref">{{ v.prefijo|default:'sin prefijo' }}</span>
+            </div>
+            {% else %}
+            <div class="mv-new js-nueva">
+              <label><input class="form-check-input js-crear" type="checkbox" name="crear" value="{{ f.base.pk }}:{{ via }}"> Crear</label>
+              <div class="mv-campo">
+                <input type="text" inputmode="decimal" class="form-control form-control-sm js-costo" data-via="{{ via }}" name="costo-{{ f.base.pk }}-{{ via }}" value="{{ sugerido|stringformat:'s' }}" aria-label="Costo {{ f.base.nombre }} {{ via }}">
+                <div class="mv-cuenta js-cuenta"></div>
+              </div>
+            </div>
+            {% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="inv-sticky">
+    <span class="inv-sticky-count"><b id="mv-n">0</b>variantes por crear</span>
+    <button type="submit" class="btn-g" id="mv-enviar"><i class="bi bi-diagram-2"></i> Crear variantes</button>
+  </div>
+</form>
+{% else %}
+<div class="inv-empty">
+  <i class="bi bi-diagram-2"></i>
+  <p>Todavía no hay tipos. Créalos en Tipos de artículo.</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{{ tarifas|json_script:'tarifas-json' }}
+<script>
+(function () {
+  var TARIFAS = JSON.parse(document.getElementById('tarifas-json').textContent);
+  var cajas = document.querySelectorAll('.js-crear');
+  function num(t) { var n = parseFloat(String(t).replace(',', '.')); return isFinite(n) && n >= 0 ? n : null; }
+  function fmt(n) { return n.toFixed(2).replace(/\.00$/, ''); }
+  function recalcular(tr, forzar) {
+    var prov = num(tr.querySelector('.js-prov').value);
+    tr.querySelectorAll('.js-costo').forEach(function (inp) {
+      var flete = num(TARIFAS[inp.dataset.via]) || 0, cuenta = inp.parentNode.querySelector('.js-cuenta');
+      if (prov === null) { cuenta.textContent = 'proveedor inválido'; return; }
+      if (forzar || !inp.dataset.editado) inp.value = (prov + flete).toFixed(2);
+      cuenta.textContent = inp.dataset.editado ? 'capturado a mano' : fmt(prov) + ' + ' + fmt(flete) + ' flete';
+    });
+  }
+  document.querySelectorAll('.js-fila').forEach(function (tr) {
+    tr.querySelector('.js-prov').addEventListener('input', function () { recalcular(tr); });
+    tr.querySelectorAll('.js-costo').forEach(function (inp) {
+      inp.addEventListener('input', function () { inp.dataset.editado = '1'; recalcular(tr); });
+    });
+    recalcular(tr, true);
+  });
+  var enviar = document.getElementById('mv-enviar');
+  if (!enviar) return;
+  function contar() {
+    var n = 0;
+    cajas.forEach(function (c) {
+      c.closest('.js-nueva').classList.toggle('is-on', c.checked);
+      if (c.checked) n++;
+    });
+    document.getElementById('mv-n').textContent = n;
+    enviar.disabled = n === 0;
+  }
+  cajas.forEach(function (c) { c.addEventListener('change', contar); });
+  var buscar = document.getElementById('mv-buscar'), solo = document.getElementById('mv-solo');
+  function filtrar() {
+    var q = buscar.value.trim().toLowerCase();
+    document.querySelectorAll('.js-fila').forEach(function (tr) {
+      var ok = (!q || tr.dataset.nombre.indexOf(q) !== -1) && (!solo.checked || tr.dataset.con === '1');
+      tr.hidden = !ok;
+    });
+  }
+  buscar.addEventListener('input', filtrar);
+  solo.addEventListener('change', filtrar);
+  contar();
+})();
+</script>
+{% endblock %}

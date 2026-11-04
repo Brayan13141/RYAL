@@ -3963,3 +3963,97 @@ class ApiMinimosTest(TestCase):
         res = self.client.get('/api/negocio/minimos/', **self.AUTH)
         cats = {c['slug']: c for c in res.json()['categorias']}
         self.assertEqual(cats['gorra']['min_pedido'], 30)
+
+
+@override_settings(NEGOCIO_API_KEY='test-key-123')
+class ApiVentaTenisTest(TestCase):
+    """Venta de tenis por la API: 409 incompletos, aviso sin_stock, buscar con falta."""
+
+    def setUp(self):
+        from inventario.models import Color, Lote, TallaCalzado
+        self.base = TipoArticulo.objects.create(
+            nombre='Jordan 4', keywords='jordan 4', costo=Decimal('100'))
+        self.aereo = TipoArticulo.objects.create(
+            nombre='Jordan 4 A', keywords='jordan 4 aereo, jordan 4 aéreo',
+            costo=Decimal('650'), padre=self.base, via='aereo',
+            usa_tallas=True, prefijo='JD4A')
+        self.negro = Color.objects.create(nombre='negro')
+        self.base.colores.add(self.negro)
+        self.t27 = TallaCalzado.objects.get_or_create(mx_cm=Decimal('27.0'))[0]
+        self.lote = Lote.objects.create(
+            referencia='L1', origen='manual', via='aereo', flete_por_par=Decimal('280'))
+        self.headers = {'HTTP_AUTHORIZATION': f'Bearer {settings.NEGOCIO_API_KEY}'}
+        self._n = 0
+
+    def _par(self):
+        from inventario.models import Par
+        self._n += 1
+        return Par.objects.create(
+            codigo=f'JD4A-{self._n:04d}', tipo=self.aereo, color=self.negro,
+            talla=self.t27, lote=self.lote, costo=Decimal('500'),
+            estado=Par.Estado.EN_STOCK)
+
+    def _post(self, url, body):
+        return self.client.post(url, data=json.dumps(body),
+                                content_type='application/json', **self.headers)
+
+    def _tienda(self, texto, qty=1, **extra):
+        return self._post('/api/negocio/tienda/', {
+            'items': [{'description': texto, 'price': 1500, 'qty': qty}], **extra})
+
+    def test_incompleto_devuelve_409_y_no_crea_nada(self):
+        from inventario.models import Par
+        self._par()
+        res = self._tienda('jordan 4 negro t27')
+        self.assertEqual(res.status_code, 409)
+        data = res.json()
+        self.assertEqual(data['sin_tipo'], [])
+        self.assertEqual(data['incompletos'][0]['falta'], 'via')
+        self.assertIn('¿aéreo, marítimo o nacional?', data['incompletos'][0]['mensaje'])
+        self.assertEqual(Pedido.objects.count(), 0)
+        self.assertEqual(Par.objects.filter(estado=Par.Estado.VENDIDO).count(), 0)
+
+    def test_venta_sin_stock_responde_200_con_aviso(self):
+        self._par()
+        res = self._tienda('jordan 4 aereo negro t27', qty=2)
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data['sin_stock'][0]['faltan'], 1)
+        self.assertIn('Jordan 4 A negro 27', data['sin_stock'][0]['mensaje'])
+
+    def test_venta_completa_trae_sin_stock_vacio(self):
+        self._par()
+        res = self._tienda('jordan 4 aereo negro t27')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['sin_stock'], [])
+
+    def test_idempotencia_no_asigna_pares_dos_veces(self):
+        from inventario.models import Par
+        for _ in range(3):
+            self._par()
+        r1 = self._tienda('jordan 4 aereo negro t27', idem_key='k-1')
+        r2 = self._tienda('jordan 4 aereo negro t27', idem_key='k-1')
+        self.assertEqual(r1.status_code, 200)
+        self.assertEqual(r2.status_code, 200)
+        self.assertEqual(r1.json()['pedido_id'], r2.json()['pedido_id'])
+        self.assertTrue(r2.json()['duplicado'])
+        self.assertEqual(Pedido.objects.count(), 1)
+        self.assertEqual(Par.objects.filter(estado=Par.Estado.VENDIDO).count(), 1)
+
+    def test_buscar_tipo_base_avisa_que_falta_la_via(self):
+        res = self._post('/api/negocio/articulo/buscar/', {'descripcion': 'jordan 4 negro t27'})
+        data = res.json()
+        self.assertTrue(data['match'])
+        self.assertEqual(len(data['falta']), 1)
+        self.assertIn('¿aéreo, marítimo o nacional?', data['falta'][0])
+
+    def test_buscar_completo_trae_falta_vacia(self):
+        res = self._post('/api/negocio/articulo/buscar/',
+                         {'descripcion': 'jordan 4 aereo negro t27'})
+        self.assertTrue(res.json()['match'])
+        self.assertEqual(res.json()['falta'], [])
+
+    def test_buscar_sin_match_trae_falta_vacia(self):
+        res = self._post('/api/negocio/articulo/buscar/', {'descripcion': 'zzz raro'})
+        self.assertFalse(res.json()['match'])
+        self.assertEqual(res.json()['falta'], [])

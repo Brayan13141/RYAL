@@ -1265,6 +1265,48 @@
           <span class="nav-label">Descuentos</span>
         </a>
 
+        <div class="p-nav-sec">Inventario</div>
+        <a href="{% url 'inventario:stock' %}" title="Stock"
+          class="{% if request.resolver_match.namespace == 'inventario' and request.resolver_match.url_name == 'stock' %}on{% endif %}">
+          <i class="bi bi-grid-3x3-gap"></i>
+          <span class="nav-label">Stock</span>
+        </a>
+        <a href="{% url 'inventario:catalogos' %}" title="Catálogos de inventario"
+          class="{% if request.resolver_match.namespace == 'inventario' and request.resolver_match.url_name == 'catalogos' %}on{% endif %}">
+          <i class="bi bi-sliders"></i>
+          <span class="nav-label">Catálogos</span>
+        </a>
+        <a href="{% url 'inventario:tipos_convertir' %}" title="Modelos y vías"
+          class="{% if request.resolver_match.namespace == 'inventario' and request.resolver_match.url_name == 'tipos_convertir' %}on{% endif %}">
+          <i class="bi bi-diagram-2"></i>
+          <span class="nav-label">Modelos y vías</span>
+        </a>
+        <a href="{% url 'inventario:alta_manual' %}" title="Alta manual"
+          class="{% if request.resolver_match.namespace == 'inventario' and request.resolver_match.url_name == 'alta_manual' %}on{% endif %}">
+          <i class="bi bi-plus-square"></i>
+          <span class="nav-label">Alta manual</span>
+        </a>
+        <a href="{% url 'inventario:importar' %}" title="Recibir llegada"
+          class="{% if request.resolver_match.namespace == 'inventario' and request.resolver_match.url_name|slice:':8' == 'importar' %}on{% endif %}">
+          <i class="bi bi-file-earmark-arrow-up"></i>
+          <span class="nav-label">Recibir llegada</span>
+        </a>
+        <a href="{% url 'inventario:escanear' %}" title="Escanear"
+          class="{% if request.resolver_match.namespace == 'inventario' and request.resolver_match.url_name == 'escanear' %}on{% endif %}">
+          <i class="bi bi-upc-scan"></i>
+          <span class="nav-label">Escanear</span>
+        </a>
+        <a href="{% url 'inventario:lotes' %}" title="Lotes"
+          class="{% if request.resolver_match.namespace == 'inventario' and request.resolver_match.url_name == 'lotes' or request.resolver_match.namespace == 'inventario' and request.resolver_match.url_name == 'lote_detalle' %}on{% endif %}">
+          <i class="bi bi-box-seam"></i>
+          <span class="nav-label">Lotes</span>
+        </a>
+        <a href="{% url 'inventario:conteos' %}" title="Conteos"
+          class="{% if request.resolver_match.namespace == 'inventario' and request.resolver_match.url_name == 'conteos' or request.resolver_match.namespace == 'inventario' and request.resolver_match.url_name == 'conteo_resumen' %}on{% endif %}">
+          <i class="bi bi-clipboard-check"></i>
+          <span class="nav-label">Conteos</span>
+        </a>
+
         <div class="p-nav-sec">Catálogo</div>
 
         {% with un=request.resolver_match.url_name %}

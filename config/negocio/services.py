@@ -26,6 +26,18 @@ class VentaSinTipo(VentaInvalida):
         super().__init__(f'Sin tipo: {textos}. La venta no se registró.')
 
 
+class VentaIncompleta(VentaInvalida):
+    """Una o más líneas de tenis no dicen vía, color o talla: la venta NO se graba.
+
+    `.detalles`: [{'texto', 'falta': 'via'|'color'|'talla', 'mensaje'}].
+    """
+
+    def __init__(self, detalles):
+        self.detalles = detalles
+        super().__init__('Venta incompleta: ' + ' | '.join(d['mensaje'] for d in detalles)
+                         + ' La venta no se registró.')
+
+
 _METODOS_VALIDOS = {m[0] for m in Pago.METODO_CHOICES}
 
 
@@ -137,6 +149,18 @@ def crear_pedido_tienda_bot(*, items, envio=Decimal('0'), idem_key=None):
     if faltantes:
         raise VentaSinTipo(faltantes)
 
+    # Tenis: vía/color/talla se exigen ANTES de crear nada (misma regla que la
+    # búsqueda de la API: vive en inventario.services.bot).
+    from inventario.services.bot import (
+        asignar_pares, faltantes_de_texto, mensaje_sin_stock, parsear_venta_tenis,
+        seleccionar_pares,
+    )
+    incompletas = []
+    for nombre_snap, _, _, tipo in resueltos:
+        incompletas.extend(faltantes_de_texto(nombre_snap, tipo))
+    if incompletas:
+        raise VentaIncompleta(incompletas)
+
     precio_total = sum(precio * qty for _, qty, precio, _ in resueltos)
     partes_desc = []
 
@@ -160,17 +184,37 @@ def crear_pedido_tienda_bot(*, items, envio=Decimal('0'), idem_key=None):
     )
 
     total_costo = Decimal('0')
+    sin_stock = []
     for nombre_snap, qty, precio_u, tipo in resueltos:
-        PedidoItem.objects.create(
+        pares, color, talla = [], None, None
+        costo_u = tipo.costo
+        costo_linea = costo_u * qty
+        if tipo.es_variante and tipo.usa_tallas:
+            color, talla, _ = parsear_venta_tenis(nombre_snap, tipo)
+            pares = seleccionar_pares(tipo, color, talla, qty)
+            faltan = qty - len(pares)
+            # Total exacto de la línea: costo_unitario redondeado × qty derivaría
+            # centavos (500+500+501 → 500.33×3 = 1500.99).
+            costo_linea = sum((p.costo for p in pares), Decimal('0')) + tipo.costo * faltan
+            costo_u = (costo_linea / qty).quantize(Decimal('0.01'))
+        item = PedidoItem.objects.create(
             pedido=pedido,
             product=None,
             sku_snapshot='TIENDA-BOT',
             nombre_snapshot=nombre_snap,
             cantidad=qty,
-            costo_unitario=tipo.costo,
+            costo_unitario=costo_u,
             precio_unitario=precio_u,
         )
-        total_costo += tipo.costo * qty
+        if pares:
+            asignar_pares(item, tipo, color, talla, qty, pares=pares)
+        if color is not None and len(pares) < qty:
+            faltan = qty - len(pares)
+            sin_stock.append({
+                'texto': nombre_snap, 'faltan': faltan,
+                'mensaje': mensaje_sin_stock(tipo, color, talla, faltan),
+            })
+        total_costo += costo_linea
         partes_desc.append(f'{nombre_snap[:30]} ×{qty}')
 
     pedido.costo_producto = total_costo
@@ -186,6 +230,7 @@ def crear_pedido_tienda_bot(*, items, envio=Decimal('0'), idem_key=None):
     # Ya no puede haber líneas sin tipo: la venta se habría rechazado. El
     # campo se conserva para no romper al bot desplegado, que lo lee.
     pedido.sin_tipo = []
+    pedido.sin_stock = sin_stock
     return pedido
 
 

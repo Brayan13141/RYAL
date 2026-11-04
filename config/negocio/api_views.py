@@ -14,7 +14,7 @@ from core.ratelimit import client_ip as _client_ip
 
 from .models import Cliente, Pedido
 from .phone import normalize_telefono
-from .services import crear_pedido_bot, crear_pedido_tienda_bot, VentaInvalida, VentaSinTipo
+from .services import crear_pedido_bot, crear_pedido_tienda_bot, VentaIncompleta, VentaInvalida, VentaSinTipo
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +166,11 @@ def api_tienda_create(request):
             logger.exception('api_tienda_create falló')
             return JsonResponse({'error': 'No se pudo registrar la venta.'}, status=500)
         return _respuesta_tienda(previo, duplicado=True)
+    except VentaIncompleta as e:
+        # Antes de VentaSinTipo/VentaInvalida (es subclase de VentaInvalida): falta
+        # vía, color o talla de un tenis. El bot retiene la venta y lo pregunta.
+        return JsonResponse(
+            {'error': str(e), 'sin_tipo': [], 'incompletos': e.detalles}, status=409)
     except VentaSinTipo as e:
         # 409: no es un payload inválido — es una venta que no se puede
         # registrar todavía. El bot la retiene y pide el tipo en el grupo.
@@ -183,6 +188,9 @@ def _respuesta_tienda(pedido, duplicado=False):
         # Campo conservado por compatibilidad con bot desplegado. Siempre viene
         # vacío hoy porque las ventas sin tipo se rechazan (409).
         'sin_tipo': getattr(pedido, 'sin_tipo', []),
+        # Líneas de tenis con menos pares en stock de los vendidos (la venta se
+        # grabó igual). Una respuesta duplicada no lo repite: va vacío.
+        'sin_stock': getattr(pedido, 'sin_stock', []),
         'duplicado': duplicado,
     })
 
@@ -234,8 +242,12 @@ def api_articulo_buscar(request):
     from .services import cargar_aliases, resolver_tipo
     tipo = resolver_tipo(descripcion, list(TipoArticulo.objects.all()), cargar_aliases())
     if tipo:
-        return JsonResponse({'match': True, 'nombre': tipo.nombre, 'costo': float(tipo.costo), 'id': tipo.pk})
-    return JsonResponse({'match': False, 'nombre': None, 'costo': 0, 'id': None})
+        # Misma regla que rechaza la venta: así el bot avisa antes de cerrar.
+        from inventario.services.bot import faltantes_de_texto
+        falta = [d['mensaje'] for d in faltantes_de_texto(descripcion, tipo)]
+        return JsonResponse({'match': True, 'nombre': tipo.nombre, 'costo': float(tipo.costo),
+                             'id': tipo.pk, 'falta': falta})
+    return JsonResponse({'match': False, 'nombre': None, 'costo': 0, 'id': None, 'falta': []})
 
 
 @csrf_exempt

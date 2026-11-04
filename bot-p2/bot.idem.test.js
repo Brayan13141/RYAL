@@ -19,7 +19,7 @@ process.env.VENTA_REINTENTO_MS = '0'   // sin esperas reales entre reintentos
 
 jest.mock('axios')
 const axios = require('axios')
-const { handleOrdersMessage, orders: ordersReales } = require('./bot')
+const { handleOrdersMessage, avisarSiNoTieneTipo, orders: ordersReales } = require('./bot')
 
 const ORDERS = 'orders@g.us'
 
@@ -163,6 +163,49 @@ describe('reintento cuando no sabemos si la venta entró', () => {
         expect(postsDeVenta()).toHaveLength(1)
         // Y la sesión sobrevive, como siempre.
         expect(ordersReales.getSession(ORDERS).items).toHaveLength(1)
+    })
+
+    test('un 409 con incompletos avisa qué falta, sin pending ni reintento', async () => {
+        axios.post.mockRejectedValue(conStatus(409, {
+            sin_tipo: [],
+            incompletos: [{ texto: 'jordan 4', falta: 'talla', mensaje: 'Falta la talla.' }],
+        }))
+        const sock = { sendMessage: jest.fn() }
+
+        await conSesionCerrada(sock, 'WA-INCOMPLETA')
+
+        expect(postsDeVenta()).toHaveLength(1)
+        expect(ordersReales.getPending(ORDERS)).toBeFalsy()
+        expect(textoEnviado(sock)).toContain('«jordan 4»: Falta la talla.')
+        expect(textoEnviado(sock)).toContain('/quitar N')
+        expect(ordersReales.getSession(ORDERS).items).toHaveLength(1)
+    })
+
+    test('el éxito con sin_stock anexa el aviso a la confirmación', async () => {
+        axios.post.mockResolvedValue({ data: {
+            pedido_id: 7, total: '500.00',
+            sin_stock: [{ texto: 'jordan 4', faltan: 1, mensaje: 'Sin stock de jordan 4.' }],
+        } })
+        const sock = { sendMessage: jest.fn() }
+
+        await conSesionCerrada(sock, 'WA-SINSTOCK')
+
+        expect(textoEnviado(sock)).toContain('#7')
+        expect(textoEnviado(sock)).toContain('Sin stock de jordan 4.')
+    })
+
+    test('al cargar un ítem, un match con falta muestra esos avisos', async () => {
+        axios.post.mockResolvedValue({ data: { match: true, falta: ['Falta la talla.', 'Falta el color.'] } })
+        const aviso = await avisarSiNoTieneTipo('jordan 4')
+        expect(aviso).toContain('⚠️ Falta la talla.')
+        expect(aviso).toContain('⚠️ Falta el color.')
+    })
+
+    test('al cargar un ítem, match sin falta no avisa; sin match mantiene el aviso de tipo', async () => {
+        axios.post.mockResolvedValue({ data: { match: true, falta: [] } })
+        expect(await avisarSiNoTieneTipo('gorra')).toBe('')
+        axios.post.mockResolvedValue({ data: { match: false } })
+        expect(await avisarSiNoTieneTipo('gorra')).toMatch(/no coincide con ningún tipo/)
     })
 
     test('un 500 sí se reintenta: tampoco sabemos si alcanzó a grabar', async () => {

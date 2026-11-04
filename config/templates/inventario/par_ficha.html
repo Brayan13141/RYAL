@@ -1,0 +1,72 @@
+{% extends "inventario/_base.html" %}
+{% block title %}Par {{ par.codigo }}{% endblock %}
+
+{% block inv_content %}
+<div class="inv-head">
+  <div>
+    <a href="{% url 'inventario:lote_detalle' par.lote_id %}" class="small inv-muted text-decoration-none"><i class="bi bi-arrow-left"></i> Lote #{{ par.lote_id }}{% if par.lote.referencia %} {{ par.lote.referencia }}{% endif %}</a>
+    <h1 class="inv-title mt-1" style="letter-spacing:1px">{{ par.codigo }}</h1>
+    <div class="inv-meta">
+      <span class="inv-chip inv-chip-{{ par.estado|cut:"_" }}">{{ par.get_estado_display }}{% if par.motivo_baja %}: {{ par.get_motivo_baja_display|lower }}{% endif %}</span>
+      <span>{{ par.tipo.modelo_base.nombre }}</span>
+      <span>{{ par.color.nombre|capfirst }}</span>
+      <span>Talla MX {{ talla }}</span>
+    </div>
+  </div>
+  {% if par.pedido_item_id %}
+  <div class="inv-actions">
+    <a href="{% url 'negocio:pedido_detail' par.pedido_item.pedido_id %}" class="inv-btn-ghost"><i class="bi bi-receipt"></i> Pedido #{{ par.pedido_item.pedido_id }}</a>
+  </div>
+  {% endif %}
+</div>
+
+<div class="row g-4">
+  <div class="col-12 col-md-5 col-xl-4">
+    <div class="inv-label" aria-label="Vista de la etiqueta impresa">
+      <div class="inv-label-qr">
+        <div class="qr">{{ qr_svg }}</div>
+        <div class="inv-label-code">{{ par.codigo }}</div>
+      </div>
+      <div class="inv-label-info">
+        <div class="inv-label-model">{{ par.tipo.modelo_base.nombre }}</div>
+        <div class="inv-label-small">{{ par.tipo.get_via_display|upper }}</div>
+        <div class="inv-label-small">{{ par.color.nombre|upper }}</div>
+        <div class="inv-label-mx">{{ talla }}</div>
+      </div>
+      {% if equivalencias %}<div class="inv-label-eq">{{ equivalencias }}</div>{% endif %}
+    </div>
+    <div class="d-flex flex-wrap gap-2 mt-3">
+      <a href="{% url 'inventario:etiqueta_par' par.codigo %}" target="_blank" class="btn-g"><i class="bi bi-printer"></i> Reimprimir etiqueta</a>
+      <a href="{% url 'inventario:etiqueta_par' par.codigo %}?descargar=1" class="inv-btn-ghost"><i class="bi bi-download"></i> Descargar etiqueta</a>
+    </div>
+  </div>
+
+  <div class="col-12 col-md-7 col-xl-8">
+    <div class="inv-stats mb-4">
+      <div class="inv-stat"><div class="inv-stat-n">{% if par.precio_proveedor is None %}—{% else %}${{ par.precio_proveedor|floatformat:"-2" }}{% endif %}</div><div class="inv-stat-l">Precio proveedor</div></div>
+      <div class="inv-stat"><div class="inv-stat-n">{% if par.flete is None %}—{% else %}${{ par.flete|floatformat:"-2" }}{% endif %}</div><div class="inv-stat-l">Flete</div></div>
+      <div class="inv-stat inv-c-gold"><div class="inv-stat-n">{% if par.costo is None %}—{% else %}${{ par.costo|floatformat:"-2" }}{% endif %}</div><div class="inv-stat-l">Costo</div></div>
+    </div>
+
+    <div class="inv-panel inv-panel-pad">
+      <h2 class="inv-h2 mb-3">Historial</h2>
+      {% if movimientos %}
+      <ol class="inv-timeline">
+        {% for m in movimientos %}
+        <li>
+          <div class="when">{{ m.creado_at|date:"d/m/Y H:i" }} · <span class="origen">{{ m.get_origen_display }}</span>{% if m.usuario %} · {{ m.usuario }}{% endif %}</div>
+          <div class="what">
+            {% if m.de_estado %}<span class="inv-chip inv-chip-{{ m.de_estado|cut:"_" }}">{{ m.get_de_estado_display }}</span><i class="bi bi-arrow-right inv-muted"></i>{% endif %}
+            <span class="inv-chip inv-chip-{{ m.a_estado|cut:"_" }}">{{ m.get_a_estado_display }}</span>
+          </div>
+          {% if m.nota %}<div class="note">{{ m.nota }}</div>{% endif %}
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <p class="inv-muted mb-0">Sin movimientos.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

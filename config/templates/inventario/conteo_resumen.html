@@ -1,0 +1,130 @@
+{% extends "inventario/_base.html" %}
+{% block title %}Conteo #{{ conteo.pk }}{% endblock %}
+
+{% block inv_content %}
+<div class="inv-head">
+  <div>
+    <a href="{% url 'inventario:conteos' %}" class="small inv-muted text-decoration-none"><i class="bi bi-arrow-left"></i> Conteos</a>
+    <h1 class="inv-title mt-1">Conteo #{{ conteo.pk }}</h1>
+    <div class="inv-meta">
+      {% if conteo.cerrado_at %}<span class="inv-chip inv-chip-cerrado">Cerrado el {{ conteo.cerrado_at|date:"d/m/Y H:i" }}</span>{% else %}<span class="inv-chip inv-chip-abierto">Abierto</span>{% endif %}
+      <span><i class="bi bi-calendar3"></i>Iniciado el {{ conteo.creado_at|date:"d/m/Y H:i" }}</span>
+    </div>
+  </div>
+  {% if not conteo.cerrado_at %}
+  <div class="inv-actions">
+    <a href="{% url 'inventario:escanear' %}?conteo={{ conteo.pk }}" class="btn-g"><i class="bi bi-upc-scan"></i> Seguir contando</a>
+    <form method="post" action="{% url 'inventario:conteo_cerrar' conteo.pk %}" onsubmit="return confirm('¿Cerrar el conteo? Ya no se podrán agregar lecturas.')">{% csrf_token %}
+      <button type="submit" class="inv-btn-danger"><i class="bi bi-lock"></i> Cerrar conteo</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<div class="inv-stats mb-4">
+  <div class="inv-stat inv-c-baja"><div class="inv-stat-n">{{ no_leidos|length }}</div><div class="inv-stat-l">En stock y no leídos</div></div>
+  <div class="inv-stat inv-c-recibir"><div class="inv-stat-n">{{ fuera_de_stock|length }}</div><div class="inv-stat-l">Leídos que no están en stock</div></div>
+  <div class="inv-stat"><div class="inv-stat-n">{{ desconocidos|length }}</div><div class="inv-stat-l">Códigos desconocidos</div></div>
+</div>
+
+{% if sin_diferencia %}
+<div class="inv-alert inv-alert-ok"><i class="bi bi-check-circle-fill"></i><div>Sin diferencias: todo lo esperado fue leído.</div></div>
+{% endif %}
+
+<section class="inv-section mt-0">
+  <div class="inv-section-head"><h2 class="inv-h2">Por modelo, vía, color y talla</h2><span class="small inv-muted">En amarillo, donde faltan lecturas.</span></div>
+  <div class="inv-table-wrap">
+    <table class="inv-table">
+      <thead><tr><th>Modelo</th><th>Vía</th><th>Color</th><th>Talla MX</th><th class="num">Esperados</th><th class="num">Leídos</th></tr></thead>
+      <tbody>
+        {% for g in por_combinacion %}
+        <tr{% if g.leidos < g.esperados %} class="inv-row-warn"{% endif %}>
+          <td>{{ g.base.nombre }}</td><td>{{ g.via|default:"—" }}</td><td>{{ g.color.nombre|capfirst }}</td><td><span class="inv-code">{{ g.talla }}</span></td>
+          <td class="num">{{ g.esperados }}</td><td class="num fw-semibold">{{ g.leidos }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="inv-muted">No había pares en stock.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="inv-section">
+  <div class="inv-section-head"><h2 class="inv-h2">En stock y no leídos ({{ no_leidos|length }})</h2><span class="small inv-muted">Si no aparece, márcalo como perdido con una nota.</span></div>
+  {% if no_leidos %}
+  <div class="inv-table-wrap">
+    <table class="inv-table">
+      <tbody>
+        {% for p in no_leidos %}
+        <tr>
+          <td><a href="{% url 'inventario:par_ficha' p.codigo %}"><span class="inv-code">{{ p.codigo }}</span></a></td>
+          <td>{{ p.tipo.modelo_base.nombre }}<div class="small inv-muted">{{ p.color.nombre|capfirst }}, talla {{ p.talla }}</div></td>
+          <td style="min-width:320px">
+            {% if p.estado == 'en_stock' %}
+            <form method="post" action="{% url 'inventario:conteo_corregir' conteo.pk %}" class="d-flex gap-2">{% csrf_token %}
+              <input type="hidden" name="codigo" value="{{ p.codigo }}">
+              <input type="hidden" name="accion" value="perdido">
+              <input type="text" name="nota" class="form-control form-control-sm" placeholder="Nota (obligatoria)" required aria-label="Nota para {{ p.codigo }}">
+              <button type="submit" class="inv-btn-danger btn-sm flex-shrink-0">Marcar perdido</button>
+            </form>
+            {% else %}
+            <span class="inv-chip inv-chip-{{ p.estado|cut:"_" }}">Ahora: {{ p.get_estado_display }}{% if p.motivo_baja %} ({{ p.get_motivo_baja_display|lower }}){% endif %}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="inv-muted">Ninguno.</p>
+  {% endif %}
+</section>
+
+<section class="inv-section">
+  <div class="inv-section-head"><h2 class="inv-h2">Leídos que no están en stock ({{ fuera_de_stock|length }})</h2></div>
+  {% if fuera_de_stock %}
+  <div class="inv-table-wrap">
+    <table class="inv-table">
+      <tbody>
+        {% for p in fuera_de_stock %}
+        <tr>
+          <td><a href="{% url 'inventario:par_ficha' p.codigo %}"><span class="inv-code">{{ p.codigo }}</span></a></td>
+          <td>{{ p.tipo.modelo_base.nombre }}<div class="small inv-muted">{{ p.color.nombre|capfirst }}, talla {{ p.talla }}</div></td>
+          <td><span class="inv-chip inv-chip-{{ p.estado|cut:"_" }}">{{ p.get_estado_display }}{% if p.motivo_baja %} ({{ p.get_motivo_baja_display }}){% endif %}</span></td>
+          <td style="min-width:320px">
+            {% if p.estado == 'vendido' %}
+            <div class="small inv-muted">
+              Está en el estante pero figura como vendido. No se corrige aquí: deshaz la venta desde el
+              {% if p.pedido_item_id %}<a href="{% url 'negocio:pedido_detail' p.pedido_item.pedido_id %}">pedido #{{ p.pedido_item.pedido_id }}</a>{% else %}pedido{% endif %}
+              para no dejar la venta contada.
+            </div>
+            {% elif p.estado == 'por_recibir' or p.estado == 'baja' and p.motivo_baja == 'faltante' %}
+            <form method="post" action="{% url 'inventario:conteo_corregir' conteo.pk %}" class="d-flex gap-2">{% csrf_token %}
+              <input type="hidden" name="codigo" value="{{ p.codigo }}">
+              <input type="hidden" name="accion" value="{% if p.estado == 'por_recibir' %}recibir{% else %}aparecio{% endif %}">
+              <input type="text" name="nota" class="form-control form-control-sm" placeholder="Nota (obligatoria)" required aria-label="Nota para {{ p.codigo }}">
+              <button type="submit" class="btn-g btn-sm flex-shrink-0">{% if p.estado == 'por_recibir' %}Recibir{% else %}Apareció{% endif %}</button>
+            </form>
+            {% else %}
+            <div class="small inv-muted">Solo informativo.</div>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="inv-muted">Ninguno.</p>
+  {% endif %}
+</section>
+
+{% if desconocidos %}
+<section class="inv-section">
+  <div class="inv-section-head"><h2 class="inv-h2">Códigos desconocidos ({{ desconocidos|length }})</h2><span class="small inv-muted">Lecturas que no corresponden a ningún par.</span></div>
+  <div class="d-flex flex-wrap gap-2">{% for c in desconocidos %}<span class="inv-chip inv-chip-cerrado inv-code">{{ c }}</span>{% endfor %}</div>
+</section>
+{% endif %}
+{% endblock %}

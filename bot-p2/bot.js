@@ -21,6 +21,7 @@ const { createNotifyHandler } = require('./notifyServer')
 const { matchPromo } = require('./promos')
 const { avisoSinTipo } = require('./avisoSinTipo')
 const { mensajeSinTipo } = require('./ventaSinTipo')
+const { mensajeIncompleta, avisoSinStock } = require('./ventaIncompleta')
 const { parsePeerJids, esDeOtraInstancia } = require('./peerBots')
 const { avisoTipoItem } = require('./avisoTipoItem')
 const { createMinimosSource } = require('./minimos')
@@ -487,6 +488,13 @@ async function enviarVentaTienda(sock, { endpoint, payload }) {
 
     const err = res.err
     if (err.response && err.response.status === 409) {
+        const incompletos = (err.response.data && err.response.data.incompletos) || []
+        // Faltan vía/color/talla: no hay nada que numerar ni que reintentar.
+        // Sin setPending, la sesión queda intacta para corregir el ítem.
+        if (incompletos.length > 0) {
+            await sock.sendMessage(ORDERS_GID, { text: mensajeIncompleta(incompletos) })
+            return { ok: false, incompleta: true }
+        }
         const detalles = (err.response.data && err.response.data.sin_tipo) || []
         const totalItems = (payload.items || []).length
         const { texto, opciones } = mensajeSinTipo(detalles, totalItems)
@@ -526,7 +534,10 @@ async function avisarSiNoTieneTipo(descripcion) {
             { descripcion: texto },
             { headers: { Authorization: `Bearer ${DJANGO_KEY}` }, timeout: 5000 },
         )
-        return data && data.match ? '' : avisoTipoItem(texto)
+        if (!(data && data.match)) return avisoTipoItem(texto)
+        // Tiene tipo, pero a un tenis le puede faltar vía, color o talla.
+        const falta = Array.isArray(data.falta) ? data.falta : []
+        return falta.length ? '\n\n' + falta.map(m => '⚠️ ' + m).join('\n') : ''
     } catch (err) {
         logger.warn({ err: err.message, texto }, 'No se pudo consultar el tipo del ítem')
         return ''
@@ -638,7 +649,8 @@ async function handleOrdersMessage(sock, msg) {
                     if (!resPrev.ok) return   // no se abre sesión nueva sobre una venta sin cerrar
                     await sock.sendMessage(ORDERS_GID, {
                         text: `✅ Pedido #${resPrev.data.pedido_id} cerrado — Total: $${resPrev.data.total} MXN`
-                            + avisoSinTipo(resPrev.data.sin_tipo),
+                            + avisoSinTipo(resPrev.data.sin_tipo)
+                            + avisoSinStock(resPrev.data.sin_stock),
                     })
                 }
                 orders.startSession(ORDERS_GID, nombre, telefono, pending.payload.tipo || 'pedido')
@@ -750,7 +762,7 @@ async function handleOrdersMessage(sock, msg) {
             const res = await enviarVentaTienda(sock, { endpoint, payload })
             if (!res.ok) return
             orders.cancelSession(ORDERS_GID)
-            await sock.sendMessage(ORDERS_GID, { text: confirmacionVenta(res.data) })
+            await sock.sendMessage(ORDERS_GID, { text: confirmacionVenta(res.data) + avisoSinStock(res.data.sin_stock) })
             return
         }
     }
@@ -1018,7 +1030,8 @@ async function handleOrdersMessage(sock, msg) {
         if (!res.ok) return          // 409 o error: la sesión queda intacta
         orders.cancelSession(ORDERS_GID)
         await sock.sendMessage(ORDERS_GID, {
-            text: confirmacionVenta(res.data) + avisoSinTipo(res.data.sin_tipo),
+            text: confirmacionVenta(res.data) + avisoSinTipo(res.data.sin_tipo)
+                + avisoSinStock(res.data.sin_stock),
         })
         return
     }
@@ -1203,4 +1216,4 @@ async function main() {
 // tests el módulo se carga sin conectar a WhatsApp.
 if (require.main === module) main()
 
-module.exports = { handleSupplierMessage, handleOrdersMessage, batch, avisoSinTipo, enviarVentaTienda, orders }
+module.exports = { handleSupplierMessage, handleOrdersMessage, batch, avisoSinTipo, avisarSiNoTieneTipo, enviarVentaTienda, orders }

@@ -1,0 +1,209 @@
+{% extends "inventario/_base.html" %}
+{% block title %}Alta manual{% endblock %}
+
+{% block inv_content %}
+<div class="inv-head">
+  <div>
+    <h1 class="inv-title">Alta manual</h1>
+    <p class="inv-sub">Captura cuántos pares de cada talla llegan. Quedan «Por recibir» hasta que escaneas su etiqueta. Si tienes el CSV del proveedor, <a href="{% url 'inventario:importar' %}" class="text-reset">impórtalo</a> en su lugar.</p>
+  </div>
+</div>
+
+<div id="alta-error" class="inv-alert inv-alert-bad d-none" role="alert"></div>
+
+<div class="inv-panel inv-panel-pad mb-4">
+  <div class="row g-3">
+    <div class="col-12 col-sm-6 col-lg-3">
+      <label class="form-label" for="f-via">Vía</label>
+      <select id="f-via" class="form-select">
+        {% for valor, nombre in vias.items %}<option value="{{ valor }}">{{ nombre }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-12 col-sm-6 col-lg-3 flete-wrap">
+      <label class="form-label" for="f-flete">Flete por par</label>
+      <div class="input-group">
+        <span class="input-group-text">$</span>
+        <input id="f-flete" class="form-control" inputmode="decimal" value="{{ tarifas.aereo|default:'' }}">
+      </div>
+      <div class="form-text">Viene con la tarifa de la vía; cámbialo si esta llegada pagó otro flete.</div>
+    </div>
+    <div class="col-12 col-sm-6 col-lg-3">
+      <label class="form-label" for="f-origen">Origen</label>
+      <select id="f-origen" class="form-select">
+        <option value="manual">Llegada nueva (con precio del proveedor)</option>
+        <option value="inicial">Inventario inicial (usa el costo del tipo)</option>
+      </select>
+    </div>
+    <div class="col-12 col-sm-6 col-lg-3">
+      <label class="form-label" for="f-ref">Referencia</label>
+      <input id="f-ref" class="form-control" maxlength="80" placeholder="Opcional, ej. Llegada 3 de noviembre">
+    </div>
+  </div>
+</div>
+
+<div id="lineas"></div>
+
+<button type="button" id="btn-linea" class="inv-btn-ghost w-100 justify-content-center py-3" style="border-style:dashed">
+  <i class="bi bi-plus-lg"></i> Agregar otro modelo
+</button>
+
+<div class="inv-sticky">
+  <span class="inv-sticky-count"><b id="alta-total">0</b>pares en el lote</span>
+  <button type="button" id="btn-guardar" class="btn-g"><i class="bi bi-check-lg"></i> Crear lote</button>
+</div>
+
+<template id="tpl-linea">
+  <div class="linea inv-panel inv-line">
+    <div class="inv-panel-head">
+      <span class="inv-line-total"><b class="js-linea-total">0</b> pares</span>
+      <button type="button" class="inv-btn-danger btn-sm b-quitar"><i class="bi bi-trash"></i> Quitar</button>
+    </div>
+    <div class="inv-line-body">
+      <div class="row g-2">
+        <div class="col-12 col-md-5">
+          <label class="form-label">Modelo</label>
+          <select class="form-select s-tipo"></select>
+          <div class="form-text d-none js-se-crea"></div>
+        </div>
+        <div class="col-6 col-md-4">
+          <label class="form-label">Color</label>
+          <select class="form-select s-color"></select>
+          <div class="form-text text-warning d-none js-sin-colores">Este modelo no tiene colores asignados. <a href="{% url 'inventario:catalogos' %}">Asígnalos en Catálogos</a>.</div>
+        </div>
+        <div class="col-6 col-md-3 precio-wrap">
+          <label class="form-label">Precio proveedor</label>
+          <input class="form-control i-precio" inputmode="decimal" placeholder="0.00">
+        </div>
+      </div>
+      <div class="inv-sizes tallas">
+        {% for t in tallas %}
+        <div class="inv-size">
+          <label>{{ t.mx_cm|floatformat:"-1" }}</label>
+          <input class="form-control form-control-sm i-talla" type="number" min="0" step="1" inputmode="numeric" placeholder=" "
+                 data-talla="{{ t.mx_cm|stringformat:'s' }}" aria-label="Pares talla {{ t.mx_cm|floatformat:'-1' }}">
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</template>
+
+{{ tarifas|json_script:'tarifas-json' }}
+{{ modelos|json_script:'modelos-json' }}
+{{ vias|json_script:'vias-json' }}
+<script>
+(function () {
+  var TARIFAS = JSON.parse(document.getElementById('tarifas-json').textContent);
+  // Modelos base con sus colores asignados y su variante (id) por vía.
+  var MODELOS = JSON.parse(document.getElementById('modelos-json').textContent);
+  var VIAS = JSON.parse(document.getElementById('vias-json').textContent);
+  var POR_ID = {};
+  MODELOS.forEach(function (m) { POR_ID[m.id] = m; });
+  var CSRF = "{{ csrf_token }}";
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var via = $('#f-via'), origen = $('#f-origen'), cont = $('#lineas');
+
+  // El select guarda el id del modelo base; al guardar se manda la variante
+  // de la vía si ya existe, o el modelo para que el servidor la cree.
+  function llenarTipos(sel) {
+    var actual = sel.value, nombreVia = (VIAS[via.value] || '').toLowerCase();
+    sel.innerHTML = '';
+    var con = document.createElement('optgroup'), sin = document.createElement('optgroup');
+    con.label = 'Con variante ' + nombreVia;
+    sin.label = 'Sin variante ' + nombreVia + ' (se crea al guardar)';
+    MODELOS.forEach(function (m) {
+      var o = document.createElement('option');
+      o.value = m.id; o.textContent = m.nombre + (m.colores.length ? '' : ' · sin colores');
+      (m.variantes[via.value] ? con : sin).appendChild(o);
+    });
+    if (con.children.length) sel.appendChild(con);
+    if (sin.children.length) sel.appendChild(sin);
+    if (actual && POR_ID[actual]) sel.value = actual;
+  }
+  function cargarColores(linea) {
+    var m = POR_ID[$('.s-tipo', linea).value], sc = $('.s-color', linea);
+    var actual = sc.value;
+    sc.innerHTML = '';
+    (m ? m.colores : []).forEach(function (c) {
+      var o = document.createElement('option');
+      o.value = c.id; o.textContent = c.nombre; sc.appendChild(o);
+    });
+    if (actual) sc.value = actual;
+    $('.js-sin-colores', linea).classList.toggle('d-none', !m || m.colores.length > 0);
+    var aviso = $('.js-se-crea', linea), nueva = m && !m.variantes[via.value];
+    aviso.classList.toggle('d-none', !nueva);
+    if (nueva) aviso.textContent = 'Se creará «' + m.nombre + '» ' + (VIAS[via.value] || '').toLowerCase() + ' con el costo de Modelos y vías.';
+  }
+  function tipoDe(linea) {
+    var m = POR_ID[$('.s-tipo', linea).value];
+    if (!m) return null;
+    return m.variantes[via.value] || m.id;
+  }
+  function totales() {
+    var general = 0;
+    document.querySelectorAll('.linea').forEach(function (l) {
+      var n = 0;
+      l.querySelectorAll('.i-talla').forEach(function (i) { var v = parseInt(i.value, 10); if (v > 0) n += v; });
+      $('.js-linea-total', l).textContent = n;
+      general += n;
+    });
+    $('#alta-total').textContent = general;
+  }
+  function agregarLinea() {
+    var n = document.importNode($('#tpl-linea').content, true), linea = $('.linea', n);
+    llenarTipos($('.s-tipo', linea));
+    $('.s-tipo', linea).addEventListener('change', function () { cargarColores(linea); });
+    $('.b-quitar', linea).addEventListener('click', function () { linea.remove(); totales(); });
+    linea.addEventListener('input', totales);
+    cont.appendChild(n);
+    cargarColores(linea);
+    aplicarOrigen();
+  }
+  function aplicarOrigen() {
+    var inicial = origen.value === 'inicial';
+    document.querySelectorAll('.precio-wrap, .flete-wrap').forEach(function (w) { w.style.display = inicial ? 'none' : ''; });
+  }
+  // El flete sigue a la tarifa de la vía hasta que se escribe a mano.
+  var flete = $('#f-flete'), fleteEditado = false;
+  flete.addEventListener('input', function () { fleteEditado = true; });
+  function error(msg) {
+    var e = $('#alta-error');
+    e.textContent = msg; e.classList.toggle('d-none', !msg);
+    if (msg) window.scrollTo(0, 0);
+  }
+  via.addEventListener('change', function () {
+    if (!fleteEditado) flete.value = TARIFAS[via.value] || '';
+    document.querySelectorAll('.linea').forEach(function (l) { llenarTipos($('.s-tipo', l)); cargarColores(l); });
+  });
+  origen.addEventListener('change', aplicarOrigen);
+  $('#btn-linea').addEventListener('click', agregarLinea);
+  // Una clave por carga de página: un doble clic o reenvío no crea un segundo lote.
+  var CLIENT_TOKEN = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+    : Date.now() + '-' + Math.random().toString(36).slice(2);
+  $('#btn-guardar').addEventListener('click', function () {
+    var btn = this;
+    if (btn.disabled) return;
+    btn.disabled = true;
+    var lineas = [];
+    document.querySelectorAll('.linea').forEach(function (l) {
+      var cant = {};
+      l.querySelectorAll('.i-talla').forEach(function (i) { if (i.value) cant[i.dataset.talla] = parseInt(i.value, 10); });
+      lineas.push({
+        tipo_id: tipoDe(l), color_id: $('.s-color', l).value || null,
+        cantidades: cant, precio_proveedor: $('.i-precio', l).value.trim() || null
+      });
+    });
+    error('');
+    fetch(window.location.href, {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+      body: JSON.stringify({via: via.value, origen: origen.value, referencia: $('#f-ref').value, flete_por_par: flete.value.trim() || null, lineas: lineas, client_token: CLIENT_TOKEN})
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.ok) window.location.href = d.url;
+      else { error(d.error || 'No se pudo crear el lote.'); btn.disabled = false; }
+    }).catch(function () { error('No hay conexión con el servidor. Revisa tu red e inténtalo de nuevo.'); btn.disabled = false; });
+  });
+  agregarLinea();
+})();
+</script>
+{% endblock %}

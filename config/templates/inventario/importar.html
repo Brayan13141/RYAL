@@ -1,0 +1,93 @@
+{% extends "inventario/_base.html" %}
+{% block title %}Importar llegada{% endblock %}
+
+{% block inv_content %}
+<div class="inv-head">
+  <div>
+    <h1 class="inv-title">Importar llegada</h1>
+    <p class="inv-sub">Sube el CSV de lo que manda el proveedor. Primero revisas una vista previa; no se guarda nada hasta que confirmas.</p>
+  </div>
+</div>
+
+<div class="inv-steps" aria-label="Pasos">
+  <span class="inv-step is-active">Subir el CSV</span>
+  <span class="inv-step">Revisar</span>
+  <span class="inv-step">Confirmar y crear el lote</span>
+</div>
+
+{% if error %}
+<div class="inv-alert inv-alert-bad" role="alert"><i class="bi bi-x-octagon-fill"></i><div>{{ error }}</div></div>
+{% endif %}
+
+<div class="row g-4">
+  <div class="col-12 col-lg-7">
+    <form method="post" enctype="multipart/form-data" class="inv-panel inv-panel-pad">
+      {% csrf_token %}
+      <label class="inv-drop mb-3" id="drop" for="f-archivo">
+        <i class="bi bi-filetype-csv"></i>
+        <span class="inv-drop-name" id="drop-name">Toca para elegir el archivo o suéltalo aquí</span>
+        <span class="small inv-muted">CSV en UTF-8, máx. 1 MB</span>
+        <input id="f-archivo" type="file" name="archivo" accept=".csv,text/csv" required>
+      </label>
+      <div class="row g-3">
+        <div class="col-6 col-md-4">
+          <label class="form-label" for="f-via">Vía</label>
+          <select id="f-via" class="form-select" name="via">
+            {% for valor, nombre in vias.items %}<option value="{{ valor }}"{% if via == valor %} selected{% endif %}>{{ nombre }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label" for="f-flete">Flete por par</label>
+          <div class="input-group">
+            <span class="input-group-text">$</span>
+            <input id="f-flete" class="form-control" name="flete" inputmode="decimal" value="{{ flete }}">
+          </div>
+        </div>
+        <div class="col-12 col-md-5">
+          <label class="form-label" for="f-ref">Referencia</label>
+          <input id="f-ref" class="form-control" name="referencia" maxlength="100" value="{{ ref|default:'' }}" placeholder="Opcional">
+        </div>
+      </div>
+      <button type="submit" class="btn-g mt-4"><i class="bi bi-eye"></i> Ver vista previa</button>
+    </form>
+  </div>
+  <div class="col-12 col-lg-5">
+    <div class="inv-panel inv-panel-pad h-100">
+      <h2 class="inv-h3">Formato del archivo</h2>
+      <p class="small inv-muted">Un renglón por modelo, color y talla. La columna <code>tarjeta</code> es opcional.</p>
+<pre class="inv-pre">tarjeta,modelo,color,talla_mx,cantidad,precio_proveedor
+1,Jordan 4,negro,26,2,1250
+1,Jordan 4,negro,26.5,1,1250
+2,Dunk Low,panda,25,1,980</pre>
+      <ul class="small inv-muted mt-3 mb-0 ps-3">
+        <li>El <b>modelo</b> se escribe como el modelo base, sin la A o la M de la vía.</li>
+        <li>La <b>talla</b> va con punto decimal: 26.5.</li>
+        <li>El <b>precio</b> va sin comas de miles y sin flete: 1250.</li>
+        <li>El <b>flete por par</b> viene con la tarifa de la vía; cámbialo si esta llegada pagó otro.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ tarifas|json_script:'tarifas-json' }}
+<script>
+(function () {
+  var drop = document.getElementById('drop'), input = document.getElementById('f-archivo'),
+      nombre = document.getElementById('drop-name');
+  input.addEventListener('change', function () {
+    if (input.files.length) nombre.textContent = input.files[0].name;
+  });
+  ['dragenter', 'dragover'].forEach(function (e) { drop.addEventListener(e, function () { drop.classList.add('is-over'); }); });
+  ['dragleave', 'drop'].forEach(function (e) { drop.addEventListener(e, function () { drop.classList.remove('is-over'); }); });
+})();
+  (function () {
+    var TARIFAS = JSON.parse(document.getElementById('tarifas-json').textContent);
+    var via = document.getElementById('f-via'), flete = document.getElementById('f-flete');
+    var editado = false;
+    flete.addEventListener('input', function () { editado = true; });
+    via.addEventListener('change', function () { if (!editado) flete.value = TARIFAS[via.value] || ''; });
+  })();
+</script>
+{% endblock %}

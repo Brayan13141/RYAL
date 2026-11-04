@@ -1,0 +1,101 @@
+{% extends "inventario/_base.html" %}
+{% load static %}
+{% block title %}Escanear{% endblock %}
+
+{% block inv_content %}
+<div class="inv-scan">
+  <div class="inv-head mb-3">
+    <div>
+      <h1 class="inv-title">Escanear</h1>
+      <p class="inv-sub">Usa la pistola, la cámara o escribe el código. Cada lectura se guarda al momento.</p>
+    </div>
+  </div>
+
+  <div class="inv-scan-modes" role="tablist" aria-label="Modo">
+    <button type="button" id="tab-recibir" class="nav-link active" role="tab"><i class="bi bi-box-arrow-in-down"></i>Recibir</button>
+    <button type="button" id="tab-vender" class="nav-link" role="tab"><i class="bi bi-bag-check"></i>Vender</button>
+    <button type="button" id="tab-contar" class="nav-link" role="tab"><i class="bi bi-clipboard-check"></i>Contar</button>
+  </div>
+
+  <div id="esc-lote-box" class="mb-3">
+    <label class="form-label" for="esc-lote">Lote que estás recibiendo</label>
+    <select id="esc-lote" class="form-select">
+      <option value="">Elige un lote</option>
+      {% for l in lotes %}
+      <option value="{{ l.pk }}" {% if l.pk == lote_sel %}selected{% endif %}>#{{ l.pk }} {{ l.referencia }}{% if l.cerrado_at %} (cerrado){% endif %}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div id="esc-panel" class="mb-4">
+    <div class="d-flex gap-2">
+      <input id="esc-input" type="text" class="form-control" autofocus autocomplete="off" autocapitalize="characters" spellcheck="false"
+             placeholder="Código o lectura del QR" aria-label="Código del par">
+      <button id="esc-cam" type="button" class="btn-g flex-shrink-0 px-3"><i class="bi bi-camera"></i><span class="d-none d-sm-inline"> Cámara</span></button>
+    </div>
+    <video id="esc-video" playsinline muted></video>
+    <div id="esc-msg" role="status" aria-live="polite">Listo para escanear.</div>
+  </div>
+
+  <section id="esc-recibir">
+    <h2 class="inv-h3">Lecturas recientes</h2>
+    <ul id="esc-lista" class="inv-reads"></ul>
+  </section>
+
+  <section id="esc-contar" hidden>
+    {% if conteo_sel and not conteo_sel.cerrado_at %}
+    <div class="inv-panel inv-panel-pad d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+      <span><span class="inv-chip inv-chip-abierto">Abierto</span> <span class="ms-2">Conteo #{{ conteo_sel.pk }}</span></span>
+      <a href="{% url 'inventario:conteo_resumen' conteo_sel.pk %}" class="inv-btn-ghost btn-sm"><i class="bi bi-list-check"></i> Ver resumen</a>
+    </div>
+    <h2 class="inv-h3">Lecturas recientes</h2>
+    <ul id="ct-lista" class="inv-reads"></ul>
+    {% else %}
+    <div class="inv-empty">
+      <i class="bi bi-clipboard-check"></i>
+      <p>{% if conteo_sel %}El conteo #{{ conteo_sel.pk }} ya está cerrado.{% else %}No hay un conteo en curso.{% endif %} Un conteo compara lo que escaneas en el estante con lo que el sistema dice que hay, sin cambiar ningún estado.</p>
+      <form method="post" action="{% url 'inventario:conteo_crear' %}">{% csrf_token %}
+        <button type="submit" class="btn-g"><i class="bi bi-play-fill"></i> Iniciar o continuar conteo</button>
+      </form>
+    </div>
+    {% endif %}
+  </section>
+
+  <section id="esc-vender" hidden>
+    <h2 class="inv-h3">Carrito</h2>
+    <div id="vd-carrito" class="mb-2"></div>
+    <div id="vd-vacio" class="inv-empty py-4 mb-3"><i class="bi bi-bag"></i><p class="mb-0">Escanea los pares que se venden.</p></div>
+    <div class="inv-sticky">
+      <div>
+        <div class="small inv-muted">Total</div>
+        <div class="inv-total">$<span id="vd-total">0.00</span></div>
+      </div>
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        <select id="vd-metodo" class="form-select" style="max-width:180px" aria-label="Método de pago">
+          {% for valor, etiqueta in metodos %}<option value="{{ valor }}">{{ etiqueta }}</option>{% endfor %}
+        </select>
+        <button id="vd-cobrar" type="button" class="btn-g" disabled><i class="bi bi-cash-coin"></i> Cobrar</button>
+      </div>
+    </div>
+    <div id="vd-msg" class="small mt-2"></div>
+  </section>
+</div>
+
+<div id="esc-cfg" hidden data-conteo-id="{% if conteo_sel and not conteo_sel.cerrado_at %}{{ conteo_sel.pk }}{% endif %}"
+     data-contar="{% url 'inventario:escanear_contar' %}"
+     data-recibir="{% url 'inventario:escanear_recibir' %}"
+     data-vender-info="{% url 'inventario:vender_info' %}"
+     data-vender-ligar="{% url 'inventario:vender_ligar' %}"
+     data-vender-cerrar="{% url 'inventario:vender_cerrar' %}"
+     data-pedido="{% url 'negocio:pedido_detail' 0 %}"
+     data-deshacer="{% url 'inventario:deshacer' %}"
+     data-ficha="{% url 'inventario:par_ficha' 'CODIGO' %}"></div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/inventario_escaner.js' %}"></script>
+<!-- jsQR: decodificador QR puro JS, sin dependencias extra -->
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"
+        integrity="sha384-hStSInNIZ8ljtOVrmrgf7zdHMapaLBWoSnPTtF0nzsybp4+LuhDz6sHuEVpWIX8o"
+        crossorigin="anonymous"></script>
+{% endblock %}

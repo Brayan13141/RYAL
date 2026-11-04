@@ -1,7 +1,10 @@
+import re
 from decimal import Decimal
 
 from django.db import models
 from django.utils.text import slugify
+
+from inventario.models import VIA_CHOICES
 
 
 class Category(models.Model):
@@ -658,12 +661,28 @@ class SubcategorySection(models.Model):
         return f'{self.subcategory.name} / {self.name}'
 
 
+# Palabras con las que debe terminar CADA keyword de una variante, por vía.
+# Nunca 'a'/'m'/'mar': son prefijo de otras palabras y el matcher (inicio de
+# palabra) las confundiría con colores, tallas o modelos.
+SUFIJOS_VIA = {'aereo': ('aereo', 'aéreo'), 'maritimo': ('maritimo', 'marítimo'),
+               'nacional': ('nacional',)}
+
+
 class TipoArticulo(models.Model):
     nombre   = models.CharField(max_length=100)
     keywords = models.TextField(
         help_text='Palabras clave separadas por coma. Ej: gorra,cap,ny,la,za'
     )
     costo    = models.DecimalField(max_digits=8, decimal_places=2)
+    # Inventario de tenis: un modelo base ("Jordan 4") puede tener una variante
+    # por vía ("Jordan 4 A" aéreo / "Jordan 4 M" marítimo / "Jordan 4 N" nacional).
+    padre = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='variantes')
+    via = models.CharField(max_length=10, choices=VIA_CHOICES, null=True, blank=True)
+    usa_tallas = models.BooleanField(default=False)
+    colores = models.ManyToManyField('inventario.Color', blank=True)
+    prefijo = models.CharField(max_length=5, unique=True, null=True, blank=True)
 
     class Meta:
         ordering = ['nombre']
@@ -698,6 +717,68 @@ class TipoArticulo(models.Model):
                                     f'"{otro.nombre}" — dos tipos no pueden compartir '
                                     'la misma keyword exacta (usa una más específica).',
                     })
+        self._clean_variante()
+        self._clean_prefijo()
+
+    def _clean_variante(self):
+        from django.core.exceptions import ValidationError
+        if not self.via:
+            if self.padre_id:
+                raise ValidationError({'via': 'Una variante necesita su vía.'})
+            return
+        if not self.padre_id:
+            raise ValidationError({'padre': 'Una variante necesita su modelo base.'})
+        if self.padre.via:
+            raise ValidationError({'padre': 'El padre no puede ser una variante.'})
+        if not self.usa_tallas:
+            raise ValidationError({'usa_tallas': 'Una variante por vía debe usar tallas.'})
+        if self.pk and TipoArticulo.objects.filter(padre_id=self.pk).exists():
+            raise ValidationError({
+                'padre': 'Este tipo ya tiene variantes: no puede volverse variante.'})
+        if TipoArticulo.objects.filter(
+                padre_id=self.padre_id, via=self.via).exclude(pk=self.pk).exists():
+            raise ValidationError({
+                'via': f'"{self.padre.nombre}" ya tiene una variante '
+                       f'{self.get_via_display().lower()}.'})
+        sufijos = SUFIJOS_VIA[self.via]
+        for kw in self.keywords_list:
+            ultima = ' '.join(kw.split()).lower().rsplit(' ', 1)[-1]
+            if ultima not in sufijos:
+                raise ValidationError({
+                    'keywords': f'La keyword "{kw}" de una variante debe terminar en '
+                                f'{" o ".join(sufijos)} (no basta "a", "m" ni "mar").'})
+
+    def _clean_prefijo(self):
+        from django.core.exceptions import ValidationError
+        if self.prefijo:
+            self.prefijo = self.prefijo.strip().upper()
+            if not re.fullmatch(r'[A-Z0-9]{2,5}', self.prefijo):
+                raise ValidationError({
+                    'prefijo': 'El prefijo son 2 a 5 letras o números, sin guiones.'})
+
+    def save(self, *args, **kwargs):
+        # '' no es único: dos tipos sin prefijo chocarían. Vacío = NULL.
+        self.prefijo = self.prefijo.strip().upper() if self.prefijo else None
+        super().save(*args, **kwargs)
+
+    @property
+    def es_variante(self) -> bool:
+        return self.padre_id is not None
+
+    @property
+    def modelo_base(self):
+        return self.padre if self.padre_id else self
+
+    @property
+    def tiene_variantes(self) -> bool:
+        return self.variantes.exists()
+
+    def variante(self, via: str):
+        return self.variantes.filter(via=via).first()
+
+    def colores_efectivos(self):
+        # Los colores se mantienen en el modelo base; la variante los hereda.
+        return self.modelo_base.colores.all()
 
     def matches(self, texto: str) -> bool:
         """True si alguna keyword aparece en texto (case-insensitive)."""

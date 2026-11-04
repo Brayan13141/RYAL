@@ -1,0 +1,96 @@
+{% extends "inventario/_base.html" %}
+{% block title %}Stock{% endblock %}
+
+{% block inv_content %}
+<div class="inv-head">
+  <div>
+    <h1 class="inv-title">Stock</h1>
+    <p class="inv-sub">Pares por modelo, color y talla MX. Cada celda separa lo que llegó por avión (A) y por barco (M).</p>
+  </div>
+  <form method="get" class="inv-filters">
+    <input type="hidden" name="estado" value="{{ estado }}">
+    <select name="base_id" class="form-select form-select-sm" onchange="this.form.submit()" aria-label="Modelo">
+      <option value="">Todos los modelos</option>
+      {% for b in bases %}<option value="{{ b.pk }}" {% if b.pk == base_id %}selected{% endif %}>{{ b.nombre }}</option>{% endfor %}
+    </select>
+    <select name="via" class="form-select form-select-sm" onchange="this.form.submit()" aria-label="Vía">
+      <option value="">Todas las vías</option>
+      {% for valor, nombre in vias.items %}<option value="{{ valor }}" {% if via == valor %}selected{% endif %}>{{ nombre }}</option>{% endfor %}
+    </select>
+    <noscript><button class="btn-o btn-sm" type="submit">Filtrar</button></noscript>
+  </form>
+</div>
+
+<nav class="inv-seg mb-4" aria-label="Estado de los pares">
+  {% for p in pestanas %}
+  <a href="?{{ p.query }}" class="{% if p.valor == estado %}is-active{% endif %}"{% if p.valor == estado %} aria-current="page"{% endif %}>
+    {{ p.etiqueta }} <span class="n">{{ p.n }}</span>
+  </a>
+  {% endfor %}
+</nav>
+
+{% if alertas.ventas_bot_sin_par or alertas.lotes_abiertos_con_faltantes or alertas.vendidos_bot_sin_escaneo %}
+<div class="inv-alert inv-alert-warn">
+  <i class="bi bi-exclamation-triangle-fill"></i>
+  <div class="flex-grow-1">
+    {% if alertas.ventas_bot_sin_par %}
+    <div class="fw-semibold">Ventas del bot sin par asignado</div>
+    <ul class="mb-2">
+      {% for a in alertas.ventas_bot_sin_par %}
+      <li><a href="{% url 'negocio:pedido_detail' a.item.pedido_id %}">Pedido #{{ a.item.pedido_id }}</a>, {{ a.item.pedido.fecha|date:"d/m/Y" }}: {{ a.item.nombre_snapshot }}. Faltan {{ a.faltan }} de {{ a.item.cantidad }}.</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if alertas.lotes_abiertos_con_faltantes %}
+    <div class="fw-semibold">Lotes abiertos con faltantes</div>
+    <ul class="mb-2">
+      {% for l in alertas.lotes_abiertos_con_faltantes %}
+      <li><a href="{% url 'inventario:lote_detalle' l.pk %}">Lote #{{ l.pk }}{% if l.referencia %} {{ l.referencia }}{% endif %}</a>, creado el {{ l.creado_at|date:"d/m/Y" }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if alertas.vendidos_bot_sin_escaneo %}
+    <div>{{ alertas.vendidos_bot_sin_escaneo }} par{{ alertas.vendidos_bot_sin_escaneo|pluralize:",es" }} vendido{{ alertas.vendidos_bot_sin_escaneo|pluralize }} por el bot sin confirmar con escaneo. Revísalos en el siguiente conteo.</div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% for t in tablas %}
+<section class="inv-section{% if forloop.first %} mt-0{% endif %}">
+  <div class="inv-section-head">
+    <h2 class="inv-h2">{{ t.base.nombre }}</h2>
+    <span class="inv-muted">{{ t.total }} par{{ t.total|pluralize:",es" }} {{ estado_label }}</span>
+  </div>
+  <div class="inv-table-wrap">
+    <table class="inv-table inv-matrix">
+      <thead>
+        <tr><th>Color</th>{% for c in t.columnas %}<th class="inv-size-head">{{ c }}</th>{% endfor %}<th class="tot">Total</th></tr>
+      </thead>
+      <tbody>
+        {% for f in t.filas %}
+        <tr>
+          <td>{{ f.color.nombre|capfirst }}</td>
+          {% for c in f.celdas %}<td><span class="inv-cell {% if not c.n %}h0{% elif c.n >= 4 %}h3{% elif c.n >= 2 %}h2{% else %}h1{% endif %}">{% if c.n %}<b>{{ c.n }}</b><i>{{ c.desglose }}</i>{% else %}·{% endif %}</span></td>{% endfor %}
+          <td class="tot"><b>{{ f.total }}</b></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr><td>Total</td>{% for n in t.totales %}<td>{{ n }}</td>{% endfor %}<td class="tot">{{ t.total }}</td></tr>
+      </tfoot>
+    </table>
+  </div>
+</section>
+{% empty %}
+<div class="inv-empty">
+  <i class="bi bi-box2"></i>
+  {% if estado == 'en_stock' %}
+  <p>No hay pares en stock con estos filtros. Lo que das de alta queda «Por recibir» hasta que escaneas su etiqueta.</p>
+  <a href="{% url 'inventario:escanear' %}" class="btn-g"><i class="bi bi-upc-scan"></i> Escanear para recibir</a>
+  {% else %}
+  <p>No hay pares {{ estado_label }} con estos filtros.</p>
+  {% endif %}
+</div>
+{% endfor %}
+{% endblock %}

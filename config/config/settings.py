@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'core',
     'api',
     'negocio',
+    'inventario',
 ]
 
 SITE_ID = 1
@@ -173,6 +174,10 @@ BOT_NOTIFY_URL = os.environ.get('BOT_NOTIFY_URL', 'http://127.0.0.1:8953')
 
 # URL pública del sitio — se usa para armar links en avisos (WhatsApp, etc).
 SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
+
+# Base de las URLs que llevan los QR de las etiquetas de inventario (se imprimen,
+# así que no puede ser localhost).
+INVENTARIO_QR_BASE_URL = os.environ.get('INVENTARIO_QR_BASE_URL', 'https://ryalsneackers.com')
 
 # Token compartido con el bot persona2 (mismo valor en bot-p2/.env). Sin él,
 # /notify no acepta avisos a clientes y Django ni lo intenta.

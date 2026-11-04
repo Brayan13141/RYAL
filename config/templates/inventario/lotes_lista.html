@@ -1,0 +1,49 @@
+{% extends "inventario/_base.html" %}
+{% load inventario_tags %}
+{% block title %}Lotes{% endblock %}
+
+{% block inv_content %}
+<div class="inv-head">
+  <div>
+    <h1 class="inv-title">Lotes</h1>
+    <p class="inv-sub">Cada llegada del proveedor es un lote. Un par cuenta como recibido cuando se escanea su etiqueta.</p>
+  </div>
+  <div class="inv-actions">
+    <a href="{% url 'inventario:importar' %}" class="btn-g"><i class="bi bi-filetype-csv"></i> Importar CSV</a>
+    <a href="{% url 'inventario:alta_manual' %}" class="inv-btn-ghost"><i class="bi bi-plus-square"></i> Alta manual</a>
+  </div>
+</div>
+
+{% if lotes %}
+<div class="inv-table-wrap">
+  <table class="inv-table">
+    <thead>
+      <tr><th>Lote</th><th>Vía</th><th>Fecha</th><th style="min-width:200px">Recibidos</th><th>Estado</th></tr>
+    </thead>
+    <tbody>
+      {% for l in lotes %}
+      <tr>
+        <td>
+          <a href="{% url 'inventario:lote_detalle' l.pk %}"><span class="inv-code">#{{ l.pk }}</span></a>
+          {% if l.referencia %}<div class="small inv-muted">{{ l.referencia }}</div>{% endif %}
+        </td>
+        <td><span class="inv-via"><i class="bi {{ l.via|via_icono }}"></i>{{ l.get_via_display }}</span><div class="small inv-muted">{{ l.get_origen_display }}</div></td>
+        <td>{{ l.creado_at|date:"d/m/Y" }}<div class="small inv-muted">{{ l.creado_at|date:"H:i" }}</div></td>
+        <td>
+          <div class="d-flex justify-content-between small mb-1"><span><b>{{ l.recibidos }}</b> de {{ l.total }}</span><span class="inv-muted">{% widthratio l.recibidos l.total 100 %}%</span></div>
+          <div class="inv-progress"><span class="p-stock" style="width:{% widthratio l.recibidos l.total 100 %}%"></span></div>
+        </td>
+        <td>{% if l.cerrado_at %}<span class="inv-chip inv-chip-cerrado">Cerrado</span>{% else %}<span class="inv-chip inv-chip-abierto">Abierto</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="inv-empty">
+  <i class="bi bi-box-seam"></i>
+  <p>Todavía no hay lotes. Importa el CSV de la llegada del proveedor o captura los pares a mano.</p>
+  <a href="{% url 'inventario:importar' %}" class="btn-g"><i class="bi bi-filetype-csv"></i> Importar CSV</a>
+</div>
+{% endif %}
+{% endblock %}
