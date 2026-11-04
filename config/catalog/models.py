@@ -664,7 +664,8 @@ class SubcategorySection(models.Model):
 # Palabras con las que debe terminar CADA keyword de una variante, por vía.
 # Nunca 'a'/'m'/'mar': son prefijo de otras palabras y el matcher (inicio de
 # palabra) las confundiría con colores, tallas o modelos.
-SUFIJOS_VIA = {'aereo': ('aereo', 'aéreo'), 'maritimo': ('maritimo', 'marítimo')}
+SUFIJOS_VIA = {'aereo': ('aereo', 'aéreo'), 'maritimo': ('maritimo', 'marítimo'),
+               'nacional': ('nacional',)}
 
 
 class TipoArticulo(models.Model):
@@ -674,7 +675,7 @@ class TipoArticulo(models.Model):
     )
     costo    = models.DecimalField(max_digits=8, decimal_places=2)
     # Inventario de tenis: un modelo base ("Jordan 4") puede tener una variante
-    # por vía ("Jordan 4 A" aéreo / "Jordan 4 M" marítimo).
+    # por vía ("Jordan 4 A" aéreo / "Jordan 4 M" marítimo / "Jordan 4 N" nacional).
     padre = models.ForeignKey(
         'self', null=True, blank=True, on_delete=models.PROTECT,
         related_name='variantes')

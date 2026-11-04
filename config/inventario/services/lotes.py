@@ -1,13 +1,50 @@
 """Alta de lotes (manual, CSV o inventario inicial) y su cierre."""
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
 from django.utils import timezone
 
 from inventario.codigos import generar_codigo
 from inventario.models import Lote, MovimientoPar, Par, TarifaFlete
+from inventario.validacion import cabe_en
 
 _CENTAVOS = Decimal('0.01')
+
+
+def leer_flete(texto):
+    """Flete por par escrito en un formulario: None si viene vacío (= usar la tarifa);
+    ValueError en español si no es un número."""
+    if texto is None or (isinstance(texto, str) and not texto.strip()):
+        return None
+    try:
+        d = Decimal(str(texto).strip().replace(',', '.'))
+    except InvalidOperation:
+        raise ValueError('El flete por par debe ser un número, por ejemplo 45.')
+    if not d.is_finite():
+        raise ValueError('El flete por par debe ser un número, por ejemplo 45.')
+    return d
+
+
+
+def tarifas_por_via():
+    """{via: monto} para precargar el flete de los formularios según la vía elegida."""
+    return {t.via: format(t.monto_por_par.normalize(), 'f') for t in TarifaFlete.objects.all()}
+
+
+def flete_del_lote(via, capturado=None):
+    """Flete por par del lote: el capturado si lo hay, si no la tarifa de la vía.
+    La tarifa no se toca: el capturado vale solo para este lote."""
+    if capturado is None:
+        try:
+            capturado = TarifaFlete.objects.get(via=via).monto_por_par
+        except TarifaFlete.DoesNotExist:
+            raise ValueError(f'No hay tarifa de flete para la vía {via}.')
+    flete = Decimal(capturado).quantize(_CENTAVOS)
+    if flete < 0:
+        raise ValueError('El flete por par no puede ser negativo.')
+    if not cabe_en(Lote._meta.get_field('flete_por_par'), flete):
+        raise ValueError('El flete por par es demasiado grande.')
+    return flete
 
 
 def _validar_linea(n, linea, via, origen):
@@ -37,17 +74,16 @@ def _validar_linea(n, linea, via, origen):
     return tipo, color, linea['talla'], cantidad, precio
 
 
-def crear_lote(*, via, origen, lineas, usuario, referencia='', notas='', token_sha=None):
-    """Crea el lote con un par `por_recibir` por unidad. Todo o nada."""
+def crear_lote(*, via, origen, lineas, usuario, referencia='', notas='', token_sha=None,
+               flete_por_par=None):
+    """Crea el lote con un par `por_recibir` por unidad. Todo o nada.
+
+    `flete_por_par` es el flete capturado para este lote; None usa la tarifa de la vía."""
     if not lineas:
         raise ValueError('El lote necesita al menos una línea.')
     # Se valida todo antes de escribir: una línea mala no deja nada creado.
     limpias = [_validar_linea(n, l, via, origen) for n, l in enumerate(lineas, 1)]
-    try:
-        flete = TarifaFlete.objects.get(via=via).monto_por_par
-    except TarifaFlete.DoesNotExist:
-        raise ValueError(f'No hay tarifa de flete para la vía {via}.')
-    flete = Decimal(flete).quantize(_CENTAVOS)
+    flete = flete_del_lote(via, flete_por_par)
 
     with transaction.atomic():
         lote = Lote.objects.create(

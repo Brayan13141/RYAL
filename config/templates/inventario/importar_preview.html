@@ -1,4 +1,5 @@
 {% extends "inventario/_base.html" %}
+{% load inventario_tags %}
 {% block title %}Vista previa de la llegada{% endblock %}
 
 {% block inv_content %}
@@ -6,7 +7,8 @@
   <div>
     <h1 class="inv-title">Vista previa de la llegada</h1>
     <div class="inv-meta">
-      <span><i class="bi {% if via == 'maritimo' %}bi-water{% else %}bi-airplane{% endif %}"></i>{{ via_display }}</span>
+      <span><i class="bi {{ via|via_icono }}"></i>{{ via_display }}</span>
+      {% if a.flete is not None %}<span><i class="bi bi-cash-coin"></i>Flete ${{ a.flete|floatformat:"-2" }} por par</span>{% endif %}
       {% if ref %}<span><i class="bi bi-tag"></i>{{ ref }}</span>{% endif %}
       <span><i class="bi bi-info-circle"></i>Todavía no se guardó nada</span>
     </div>
@@ -111,7 +113,7 @@
         </tbody>
       </table>
     </div>
-    <p class="small inv-muted mt-2">Costo nuevo = precio más alto del proveedor en el CSV + flete de la vía.</p>
+    <p class="small inv-muted mt-2">Costo nuevo = precio más alto del proveedor en el CSV + flete por par de esta llegada.</p>
   </div>
   {% endif %}
 </div>

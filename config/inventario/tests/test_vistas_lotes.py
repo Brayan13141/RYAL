@@ -40,7 +40,43 @@ class AltaManualTests(LotesVistaBase):
     def test_get_form(self):
         r = self.client.get(reverse('inventario:alta_manual'))
         self.assertEqual(r.status_code, 200)
-        self.assertContains(r, self.var_a.nombre)
+        self.assertEqual(r.context['modelos'], [{
+            'id': self.base.pk, 'nombre': 'Jordan 4',
+            'colores': [{'id': self.color.pk, 'nombre': 'negro'}],
+            'variantes': {'aereo': self.var_a.pk}}])
+        self.assertContains(r, 'id="modelos-json"')
+
+    def _linea(self, tipo_id, color_id=None):
+        return [{'tipo_id': tipo_id, 'color_id': color_id or self.color.pk,
+                 'cantidades': {'26': 1}, 'precio_proveedor': '300'}]
+
+    def test_modelo_base_usa_su_variante_de_la_via(self):
+        r = self.post_alta(lineas=self._linea(self.base.pk))
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(Lote.objects.get().pares.get().tipo, self.var_a)
+
+    def test_modelo_base_sin_variante_la_crea_con_costo_sugerido(self):
+        # 540 del tipo − 280 aéreo = 260 de proveedor; + 50 nacional = 310.
+        r = self.post_alta(via='nacional', lineas=self._linea(self.base.pk))
+        self.assertEqual(r.status_code, 200, r.content)
+        n = self.base.variante('nacional')
+        self.assertEqual(n.costo, Decimal('310.00'))
+        self.assertEqual(Lote.objects.get().pares.get().tipo, n)
+
+    def test_color_no_asignado_400(self):
+        rojo = Color.objects.create(nombre='rojo')
+        r = self.post_alta(lineas=self._linea(self.base.pk, rojo.pk))
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('no está asignado', r.json()['error'])
+        self.assertFalse(Lote.objects.exists())
+
+    def test_si_el_lote_falla_no_queda_la_variante_creada(self):
+        # La 2a línea es inválida (variante aérea en un lote nacional): nada se guarda.
+        lineas = self._linea(self.base.pk) + self._linea(self.var_a.pk)
+        r = self.post_alta(via='nacional', lineas=lineas)
+        self.assertEqual(r.status_code, 400)
+        self.assertIsNone(self.base.variante('nacional'))
+        self.assertFalse(Lote.objects.exists())
 
     def test_post_crea_pares(self):
         r = self.post_alta()

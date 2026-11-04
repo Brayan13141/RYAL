@@ -1,4 +1,5 @@
 {% extends "inventario/_base.html" %}
+{% load inventario_tags %}
 {% block title %}Lotes{% endblock %}
 
 {% block inv_content %}
@@ -26,7 +27,7 @@
           <a href="{% url 'inventario:lote_detalle' l.pk %}"><span class="inv-code">#{{ l.pk }}</span></a>
           {% if l.referencia %}<div class="small inv-muted">{{ l.referencia }}</div>{% endif %}
         </td>
-        <td><span class="inv-via"><i class="bi {% if l.via == 'maritimo' %}bi-water{% else %}bi-airplane{% endif %}"></i>{{ l.get_via_display }}</span><div class="small inv-muted">{{ l.get_origen_display }}</div></td>
+        <td><span class="inv-via"><i class="bi {{ l.via|via_icono }}"></i>{{ l.get_via_display }}</span><div class="small inv-muted">{{ l.get_origen_display }}</div></td>
         <td>{{ l.creado_at|date:"d/m/Y" }}<div class="small inv-muted">{{ l.creado_at|date:"H:i" }}</div></td>
         <td>
           <div class="d-flex justify-content-between small mb-1"><span><b>{{ l.recibidos }}</b> de {{ l.total }}</span><span class="inv-muted">{% widthratio l.recibidos l.total 100 %}%</span></div>

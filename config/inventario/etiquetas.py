@@ -18,7 +18,7 @@ MARGEN = 3 * mm          # lateral
 MARGEN_SUP = 2.5 * mm
 QR_LADO = 24 * mm
 FUENTE, NEGRITA = 'Helvetica', 'Helvetica-Bold'
-VIAS = {'aereo': 'AÉREO', 'maritimo': 'MARÍTIMO'}
+VIAS = {'aereo': 'AÉREO', 'maritimo': 'MARÍTIMO', 'nacional': 'NACIONAL'}
 
 
 def url_par(base_url, codigo):

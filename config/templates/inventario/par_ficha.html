@@ -29,7 +29,7 @@
       </div>
       <div class="inv-label-info">
         <div class="inv-label-model">{{ par.tipo.modelo_base.nombre }}</div>
-        <div class="inv-label-small">{% if par.tipo.via == 'maritimo' %}MARÍTIMO{% elif par.tipo.via == 'aereo' %}AÉREO{% endif %}</div>
+        <div class="inv-label-small">{{ par.tipo.get_via_display|upper }}</div>
         <div class="inv-label-small">{{ par.color.nombre|upper }}</div>
         <div class="inv-label-mx">{{ talla }}</div>
       </div>

@@ -70,7 +70,7 @@ class TipoArticuloForm(forms.ModelForm):
             'keywords': 'Palabras clave separadas por coma. Ej: gorra,cap,ny,la,za',
             'costo': 'Costo al proveedor en MXN (sin markup).',
             'padre': 'Solo para variantes: el modelo base al que pertenece.',
-            'via': 'Solo para variantes: aéreo o marítimo.',
+            'via': 'Solo para variantes: aéreo, marítimo o nacional.',
             'prefijo': '2 a 5 letras/números en mayúscula para el código del par (ej. JD4A).',
         }
 

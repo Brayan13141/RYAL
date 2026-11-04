@@ -30,14 +30,20 @@
         <input id="f-archivo" type="file" name="archivo" accept=".csv,text/csv" required>
       </label>
       <div class="row g-3">
-        <div class="col-6">
+        <div class="col-6 col-md-4">
           <label class="form-label" for="f-via">Vía</label>
           <select id="f-via" class="form-select" name="via">
-            <option value="aereo"{% if via == 'aereo' %} selected{% endif %}>Aéreo</option>
-            <option value="maritimo"{% if via == 'maritimo' %} selected{% endif %}>Marítimo</option>
+            {% for valor, nombre in vias.items %}<option value="{{ valor }}"{% if via == valor %} selected{% endif %}>{{ nombre }}</option>{% endfor %}
           </select>
         </div>
-        <div class="col-6">
+        <div class="col-6 col-md-3">
+          <label class="form-label" for="f-flete">Flete por par</label>
+          <div class="input-group">
+            <span class="input-group-text">$</span>
+            <input id="f-flete" class="form-control" name="flete" inputmode="decimal" value="{{ flete }}">
+          </div>
+        </div>
+        <div class="col-12 col-md-5">
           <label class="form-label" for="f-ref">Referencia</label>
           <input id="f-ref" class="form-control" name="referencia" maxlength="100" value="{{ ref|default:'' }}" placeholder="Opcional">
         </div>
@@ -57,6 +63,7 @@
         <li>El <b>modelo</b> se escribe como el modelo base, sin la A o la M de la vía.</li>
         <li>La <b>talla</b> va con punto decimal: 26.5.</li>
         <li>El <b>precio</b> va sin comas de miles y sin flete: 1250.</li>
+        <li>El <b>flete por par</b> viene con la tarifa de la vía; cámbialo si esta llegada pagó otro.</li>
       </ul>
     </div>
   </div>
@@ -64,6 +71,7 @@
 {% endblock %}
 
 {% block extra_js %}
+{{ tarifas|json_script:'tarifas-json' }}
 <script>
 (function () {
   var drop = document.getElementById('drop'), input = document.getElementById('f-archivo'),
@@ -74,5 +82,12 @@
   ['dragenter', 'dragover'].forEach(function (e) { drop.addEventListener(e, function () { drop.classList.add('is-over'); }); });
   ['dragleave', 'drop'].forEach(function (e) { drop.addEventListener(e, function () { drop.classList.remove('is-over'); }); });
 })();
+  (function () {
+    var TARIFAS = JSON.parse(document.getElementById('tarifas-json').textContent);
+    var via = document.getElementById('f-via'), flete = document.getElementById('f-flete');
+    var editado = false;
+    flete.addEventListener('input', function () { editado = true; });
+    via.addEventListener('change', function () { if (!editado) flete.value = TARIFAS[via.value] || ''; });
+  })();
 </script>
 {% endblock %}

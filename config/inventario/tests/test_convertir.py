@@ -104,18 +104,86 @@ class VistaConvertirTests(TestCase):
         self.assertEqual(r.status_code, 302)
         self.assertIn('login', r['Location'])
 
-    def test_get_lista_solo_bases_sin_variante_aerea(self):
+    def test_get_un_renglon_por_base_con_sus_tres_vias(self):
         self._staff()
         otro = _base('Nike', 'nike')
-        crear_variante(otro, 'aereo')
+        v = crear_variante(otro, 'maritimo', costo=Decimal('400'))
         r = self.client.get(self.url)
         self.assertEqual(r.status_code, 200)
-        nombres = [t.nombre for t in r.context['tipos']]
-        self.assertEqual(nombres, ['Jordan 4'])
+        filas = {f['base'].nombre: {via: v for via, v, _ in f['celdas']} for f in r.context['filas']}
+        self.assertEqual(sorted(filas), ['Jordan 4', 'Nike'])
+        self.assertEqual(filas['Nike'], {'aereo': None, 'maritimo': v, 'nacional': None})
+        self.assertNotIn('Nike M', filas)  # las variantes no son renglón
+        html = r.content.decode()
+        self.assertIn(f'value="{self.base.pk}:nacional"', html)
+        self.assertNotIn(f'value="{otro.pk}:maritimo"', html)
 
     def test_vista_convertir_post_crea_variantes(self):
         self._staff()
-        r = self.client.post(self.url, {'tipo_ids': [self.base.pk]})
+        r = self.client.post(self.url, {'crear': [f'{self.base.pk}:aereo']})
         self.assertEqual(r.status_code, 302)
-        self.assertIsNotNone(self.base.variante('aereo'))
+        self.assertEqual(self.base.variante('aereo').costo, Decimal('540'))
         self.assertTrue(list(get_messages(r.wsgi_request)))
+
+    def test_post_crea_maritima_y_nacional_con_costo_capturado(self):
+        self._staff()
+        self.client.post(self.url, {
+            'crear': [f'{self.base.pk}:maritimo', f'{self.base.pk}:nacional'],
+            f'costo-{self.base.pk}-maritimo': '490',
+            f'costo-{self.base.pk}-nacional': '345,50'})
+        self.assertEqual(self.base.variante('maritimo').costo, Decimal('490.00'))
+        n = self.base.variante('nacional')
+        self.assertEqual(n.costo, Decimal('345.50'))
+        self.assertEqual(n.nombre, 'Jordan 4 N')
+
+    def test_post_costo_invalido_no_crea_esa_variante(self):
+        self._staff()
+        r = self.client.post(self.url, {
+            'crear': [f'{self.base.pk}:nacional', f'{self.base.pk}:aereo'],
+            f'costo-{self.base.pk}-nacional': 'abc'})
+        self.assertIsNone(self.base.variante('nacional'))
+        self.assertIsNotNone(self.base.variante('aereo'))
+        textos = [str(m) for m in get_messages(r.wsgi_request)]
+        self.assertTrue(any('nacional' in t and 'abc' in t for t in textos), textos)
+
+    def test_post_ignora_via_o_base_invalidas(self):
+        self._staff()
+        v = crear_variante(self.base, 'aereo')
+        self.client.post(self.url, {'crear': [f'{self.base.pk}:terrestre', f'{v.pk}:nacional', 'x:aereo']})
+        self.assertEqual(TipoArticulo.objects.count(), 2)
+
+    def test_post_sin_seleccion_avisa(self):
+        self._staff()
+        r = self.client.post(self.url, {})
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(TipoArticulo.objects.count(), 1)
+
+    def test_costo_sugerido_es_proveedor_mas_flete_de_cada_via(self):
+        # Tarifas sembradas: aéreo 280, marítimo 180, nacional 50. Jordan 4 cuesta 540
+        # (= 260 de proveedor + 280 aéreo).
+        self._staff()
+        r = self.client.get(self.url)
+        fila = next(f for f in r.context['filas'] if f['base'] == self.base)
+        self.assertEqual(fila['proveedor'], Decimal('260.00'))
+        self.assertEqual({via: c for via, _, c in fila['celdas']},
+                         {'aereo': Decimal('540.00'), 'maritimo': Decimal('440.00'),
+                          'nacional': Decimal('310.00')})
+
+    def test_post_sin_costo_usa_proveedor_mas_flete(self):
+        self._staff()
+        self.client.post(self.url, {'crear': [f'{self.base.pk}:maritimo', f'{self.base.pk}:nacional']})
+        self.assertEqual(self.base.variante('maritimo').costo, Decimal('440.00'))
+        self.assertEqual(self.base.variante('nacional').costo, Decimal('310.00'))
+
+    def test_post_proveedor_capturado_cambia_la_cuenta(self):
+        self._staff()
+        self.client.post(self.url, {'crear': [f'{self.base.pk}:nacional'],
+                                    f'proveedor-{self.base.pk}': '300'})
+        self.assertEqual(self.base.variante('nacional').costo, Decimal('350.00'))
+
+    def test_proveedor_nunca_negativo(self):
+        self._staff()
+        barato = _base('Moda', 'moda', costo='0')
+        r = self.client.get(self.url)
+        fila = next(f for f in r.context['filas'] if f['base'] == barato)
+        self.assertEqual(fila['proveedor'], Decimal('0.00'))

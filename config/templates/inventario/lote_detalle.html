@@ -1,4 +1,5 @@
 {% extends "inventario/_base.html" %}
+{% load inventario_tags %}
 {% block title %}Lote #{{ lote.pk }}{% endblock %}
 
 {% block inv_content %}
@@ -9,7 +10,8 @@
     <h1 class="inv-title mt-1">Lote #{{ lote.pk }}{% if lote.referencia %} <small>{{ lote.referencia }}</small>{% endif %}</h1>
     <div class="inv-meta">
       {% if lote.cerrado_at %}<span class="inv-chip inv-chip-cerrado">Cerrado el {{ lote.cerrado_at|date:"d/m/Y" }}</span>{% else %}<span class="inv-chip inv-chip-abierto">Abierto</span>{% endif %}
-      <span><i class="bi {% if lote.via == 'maritimo' %}bi-water{% else %}bi-airplane{% endif %}"></i>{{ lote.get_via_display }}</span>
+      <span><i class="bi {{ lote.via|via_icono }}"></i>{{ lote.get_via_display }}</span>
+      <span><i class="bi bi-cash-coin"></i>Flete ${{ lote.flete_por_par|floatformat:"-2" }} por par</span>
       <span><i class="bi bi-file-earmark"></i>{{ lote.get_origen_display }}</span>
       <span><i class="bi bi-calendar3"></i>{{ lote.creado_at|date:"d/m/Y H:i" }}</span>
     </div>

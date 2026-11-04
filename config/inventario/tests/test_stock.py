@@ -46,7 +46,7 @@ class MatrizTests(StockBase):
         fila = m[0]['colores'][0]
         self.assertEqual(fila['color'], self.negro)
         self.assertEqual(fila['total'], 3)
-        self.assertEqual(fila['tallas'][Decimal('27.0')], {'aereo': 2, 'maritimo': 1})
+        self.assertEqual(fila['tallas'][Decimal('27.0')], {'aereo': 2, 'maritimo': 1, 'nacional': 0})
 
     def test_colores_totales_y_filtros(self):
         self.par(talla=self.t27)

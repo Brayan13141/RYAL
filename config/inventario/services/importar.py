@@ -8,8 +8,8 @@ from decimal import Decimal, InvalidOperation
 from django.db import transaction
 
 from catalog.models import TipoArticulo
-from inventario.models import Color, Par, TallaCalzado, TarifaFlete
-from inventario.services.lotes import crear_lote
+from inventario.models import Color, Par, TallaCalzado
+from inventario.services.lotes import crear_lote, flete_del_lote
 from inventario.validacion import cabe_en
 
 _CENTAVOS = Decimal('0.01')
@@ -45,6 +45,7 @@ class Analisis:
     total_pares: int = 0
     total_proveedor: Decimal = Decimal('0')
     avisos: list = field(default_factory=list)
+    flete: Decimal | None = None  # flete por par con el que se calculó el costo
 
     @property
     def ok(self):
@@ -109,8 +110,10 @@ def _leer(contenido, analisis):
             for n, fila in datos]
 
 
-def analizar_csv(contenido: bytes, *, via: str) -> Analisis:
-    """Revisa el CSV contra el catálogo sin escribir nada."""
+def analizar_csv(contenido: bytes, *, via: str, flete=None) -> Analisis:
+    """Revisa el CSV contra el catálogo sin escribir nada.
+
+    `flete` es el flete por par capturado; None usa la tarifa de la vía."""
     analisis = Analisis()
     filas = _leer(contenido, analisis)
     if filas is None:
@@ -202,22 +205,22 @@ def analizar_csv(contenido: bytes, *, via: str) -> Analisis:
             modelo=modelo, variante=variante, color=color, talla=talla,
             cantidad=cantidad, precio_proveedor=precio))
 
-    _calcular_costos(analisis, via)
+    _calcular_costos(analisis, via, flete)
     return analisis
 
 
-def _calcular_costos(analisis, via):
+def _calcular_costos(analisis, via, capturado=None):
     """Costo nuevo por variante = mayor precio del CSV + flete; avisa si hay dos precios."""
+    try:
+        flete = analisis.flete = flete_del_lote(via, capturado)
+    except ValueError as e:
+        analisis.errores.append(str(e))
+        return
     precios = {}
     for r in analisis.renglones:
         if r.variante is not None:
             precios.setdefault(r.variante.pk, (r.variante, set()))[1].add(r.precio_proveedor)
     if not precios:
-        return
-    try:
-        flete = Decimal(TarifaFlete.objects.get(via=via).monto_por_par)
-    except TarifaFlete.DoesNotExist:
-        analisis.errores.append(f'No hay tarifa de flete para la vía {via}.')
         return
     for variante, conjunto in precios.values():
         if len(conjunto) > 1:
@@ -237,9 +240,9 @@ def _calcular_costos(analisis, via):
 
 
 def confirmar_importacion(contenido: bytes, *, via: str, usuario, referencia: str = '',
-                          token_sha: str | None = None):
+                          token_sha: str | None = None, flete=None):
     """Vuelve a analizar y, si todo está en orden, crea el lote y actualiza costos."""
-    analisis = analizar_csv(contenido, via=via)
+    analisis = analizar_csv(contenido, via=via, flete=flete)
     if not analisis.ok:
         raise ValueError('El CSV tiene errores o faltantes; no se importó nada.')
     lineas = [{
@@ -249,7 +252,7 @@ def confirmar_importacion(contenido: bytes, *, via: str, usuario, referencia: st
     with transaction.atomic():
         lote = crear_lote(
             via=via, origen='csv', lineas=lineas, usuario=usuario, referencia=referencia,
-            token_sha=token_sha)
+            token_sha=token_sha, flete_por_par=analisis.flete)
         for cambio in analisis.cambios_costo:
             cambio.variante.costo = cambio.costo_nuevo
             cambio.variante.save(update_fields=['costo'])

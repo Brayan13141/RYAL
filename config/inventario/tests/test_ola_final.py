@@ -41,12 +41,12 @@ class I1VarianteSinTallasTests(TestCase):
         self.assertIn('usa_tallas', cm.exception.message_dict)
 
     def test_selector_manual_excluye_variantes_sin_tallas(self):
-        from inventario.views.lotes import _variantes
+        from inventario.views.lotes import _modelos
         base = TipoArticulo.objects.create(nombre='Jordan 4', keywords='jordan 4', costo=1)
         TipoArticulo.objects.create(
             nombre='Jordan 4 A', keywords='jordan 4 aereo', costo=1, padre=base,
             via='aereo', usa_tallas=False, prefijo='JD4A')
-        self.assertEqual(list(_variantes()), [])
+        self.assertEqual([m['variantes'] for m in _modelos()], [{}])
 
 
 class I2ImportarDobleClicTests(ImportarVistaBase):

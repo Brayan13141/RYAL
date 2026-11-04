@@ -14,76 +14,94 @@ from django.shortcuts import redirect, render
 from django.views.decorators.http import require_POST
 
 from catalog.models import TipoArticulo
-from inventario.models import Color, Lote, TallaCalzado
+from inventario.models import VIAS, Color, Lote, TallaCalzado
 from inventario.services.importar import analizar_csv, confirmar_importacion
+from inventario.services.lotes import flete_del_lote, leer_flete, tarifas_por_via
 from inventario.services.tipos import crear_variante
 
 SALT = 'inventario-import'
 MAX_EDAD = 3600  # el token de la preview vale 1 hora
 MAX_BYTES = 1024 * 1024
-VIAS = {'aereo': 'Aéreo', 'maritimo': 'Marítimo'}
 
 
-def _firmar(contenido, via, ref):
-    return signing.dumps(
-        {'b64': base64.b64encode(contenido).decode('ascii'), 'via': via, 'ref': ref},
-        salt=SALT, compress=True)
+
+def _form_ctx(via, flete=None):
+    tarifas = tarifas_por_via()
+    return {'via': via, 'vias': VIAS, 'tarifas': tarifas,
+            'flete': tarifas.get(via, '') if flete is None else flete}
+
+
+def _firmar(contenido, via, ref, flete=None):
+    datos = {'b64': base64.b64encode(contenido).decode('ascii'), 'via': via, 'ref': ref}
+    if flete is not None:
+        datos['flete'] = str(flete)
+    return signing.dumps(datos, salt=SALT, compress=True)
 
 
 def _abrir(token):
-    """(contenido, via, ref, None) o (None, None, None, mensaje) si el token no sirve."""
+    """(contenido, via, ref, flete, None) o (None, None, None, None, mensaje) si el token
+    no sirve. `flete` es None en los tokens sin flete capturado (= tarifa de la vía)."""
     try:
         datos = signing.loads(token or '', salt=SALT, max_age=MAX_EDAD)
         contenido = base64.b64decode(datos['b64'])
         via, ref = datos['via'], datos.get('ref', '')
         if via not in VIAS:
             raise KeyError(via)
+        flete = leer_flete(datos.get('flete'))
     except signing.SignatureExpired:
-        return None, None, None, 'La vista previa venció (más de 1 hora). Sube el archivo de nuevo.'
-    except (signing.BadSignature, KeyError, TypeError, binascii.Error):
-        return None, None, None, 'La vista previa no es válida. Sube el archivo de nuevo.'
-    return contenido, via, ref, None
+        return None, None, None, None, 'La vista previa venció (más de 1 hora). Sube el archivo de nuevo.'
+    except (signing.BadSignature, KeyError, TypeError, ValueError, binascii.Error):
+        return None, None, None, None, 'La vista previa no es válida. Sube el archivo de nuevo.'
+    return contenido, via, ref, flete, None
 
 
-def _preview(request, contenido, via, ref):
-    analisis = analizar_csv(contenido, via=via)
+def _preview(request, contenido, via, ref, flete=None):
+    analisis = analizar_csv(contenido, via=via, flete=flete)
     # "Modelo: color" -> (modelo, color) para el botón de asignar.
     sin_asignar = []
     for texto in analisis.faltantes['colores_no_asignados']:
         modelo, _, color = texto.rpartition(': ')
         sin_asignar.append({'texto': texto, 'modelo': modelo, 'color': color})
     return render(request, 'inventario/importar_preview.html', {
-        'a': analisis, 'token': _firmar(contenido, via, ref), 'via': via, 'ref': ref,
+        'a': analisis, 'token': _firmar(contenido, via, ref, flete), 'via': via, 'ref': ref,
         'via_display': VIAS[via], 'sin_asignar': sin_asignar})
 
 
 @staff_member_required
 def importar(request):
     if request.method != 'POST':
-        return render(request, 'inventario/importar.html', {'via': 'aereo'})
+        return render(request, 'inventario/importar.html', _form_ctx('aereo'))
     via = request.POST.get('via', '')
     ref = (request.POST.get('referencia') or '').strip()[:100]
+    flete_txt = (request.POST.get('flete') or '').strip()
     archivo = request.FILES.get('archivo')
-    error = None
+    error = flete = None
     if via not in VIAS:
-        error = 'Elige la vía: aéreo o marítimo.'
+        error = 'Elige la vía: aéreo, marítimo o nacional.'
     elif archivo is None:
         error = 'Elige el archivo CSV.'
     elif archivo.size > MAX_BYTES:
         error = 'El archivo pesa más de 1 MB; revisa que sea el CSV de la llegada.'
+    else:
+        try:
+            flete = leer_flete(flete_txt)
+            if flete is not None:
+                flete_del_lote(via, flete)  # mismo rango que aceptará el lote
+        except ValueError as e:
+            error = str(e)
     if error:
-        return render(request, 'inventario/importar.html', {
-            'via': via if via in VIAS else 'aereo', 'ref': ref, 'error': error})
-    return _preview(request, archivo.read(), via, ref)
+        return render(request, 'inventario/importar.html', dict(
+            _form_ctx(via if via in VIAS else 'aereo', flete_txt), ref=ref, error=error))
+    return _preview(request, archivo.read(), via, ref, flete)
 
 
 @staff_member_required
 @require_POST
 def importar_preview(request):
-    contenido, via, ref, error = _abrir(request.POST.get('token'))
+    contenido, via, ref, flete, error = _abrir(request.POST.get('token'))
     if error:
         return HttpResponse(error, status=400)
-    return _preview(request, contenido, via, ref)
+    return _preview(request, contenido, via, ref, flete)
 
 
 def _ya_importado(request, lote):
@@ -94,7 +112,7 @@ def _ya_importado(request, lote):
 @staff_member_required
 @require_POST
 def importar_confirmar(request):
-    contenido, via, ref, error = _abrir(request.POST.get('token'))
+    contenido, via, ref, flete, error = _abrir(request.POST.get('token'))
     if error:
         return HttpResponse(error, status=400)
     sha = hashlib.sha256((request.POST.get('token') or '').encode('utf-8')).hexdigest()
@@ -103,7 +121,8 @@ def importar_confirmar(request):
         return _ya_importado(request, previo)
     try:
         lote = confirmar_importacion(
-            contenido, via=via, usuario=request.user, referencia=ref, token_sha=sha)
+            contenido, via=via, usuario=request.user, referencia=ref, token_sha=sha,
+            flete=flete)
     except ValueError as e:
         return HttpResponse(str(e), status=400)
     except IntegrityError:
@@ -123,7 +142,7 @@ def _json_error(msg):
 
 def _alta(request, accion):
     """Valida el token y ejecuta `accion(via, post)`; devuelve JSON {ok}."""
-    _, via, _, error = _abrir(request.POST.get('token'))
+    _, via, _, _, error = _abrir(request.POST.get('token'))
     if error:
         return _json_error(error)
     try:

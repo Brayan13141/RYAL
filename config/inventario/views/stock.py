@@ -5,10 +5,11 @@ from django.db.models import Count
 from django.shortcuts import render
 
 from catalog.models import TipoArticulo
-from inventario.models import Par, TallaCalzado, fmt_talla
+from inventario.models import VIAS, Par, TallaCalzado, fmt_talla
 from inventario.services.stock import alertas, matriz_stock
+from inventario.services.tipos import LETRA_VIA
 
-VIAS = ('aereo', 'maritimo')
+
 ESTADOS = (('por_recibir', 'Por recibir'), ('en_stock', 'En stock'),
            ('vendido', 'Vendido'), ('baja', 'Baja'))
 
@@ -20,21 +21,30 @@ def _entero_o_none(v):
         return None
 
 
+def _celda(por_via):
+    """Total de la celda y su desglose: 'A' si es de una sola vía, 'A2 N1' si mezcla."""
+    con = [(LETRA_VIA[v], n) for v, n in por_via.items() if n]
+    if len(con) == 1:
+        desglose = con[0][0]
+    else:
+        desglose = ' '.join(f'{letra}{n}' for letra, n in con)
+    return {'n': sum(n for _, n in con), 'desglose': desglose}
+
+
 def _tablas(matriz):
     """Prepara cada base para la plantilla: columnas de talla ordenadas y celdas alineadas."""
     claves = {t for m in matriz for f in m['colores'] for t in f['tallas']}
     orden = {t.mx_cm: t.orden for t in TallaCalzado.objects.filter(mx_cm__in=claves)}
     columnas = sorted(claves, key=lambda t: (orden.get(t, 0), t))
     etiquetas = [fmt_talla(t) for t in columnas]
-    vacia = {'aereo': 0, 'maritimo': 0}
+    vacia = dict.fromkeys(VIAS, 0)
     tablas = []
     for m in matriz:
         filas = [{
             'color': f['color'], 'total': f['total'],
-            'celdas': [f['tallas'].get(t, vacia) for t in columnas]}
+            'celdas': [_celda(f['tallas'].get(t, vacia)) for t in columnas]}
             for f in m['colores']]
-        totales = [{'aereo': sum(f['tallas'].get(t, vacia)['aereo'] for f in m['colores']),
-                    'maritimo': sum(f['tallas'].get(t, vacia)['maritimo'] for f in m['colores'])}
+        totales = [sum(sum(f['tallas'].get(t, vacia).values()) for f in m['colores'])
                    for t in columnas]
         tablas.append({'base': m['base'], 'total': m['total'], 'filas': filas,
                        'totales': totales, 'columnas': etiquetas})
@@ -72,6 +82,6 @@ def stock(request):
         'pestanas': _pestanas(base_id, via),
         'tablas': _tablas(matriz_stock(base_id=base_id, via=via, estado=estado)),
         'alertas': alertas(),
-        'bases': bases, 'base_id': base_id, 'via': via,
+        'bases': bases, 'base_id': base_id, 'via': via, 'vias': VIAS,
         'estado': estado, 'estados': ESTADOS, 'estado_label': dict(ESTADOS)[estado].lower(),
     })

@@ -1,4 +1,5 @@
 {% extends "inventario/_base.html" %}
+{% load inventario_tags %}
 {% block title %}Catálogos de inventario{% endblock %}
 
 {% block inv_content %}
@@ -89,7 +90,7 @@
     {% for t, f in tarifas %}
     <form method="post" action="?tab=fletes" class="d-flex gap-2 align-items-center py-2">{% csrf_token %}
       <input type="hidden" name="accion" value="tarifa"><input type="hidden" name="tarifa_id" value="{{ t.pk }}">
-      <span class="inv-via" style="min-width:110px"><i class="bi {% if t.via == 'maritimo' %}bi-water{% else %}bi-airplane{% endif %}"></i>{{ t.get_via_display }}</span>
+      <span class="inv-via" style="min-width:110px"><i class="bi {{ t.via|via_icono }}"></i>{{ t.get_via_display }}</span>
       {{ f.monto_por_par }}
       <button class="btn-g" type="submit">Guardar</button>
     </form>

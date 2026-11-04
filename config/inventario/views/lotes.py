@@ -4,7 +4,8 @@ from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
-from django.db import IntegrityError
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -12,8 +13,9 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from catalog.models import TipoArticulo
-from inventario.models import Color, Lote, Par, TallaCalzado, fmt_talla
-from inventario.services.lotes import cerrar_lote, crear_lote
+from inventario.models import VIAS, Color, Lote, Par, TallaCalzado, fmt_talla
+from inventario.services.lotes import cerrar_lote, crear_lote, leer_flete, tarifas_por_via
+from inventario.services.tipos import costo_sugerido, crear_variante, tarifas_decimal
 from inventario.validacion import cabe_en
 
 ESTADOS = ['por_recibir', 'en_stock', 'vendido', 'baja']
@@ -45,16 +47,40 @@ def _respuesta_lote(lote, duplicado=False):
     return JsonResponse(datos)
 
 
-def _variantes():
-    # Solo variantes con prefijo: sin él no se puede generar el código del par.
-    return (TipoArticulo.objects.filter(
-        padre__isnull=False, prefijo__isnull=False, usa_tallas=True)
-            .exclude(prefijo='').order_by('nombre'))
+def _modelos():
+    """Modelos base para el alta: sus colores asignados y la variante (con
+    prefijo) que ya tienen en cada vía."""
+    bases = (TipoArticulo.objects.filter(padre__isnull=True)
+             .prefetch_related('colores', 'variantes').order_by('nombre'))
+    return [{
+        'id': b.pk, 'nombre': b.nombre,
+        'colores': [{'id': c.pk, 'nombre': c.nombre}
+                    for c in sorted(b.colores.all(), key=lambda c: c.nombre)],
+        # Sin prefijo no hay código de par; sin tallas no se captura por talla.
+        'variantes': {v.via: v.pk for v in b.variantes.all() if v.prefijo and v.usa_tallas},
+    } for b in bases]
 
 
-def _lineas_desde_json(datos):
-    """Convierte el JSON del formulario en líneas para `crear_lote`; ValueError si es inválido."""
-    lineas = []
+def _variante_para(tipo, via, n, tarifas):
+    """La variante de `via` para un modelo base (se crea con el costo sugerido si
+    no existe); una variante se devuelve tal cual y crear_lote valida su vía."""
+    if tipo.padre_id is not None:
+        return tipo
+    variante = tipo.variante(via)
+    if variante is not None:
+        return variante
+    try:
+        return crear_variante(tipo, via, costo=costo_sugerido(tipo, via, tarifas))
+    except (ValidationError, ValueError) as e:
+        detalle = '; '.join(e.messages) if hasattr(e, 'messages') else str(e)
+        raise ValueError(f'Línea {n}: no se pudo crear "{tipo.nombre}" {VIAS[via].lower()}: {detalle}')
+
+
+def _lineas_desde_json(datos, via):
+    """Convierte el JSON del formulario en líneas para `crear_lote`; ValueError si es inválido.
+    `tipo_id` puede ser el modelo base: se usa (o se crea) su variante de `via`."""
+    lineas, numeros = [], []
+    tarifas = tarifas_decimal()
     crudas = datos.get('lineas') or []
     if not isinstance(crudas, list):
         raise ValueError('Solicitud inválida.')
@@ -66,6 +92,9 @@ def _lineas_desde_json(datos):
             color = Color.objects.get(pk=l.get('color_id'))
         except (TipoArticulo.DoesNotExist, Color.DoesNotExist, ValueError, TypeError):
             raise ValueError(f'Línea {n}: tipo o color inexistente.')
+        if not tipo.colores_efectivos().filter(pk=color.pk).exists():
+            raise ValueError(f'Línea {n}: el color «{color.nombre}» no está asignado a '
+                             f'«{tipo.modelo_base.nombre}». Asígnalo en Catálogos.')
         crudo = l.get('precio_proveedor')
         try:
             precio = None if crudo in (None, '') else Decimal(str(crudo))
@@ -92,8 +121,15 @@ def _lineas_desde_json(datos):
                 continue
             lineas.append({'tipo': tipo, 'color': color, 'talla': talla,
                            'cantidad': cantidad, 'precio_proveedor': precio})
+            numeros.append(n)
     if not lineas:
         raise ValueError('Captura al menos un par (cantidad mayor que cero).')
+    variantes = {}
+    for n, linea in zip(numeros, lineas):
+        tipo = linea['tipo']
+        if tipo.pk not in variantes:
+            variantes[tipo.pk] = _variante_para(tipo, via, n, tarifas)
+        linea['tipo'] = variantes[tipo.pk]
     return lineas
 
 
@@ -107,8 +143,12 @@ def alta_manual(request):
         except ValueError:
             return _error('Solicitud inválida.')
         via, origen = datos.get('via'), datos.get('origen')
-        if via not in ('aereo', 'maritimo') or origen not in ('manual', 'inicial'):
+        if via not in VIAS or origen not in ('manual', 'inicial'):
             return _error('Vía u origen inválidos.')
+        try:
+            flete = leer_flete(datos.get('flete_por_par'))
+        except ValueError as e:
+            return _error(str(e))
         referencia = datos.get('referencia') or ''
         if not isinstance(referencia, str):
             return _error('La referencia debe ser texto.')
@@ -121,10 +161,12 @@ def alta_manual(request):
             if existente is not None:
                 return _respuesta_lote(existente, duplicado=True)
         try:
-            lineas = _lineas_desde_json(datos)
-            lote = crear_lote(
-                via=via, origen=origen, lineas=lineas, usuario=request.user,
-                referencia=referencia, token_sha=sha)
+            # Atómico: si el lote falla, tampoco quedan las variantes creadas al vuelo.
+            with transaction.atomic():
+                lineas = _lineas_desde_json(datos, via)
+                lote = crear_lote(
+                    via=via, origen=origen, lineas=lineas, usuario=request.user,
+                    referencia=referencia, token_sha=sha, flete_por_par=flete)
         except ValueError as e:
             return _error(str(e))
         except IntegrityError:
@@ -135,8 +177,9 @@ def alta_manual(request):
             return _respuesta_lote(existente, duplicado=True)
         return _respuesta_lote(lote)
     return render(request, 'inventario/alta_manual.html', {
-        'variantes': _variantes(),
+        'modelos': _modelos(),
         'tallas': TallaCalzado.objects.filter(activa=True),
+        'vias': VIAS, 'tarifas': tarifas_por_via(),
     })
 
 

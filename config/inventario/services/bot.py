@@ -97,8 +97,9 @@ def faltantes_de_texto(texto, tipo):
         kw = (tipo.keywords_list or [tipo.nombre])[0]
         return [{
             'texto': texto, 'falta': 'via',
-            'mensaje': (f'{tipo.nombre}: ¿aéreo o marítimo? '
-                        f'Escríbelo como «{kw} aereo …» o «{kw} maritimo …»'),
+            'mensaje': (f'{tipo.nombre}: ¿aéreo, marítimo o nacional? '
+                        f'Escríbelo como «{kw} aereo …», «{kw} maritimo …» '
+                        f'o «{kw} nacional …»'),
         }]
     if tipo.es_variante and tipo.usa_tallas:
         _, _, faltas = _analizar(texto, tipo)

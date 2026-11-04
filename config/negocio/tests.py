@@ -3883,7 +3883,7 @@ class ApiVentaTenisTest(TestCase):
         data = res.json()
         self.assertEqual(data['sin_tipo'], [])
         self.assertEqual(data['incompletos'][0]['falta'], 'via')
-        self.assertIn('¿aéreo o marítimo?', data['incompletos'][0]['mensaje'])
+        self.assertIn('¿aéreo, marítimo o nacional?', data['incompletos'][0]['mensaje'])
         self.assertEqual(Pedido.objects.count(), 0)
         self.assertEqual(Par.objects.filter(estado=Par.Estado.VENDIDO).count(), 0)
 
@@ -3919,7 +3919,7 @@ class ApiVentaTenisTest(TestCase):
         data = res.json()
         self.assertTrue(data['match'])
         self.assertEqual(len(data['falta']), 1)
-        self.assertIn('¿aéreo o marítimo?', data['falta'][0])
+        self.assertIn('¿aéreo, marítimo o nacional?', data['falta'][0])
 
     def test_buscar_completo_trae_falta_vacia(self):
         res = self._post('/api/negocio/articulo/buscar/',

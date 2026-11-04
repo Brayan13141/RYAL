@@ -53,7 +53,7 @@ class FaltantesTests(VentaBotBase):
             self.vender('jordan 4 negro t27')
         d = cm.exception.detalles[0]
         self.assertEqual(d['falta'], 'via')
-        self.assertIn('¿aéreo o marítimo?', d['mensaje'])
+        self.assertIn('¿aéreo, marítimo o nacional?', d['mensaje'])
         self.assertIn('«jordan 4 aereo …»', d['mensaje'])
         self.assertEqual(Pedido.objects.count(), 0)
 

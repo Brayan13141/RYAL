@@ -6,7 +6,7 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from catalog.models import TipoArticulo
-from inventario.models import Color, Lote, MovimientoPar, Par
+from inventario.models import VIAS, Color, Lote, MovimientoPar, Par
 from negocio.models import Pedido, PedidoItem
 from negocio.services import cargar_aliases, resolver_tipo
 
@@ -17,7 +17,7 @@ SKU_BOT = 'TIENDA-BOT'
 
 
 def matriz_stock(*, base_id=None, via=None, estado=Par.Estado.EN_STOCK):
-    """Pares del `estado` pedido (por defecto `en_stock`) agrupados por modelo base -> color -> talla, con desglose A/M.
+    """Pares del `estado` pedido (por defecto `en_stock`) agrupados por modelo base -> color -> talla, con desglose por vía.
 
     Se agrega en la BD (un GROUP BY), no par por par.
     """
@@ -44,7 +44,7 @@ def matriz_stock(*, base_id=None, via=None, estado=Par.Estado.EN_STOCK):
         fila_color = entrada['colores'].setdefault(
             f['color_id'], {'color': colores[f['color_id']], 'tallas': {}, 'total': 0})
         celda = fila_color['tallas'].setdefault(
-            f['talla__mx_cm'], {'aereo': 0, 'maritimo': 0})
+            f['talla__mx_cm'], dict.fromkeys(VIAS, 0))
         celda[f['tipo__via']] += f['n']
         fila_color['total'] += f['n']
         entrada['total'] += f['n']

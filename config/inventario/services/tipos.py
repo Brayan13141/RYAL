@@ -6,8 +6,13 @@ from decimal import Decimal
 from django.db import transaction
 
 from catalog.models import SUFIJOS_VIA, TipoArticulo
+from inventario.models import VIAS, TarifaFlete
 
-_LETRA_VIA = {'aereo': 'A', 'maritimo': 'M'}
+LETRA_VIA = {'aereo': 'A', 'maritimo': 'M', 'nacional': 'N'}
+_CENTAVOS = Decimal('0.01')
+# El costo de los tipos que ya existían es el de la mercancía aérea
+# (proveedor + flete aéreo): de ahí sale el precio del proveedor sugerido.
+VIA_DEL_COSTO_BASE = 'aereo'
 _VOCALES = set('AEIOU')
 
 
@@ -43,7 +48,7 @@ def _tallo(nombre: str) -> str:
 
 def _candidatos(nombre: str, via: str) -> list:
     """Prefijos posibles en orden de preferencia (sin duplicados)."""
-    letra = _LETRA_VIA[via]
+    letra = LETRA_VIA[via]
     tallo = _tallo(nombre)
     # 3er char: 2..9 primero (conserva el comportamiento histórico), luego A-Z y 0-9.
     ciclo = [str(d) for d in range(2, 10)] + list(string.ascii_uppercase) + list(string.digits)
@@ -58,7 +63,7 @@ def _candidatos(nombre: str, via: str) -> list:
 
 def sugerir_prefijo(nombre: str, via: str) -> str:
     """Prefijo libre para una variante: iniciales del nombre (hasta 3 chars)
-    + 'A'/'M'. Ej: 'Jordan 4' aéreo -> 'JD4A'. Si existe, el 3er char pasa a
+    + 'A'/'M'/'N'. Ej: 'Jordan 4' aéreo -> 'JD4A'. Si existe, el 3er char pasa a
     2..9, luego A-Z y 0-9, luego bases de 4 chars; si todos están
     ocupados levanta ValueError."""
     for c in _candidatos(nombre, via):
@@ -78,7 +83,7 @@ def crear_variante(base: TipoArticulo, via: str, *, prefijo: str | None = None,
         keywords = ', '.join(
             f'{kw} {s}' for kw in base.keywords_list for s in sufijos)
         variante = TipoArticulo(
-            nombre=f'{base.nombre} {_LETRA_VIA[via]}',
+            nombre=f'{base.nombre} {LETRA_VIA[via]}',
             keywords=keywords,
             costo=costo if costo is not None else base.costo,
             padre=base, via=via, usa_tallas=True,
@@ -90,3 +95,23 @@ def crear_variante(base: TipoArticulo, via: str, *, prefijo: str | None = None,
             base.usa_tallas = True
             base.save(update_fields=['usa_tallas'])
         return variante
+
+
+def tarifas_decimal():
+    """{via: monto por par} con 0 para las vías sin tarifa."""
+    tarifas = {via: Decimal('0') for via in VIAS}
+    tarifas.update({t.via: t.monto_por_par for t in TarifaFlete.objects.all()})
+    return tarifas
+
+
+def proveedor_sugerido(base, tarifas):
+    """Precio del proveedor = costo del tipo − flete aéreo (nunca negativo)."""
+    return max(base.costo - tarifas[VIA_DEL_COSTO_BASE], Decimal('0')).quantize(_CENTAVOS)
+
+
+def costo_sugerido(base, via, tarifas=None, proveedor=None):
+    """Costo de una variante nueva: proveedor (dado o sugerido) + flete de la vía."""
+    tarifas = tarifas if tarifas is not None else tarifas_decimal()
+    if proveedor is None:
+        proveedor = proveedor_sugerido(base, tarifas)
+    return (proveedor + tarifas[via]).quantize(_CENTAVOS)

@@ -6,7 +6,8 @@ from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
 
-VIA_CHOICES = [('aereo', 'Aéreo'), ('maritimo', 'Marítimo')]
+VIA_CHOICES = [('aereo', 'Aéreo'), ('maritimo', 'Marítimo'), ('nacional', 'Nacional')]
+VIAS = dict(VIA_CHOICES)
 
 
 def fmt_talla(d):
