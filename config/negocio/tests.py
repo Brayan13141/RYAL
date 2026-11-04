@@ -1821,10 +1821,11 @@ class CajaAjusteTests(TestCase):
         AjusteCaja.objects.create(fecha=datetime.date.today(), monto=Decimal('5000'),
                                   saldo_resultante=Decimal('5150'), motivo='Saldo inicial')
         t = caja_totales()
-        self.assertEqual(t['cobrado'], Decimal('200'))
-        self.assertEqual(t['gastos'], Decimal('50'))
-        self.assertEqual(t['ajustes'], Decimal('5000'))
-        self.assertEqual(t['saldo'], Decimal('5150'))   # 200 - 50 + 5000
+        # El pago y el gasto ya estaban cuando se contó: quedan dentro del arqueo.
+        self.assertEqual(t['base'], Decimal('5150'))
+        self.assertEqual(t['cobrado'], Decimal('0'))
+        self.assertEqual(t['gastos'], Decimal('0'))
+        self.assertEqual(t['saldo'], Decimal('5150'))
 
     def test_arqueo_crea_ajuste_por_diferencia(self):
         from negocio.caja import caja_totales
@@ -2512,11 +2513,12 @@ class GananciaWebEnCajaTests(TestCase):
             order=order, fecha=fecha or datetime.date(2026, 8, 20),
             monto=Decimal(monto))
 
-    def _arqueo(self, fecha, monto='0'):
+    def _arqueo(self, fecha, contado='0'):
+        """Un arqueo afirma "conté y hay `contado`": eso es lo que vale."""
         from negocio.models import AjusteCaja
         return AjusteCaja.objects.create(
-            fecha=fecha, monto=Decimal(monto),
-            saldo_resultante=Decimal('0'), motivo='arqueo')
+            fecha=fecha, monto=Decimal('0'),
+            saldo_resultante=Decimal(contado), motivo='arqueo')
 
     def test_liquidado_aporta_solo_la_ganancia(self):
         from negocio.caja import caja_totales
@@ -2550,7 +2552,7 @@ class GananciaWebEnCajaTests(TestCase):
         from negocio.caja import caja_totales
         viejo = self._order('W5', '1000', '600')
         self._pago(viejo, '1000', fecha=datetime.date(2026, 7, 1))
-        self._arqueo(datetime.date(2026, 8, 2))
+        self._arqueo(datetime.date(2026, 8, 2), contado='1000')
         self.assertEqual(caja_totales()['saldo'], Decimal('1000'))
 
     def test_despues_del_arqueo_si_aplica_la_regla(self):
@@ -2564,7 +2566,7 @@ class GananciaWebEnCajaTests(TestCase):
         from negocio.caja import caja_totales
         viejo = self._order('W7', '1000', '600')
         self._pago(viejo, '1000', fecha=datetime.date(2026, 7, 1))
-        self._arqueo(datetime.date(2026, 8, 2))
+        self._arqueo(datetime.date(2026, 8, 2), contado='1000')
         nuevo = self._order('W8', '2000', '1500')
         self._pago(nuevo, '2000', fecha=datetime.date(2026, 8, 25))
         self.assertEqual(caja_totales()['saldo'], Decimal('1500'))
@@ -2590,6 +2592,130 @@ class GananciaWebEnCajaTests(TestCase):
         o = self._order('W10', '1000', '600', qty=2)
         vendido = sum(i.price_snapshot * i.quantity for i in o.items.all())
         self.assertEqual(o.ganancia, vendido - o.costo_mercancia - o.descuento_aplicado)
+
+
+class CajaAnclaEnArqueoTests(TestCase):
+    """El saldo parte de lo que se CONTÓ en el último arqueo
+    (`saldo_resultante`) y le suma solo lo que pasó después.
+
+    Antes se sumaban los `monto` de todos los ajustes. Pero cada `monto` se
+    calculó con el corte vigente en ese momento, y guardar el arqueo movía el
+    corte: los pedidos web cobrados entre el arqueo anterior y el nuevo pasaban
+    de aportar su ganancia a aportar el cobro completo. El 2026-11-04 la caja
+    marcaba $25,090 cuando se habían contado $9,100 dos días antes.
+    """
+
+    def setUp(self):
+        self.staff = User.objects.create_user('cajero2', password='x', is_staff=True)
+        self.client.force_login(self.staff)
+        self.cli = Cliente.objects.create(nombre='N', telefono='9')
+
+    def _order(self, codigo, precio, costo):
+        from orders.models import Order
+        o = Order.objects.create(
+            order_code=codigo, customer_name='Ana', customer_phone='5512345678')
+        o.items.create(product=None, quantity=1, price_snapshot=Decimal(precio),
+                       cost_snapshot=Decimal(costo), sku_snapshot='S', name_snapshot='P')
+        return o
+
+    def _pago_web(self, order, monto, fecha):
+        from orders.models import OrderPayment
+        OrderPayment.objects.create(order=order, fecha=fecha, monto=Decimal(monto))
+
+    def _pago(self, monto, fecha):
+        ped = Pedido.objects.create(cliente=self.cli, costo_producto=Decimal('0'),
+                                    precio_venta=Decimal(monto), estado=Pedido.PAGADO,
+                                    fecha=fecha)
+        Pago.objects.create(pedido=ped, fecha=fecha, monto=Decimal(monto),
+                            metodo_pago='efectivo')
+
+    def _arqueo_vista(self, total_real):
+        res = self.client.post('/panel/negocio/caja/',
+                               {'total_real': total_real, 'motivo': 'conteo'})
+        self.assertEqual(res.status_code, 302)
+
+    def test_tras_el_arqueo_la_caja_muestra_lo_contado(self):
+        """El caso de producción: un pedido web liquidado entre dos arqueos."""
+        from negocio.caja import caja_totales
+        from negocio.models import AjusteCaja
+        hoy = datetime.date.today()
+        AjusteCaja.objects.create(fecha=hoy - datetime.timedelta(days=90),
+                                  monto=Decimal('1000'),
+                                  saldo_resultante=Decimal('1000'), motivo='inicio')
+        o = self._order('W-ARQ', '7080', '6380')            # ganancia 700
+        self._pago_web(o, '7080', hoy - datetime.timedelta(days=60))
+        self.assertEqual(caja_totales()['saldo'], Decimal('1700'))
+
+        self._arqueo_vista('9100')
+        self.assertEqual(caja_totales()['saldo'], Decimal('9100'))
+
+    def test_gasto_posterior_al_arqueo_se_resta(self):
+        from negocio.caja import caja_totales
+        hoy = datetime.date.today()
+        self._arqueo_vista('9100')
+        Gasto.objects.create(fecha=hoy + datetime.timedelta(days=1),
+                             descripcion='x', monto=Decimal('580'))
+        self.assertEqual(caja_totales()['saldo'], Decimal('8520'))
+
+    def test_movimientos_del_mismo_dia_registrados_despues_cuentan(self):
+        """Contar en la tarde y seguir vendiendo en la noche es lo normal."""
+        from negocio.caja import caja_totales
+        from django.db.models import F
+        from negocio.models import AjusteCaja
+        hoy = datetime.date.today()
+        self._arqueo_vista('9100')
+        # El arqueo fue un rato antes (el reloj de Windows avanza en saltos de
+        # ~15 ms: sin esto, pago y arqueo pueden empatar al microsegundo).
+        AjusteCaja.objects.update(created_at=F('created_at') - datetime.timedelta(minutes=1))
+        self._pago('300', hoy)
+        Gasto.objects.create(fecha=hoy, descripcion='x', monto=Decimal('100'))
+        o = self._order('W-HOY', '1000', '600')
+        self._pago_web(o, '1000', hoy)
+        self.assertEqual(caja_totales()['saldo'], Decimal('9700'))   # 9100 +300 −100 +400
+
+    def test_movimientos_del_mismo_dia_registrados_antes_no_se_duplican(self):
+        from negocio.caja import caja_totales
+        hoy = datetime.date.today()
+        self._pago('300', hoy)
+        Gasto.objects.create(fecha=hoy, descripcion='x', monto=Decimal('100'))
+        from django.utils import timezone
+        hace_rato = timezone.now() - datetime.timedelta(minutes=1)
+        Pago.objects.update(created_at=hace_rato)
+        Gasto.objects.update(created_at=hace_rato)
+        self._arqueo_vista('9100')
+        self.assertEqual(caja_totales()['saldo'], Decimal('9100'))
+
+    def test_registros_viejos_sin_hora_del_dia_del_arqueo_quedan_dentro(self):
+        """Lo grabado antes de existir `created_at` no tiene hora: si es del
+        día del arqueo, se asume que ya estaba en el conteo."""
+        from negocio.caja import caja_totales
+        hoy = datetime.date.today()
+        self._arqueo_vista('9100')
+        g = Gasto.objects.create(fecha=hoy, descripcion='x', monto=Decimal('100'))
+        Gasto.objects.filter(pk=g.pk).update(created_at=None)
+        self.assertEqual(caja_totales()['saldo'], Decimal('9100'))
+
+    def test_sin_arqueo_suma_todo(self):
+        from negocio.caja import caja_totales
+        hoy = datetime.date.today()
+        self._pago('300', hoy)
+        Gasto.objects.create(fecha=hoy, descripcion='x', monto=Decimal('100'))
+        t = caja_totales()
+        self.assertEqual(t['base'], Decimal('0'))
+        self.assertIsNone(t['corte'])
+        self.assertEqual(t['saldo'], Decimal('200'))
+
+    def test_desglose_cuadra_con_el_saldo(self):
+        """base + cobrado − gastos = saldo, que es lo que muestra la pantalla."""
+        from negocio.caja import caja_totales
+        hoy = datetime.date.today()
+        self._arqueo_vista('9100')
+        self._pago('300', hoy + datetime.timedelta(days=1))
+        Gasto.objects.create(fecha=hoy + datetime.timedelta(days=1),
+                             descripcion='x', monto=Decimal('580'))
+        t = caja_totales()
+        self.assertEqual(t['base'] + t['cobrado'] - t['gastos'], t['saldo'])
+        self.assertEqual(t['saldo'], Decimal('8820'))
 
 
 from catalog.models import AliasTexto

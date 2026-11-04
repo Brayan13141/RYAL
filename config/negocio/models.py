@@ -104,6 +104,9 @@ class Pago(models.Model):
     monto = models.DecimalField(max_digits=10, decimal_places=2)
     metodo_pago = models.CharField(max_length=20, choices=METODO_CHOICES, default=EFECTIVO)
     notas = models.CharField(max_length=200, blank=True)
+    # Hora en que se REGISTRÓ (no la fecha del movimiento). Desempata contra el
+    # arqueo los movimientos del mismo día. NULL en lo grabado antes de 0011.
+    created_at = models.DateTimeField(default=timezone.now, null=True, editable=False)
 
     class Meta:
         ordering = ['fecha']
@@ -126,6 +129,9 @@ class Gasto(models.Model):
     descripcion = models.CharField(max_length=300)
     monto = models.DecimalField(max_digits=10, decimal_places=2)
     categoria = models.CharField(max_length=30, choices=CATEGORIA_CHOICES, default=OTRO)
+    # Hora en que se REGISTRÓ (no la fecha del movimiento). Desempata contra el
+    # arqueo los movimientos del mismo día. NULL en lo grabado antes de 0011.
+    created_at = models.DateTimeField(default=timezone.now, null=True, editable=False)
 
     class Meta:
         ordering = ['-fecha']

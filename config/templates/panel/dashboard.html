@@ -159,7 +159,7 @@ document.addEventListener('DOMContentLoaded', function () {
   <div class="kpi-sm">
     <div class="kpi-lbl">Total en caja <a href="{% url 'negocio:caja' %}" style="font-weight:400;">· ajustar</a></div>
     <div class="kpi-val" style="color:var(--pg);">${{ caja_saldo|floatformat:0 }}</div>
-    <div class="kpi-sub">Cobrado: ${{ caja_cobrado|floatformat:0 }} · Gastos: ${{ caja_gastos|floatformat:0 }}{% if caja_ajustes %} · Ajustes: ${{ caja_ajustes|floatformat:0 }}{% endif %}</div>
+    <div class="kpi-sub">{% if caja_corte %}Contado el {{ caja_corte|date:"d/m" }}: ${{ caja_base|floatformat:0 }} · {% endif %}Cobrado: ${{ caja_cobrado|floatformat:0 }} · Gastos: ${{ caja_gastos|floatformat:0 }}</div>
   </div>
 
 </div>

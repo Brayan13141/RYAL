@@ -204,11 +204,11 @@ def _stats(order_qs):
 
 def _caja_saldo():
     """Saldo real de caja. Delega en negocio.caja (única fuente de verdad):
-    cobrado histórico − gastos + ajustes manuales (arqueo/saldo inicial).
-    Devuelve (cobrado, gastos, ajustes, saldo)."""
+    lo contado en el último arqueo + cobrado − gastos desde entonces.
+    Devuelve (cobrado, gastos, base, saldo, corte)."""
     from negocio.caja import caja_totales
     t = caja_totales()
-    return t['cobrado'], t['gastos'], t['ajustes'], t['saldo']
+    return t['cobrado'], t['gastos'], t['base'], t['saldo'], t['corte']
 
 
 def _stats_pedido(pedido_qs):
@@ -392,7 +392,7 @@ def dashboard(request):
 
     # Saldo real de caja: acumulado histórico (cobrado − gastos + ajustes).
     # El dinero se arrastra mes a mes; no se resetea por período.
-    caja_cobrado, caja_gastos, caja_ajustes, caja_saldo = _caja_saldo()
+    caja_cobrado, caja_gastos, caja_base, caja_saldo, caja_corte = _caja_saldo()
 
     return render(request, 'panel/dashboard.html', {
         'counts':             counts,
@@ -421,7 +421,8 @@ def dashboard(request):
         'adelantos_negocio':          round(float(adelantos_negocio)),
         'caja_cobrado':       caja_cobrado,
         'caja_gastos':        caja_gastos,
-        'caja_ajustes':       caja_ajustes,
+        'caja_base':          caja_base,
+        'caja_corte':         caja_corte,
         'caja_saldo':         caja_saldo,
         'chart_labels':       json.dumps(chart_labels),
         'chart_revenue':      json.dumps(chart_revenue),
