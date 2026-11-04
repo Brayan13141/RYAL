@@ -20,7 +20,7 @@ const { shouldHandleOrders } = require('./routing')
 const { writeQrState } = require('./qrState')
 const { normalizarNumero, debePedirCodigo } = require('./pairing')
 const { mensajeSinTipo } = require('./ventaSinTipo')
-const { mensajeIncompleta, avisoSinStock } = require('./ventaIncompleta')
+const { mensajeIncompleta, avisoSinStock, mensajeVentaIniciada } = require('./ventaIncompleta')
 
 const AUTH_DIR = '.baileys_auth'
 const QR_STATE_FILE = '.qr_state.json'
@@ -591,7 +591,7 @@ async function handleOrdersMessage(sock, msg) {
         }
         orders.startSession(ORDERS_GID, MOSTRADOR_NOMBRE, MOSTRADOR_TEL, 'tienda')
         await sock.sendMessage(ORDERS_GID, {
-            text: `🏪 *Venta tienda iniciada — Mostrador*\nIngresa ítems: <cantidad> <precio>  o  <descripción> <precio>  o  <cantidad> <descripción> <precio>\n\n📌 _Comandos:_ /items · /quitar <N> · /descuento <CÓDIGO> · /cerrar · /cancelar · /ayuda`,
+            text: mensajeVentaIniciada(),
         })
         return
     }

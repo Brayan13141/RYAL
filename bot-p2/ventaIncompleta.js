@@ -25,4 +25,18 @@ function avisoSinStock(sinStock) {
     return '\n\n' + lista.map(s => s.mensaje).join('\n')
 }
 
-module.exports = { mensajeIncompleta, avisoSinStock }
+/**
+ * Lo que responde /venta al abrir la sesión. Incluye cómo escribir un par de
+ * tenis: Django exige vía, color y talla (`t26`) y el parser toma el último
+ * token como precio, así que el ejemplo tiene que respetar las dos cosas.
+ */
+function mensajeVentaIniciada() {
+    return '🏪 *Venta tienda iniciada — Mostrador*\n'
+        + 'Ingresa ítems: <cantidad> <precio>  o  <descripción> <precio>  o  <cantidad> <descripción> <precio>\n\n'
+        + '👟 *Tenis:* <modelo> <vía> <color> t<talla> <precio>\n'
+        + 'Ej: jordan 4 aereo negro total t26 1200\n'
+        + 'Vía: aereo · maritimo · nacional\n\n'
+        + '📌 _Comandos:_ /items · /quitar <N> · /descuento <CÓDIGO> · /cerrar · /cancelar · /ayuda'
+}
+
+module.exports = { mensajeIncompleta, avisoSinStock, mensajeVentaIniciada }

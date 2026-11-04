@@ -21,7 +21,7 @@ const { createNotifyHandler } = require('./notifyServer')
 const { matchPromo } = require('./promos')
 const { avisoSinTipo } = require('./avisoSinTipo')
 const { mensajeSinTipo } = require('./ventaSinTipo')
-const { mensajeIncompleta, avisoSinStock } = require('./ventaIncompleta')
+const { mensajeIncompleta, avisoSinStock, mensajeVentaIniciada } = require('./ventaIncompleta')
 const { parsePeerJids, esDeOtraInstancia } = require('./peerBots')
 const { avisoTipoItem } = require('./avisoTipoItem')
 const { createMinimosSource } = require('./minimos')
@@ -813,7 +813,7 @@ async function handleOrdersMessage(sock, msg) {
         }
         orders.startSession(ORDERS_GID, MOSTRADOR_NOMBRE, MOSTRADOR_TEL, 'tienda')
         await sock.sendMessage(ORDERS_GID, {
-            text: `🏪 *Venta tienda iniciada — Mostrador*\nIngresa ítems: <cantidad> <precio>  o  <descripción> <precio>  o  <cantidad> <descripción> <precio>\n\n📌 _Comandos:_ /items · /quitar <N> · /descuento <CÓDIGO> · /cerrar · /cancelar · /ayuda`,
+            text: mensajeVentaIniciada(),
         })
         return
     }
