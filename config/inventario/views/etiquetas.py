@@ -55,6 +55,11 @@ def etiquetas_lote(request, pk):
         return HttpResponseBadRequest(
             'Cantidad inválida: usa un número entero (0 o más).',
             content_type='text/plain; charset=utf-8')
+    valor_parte = request.GET.get('parte')
+    if valor_parte is not None and not re.fullmatch(r'[1-9][0-9]*', valor_parte):
+        return HttpResponseBadRequest(
+            'Parte inválida: usa un número entero desde 1.',
+            content_type='text/plain; charset=utf-8')
     if grupos is None:
         pares = list(pares)
     else:
@@ -62,7 +67,14 @@ def etiquetas_lote(request, pk):
                  for p in pares.filter(tipo_id=t, color_id=c, talla_id=z)[:n]]
     if not pares:
         raise Http404('No hay etiquetas por imprimir.')
-    return _pdf(request, pares, f'etiquetas-lote-{lote.pk}.pdf')
+    # Sin ?parte va la primera: nunca sale un PDF que la app de la impresora rechace.
+    parte = int(valor_parte or 1)
+    tam = etiquetas.MAX_POR_PDF
+    trozo = pares[(parte - 1) * tam:parte * tam]
+    if not trozo:
+        raise Http404('Esa parte no existe.')
+    nombre = f'etiquetas-lote-{lote.pk}-parte-{parte}.pdf' if valor_parte else f'etiquetas-lote-{lote.pk}.pdf'
+    return _pdf(request, trozo, nombre)
 
 
 @staff_member_required

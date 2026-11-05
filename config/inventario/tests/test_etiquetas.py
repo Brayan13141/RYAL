@@ -1,5 +1,6 @@
 import re
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -207,6 +208,77 @@ class SeleccionEtiquetasTests(EtiquetasBase):
         r = self.pedir(**{self.campo(self.t26): '5'})
         self.assertEqual(_paginas(r.content), 2)
         self.assertFalse(any(p.codigo.encode() in r.content for p in otro.pares.all()))
+
+
+@patch('inventario.etiquetas.MAX_POR_PDF', 2)
+class PartesEtiquetasTests(EtiquetasBase):
+    """La app de la PM290 acepta como mucho MAX_POR_PDF páginas: ?parte=k da el
+    k-ésimo trozo de la misma lista (todo, pendientes o selección)."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse('inventario:etiquetas_lote', args=[self.lote.pk])
+        self.t26 = TallaCalzado.objects.get(mx_cm=Decimal('26'))
+        self.t255 = TallaCalzado.objects.get(mx_cm=Decimal('25.5'))
+
+    def codigos(self, r):
+        return [p.codigo for p in self.lote.pares.all() if p.codigo.encode() in r.content]
+
+    def test_todo_en_partes(self):
+        r1 = self.client.get(self.url, {'solo': 'todos', 'parte': '1'})
+        r2 = self.client.get(self.url, {'solo': 'todos', 'parte': '2'})
+        self.assertEqual((_paginas(r1.content), _paginas(r2.content)), (2, 1))
+        self.assertFalse(set(self.codigos(r1)) & set(self.codigos(r2)))
+        self.assertEqual(len(set(self.codigos(r1)) | set(self.codigos(r2))), 3)
+
+    def test_seleccion_en_partes_respeta_el_orden(self):
+        sel = {f'c_{self.var_a.pk}_{self.color.pk}_{self.t255.pk}': '1',
+               f'c_{self.var_a.pk}_{self.color.pk}_{self.t26.pk}': '2'}
+        r1 = self.client.get(self.url, {**sel, 'parte': '1'})
+        r2 = self.client.get(self.url, {**sel, 'parte': '2'})
+        self.assertEqual((_paginas(r1.content), _paginas(r2.content)), (2, 1))
+        solo_255 = self.lote.pares.get(talla=self.t255).codigo
+        self.assertIn(solo_255, self.codigos(r1))
+
+    def test_nombre_del_archivo_lleva_la_parte(self):
+        r = self.client.get(self.url, {'solo': 'todos', 'parte': '2', 'descargar': '1'})
+        self.assertEqual(r['Content-Disposition'],
+                         f'attachment; filename="etiquetas-lote-{self.lote.pk}-parte-2.pdf"')
+
+    def test_parte_fuera_de_rango_404(self):
+        self.assertEqual(self.client.get(self.url, {'solo': 'todos', 'parte': '3'}).status_code, 404)
+
+    def test_parte_invalida_400(self):
+        for valor in ('0', '-1', 'x', '1.5'):
+            r = self.client.get(self.url, {'solo': 'todos', 'parte': valor})
+            self.assertEqual(r.status_code, 400, valor)
+
+    def test_sin_parte_y_dentro_del_limite_sigue_igual(self):
+        r = self.client.get(self.url, {f'c_{self.var_a.pk}_{self.color.pk}_{self.t26.pk}': '2'})
+        self.assertEqual(_paginas(r.content), 2)
+
+    def test_sin_parte_y_sobre_el_limite_da_solo_la_primera(self):
+        """Nunca sale un PDF que la app no pueda imprimir."""
+        r = self.client.get(self.url, {'solo': 'todos'})
+        self.assertEqual(_paginas(r.content), 2)
+
+    def test_detalle_parte_los_botones_de_arriba(self):
+        r = self.client.get(reverse('inventario:lote_detalle', args=[self.lote.pk]))
+        self.assertContains(r, f'href="{self.url}?solo=todos&amp;parte=1"')
+        self.assertContains(r, f'href="{self.url}?solo=todos&amp;parte=2"')
+        self.assertNotContains(r, f'href="{self.url}?solo=todos&amp;parte=3"')
+        self.assertContains(r, f'href="{self.url}?solo=todos&amp;parte=2&amp;descargar=1"')
+        self.assertContains(r, 'Etiquetas 1–2')
+        self.assertContains(r, 'Etiquetas 3–3')
+
+    def test_detalle_trae_checks_y_selectores(self):
+        r = self.client.get(reverse('inventario:lote_detalle', args=[self.lote.pk]))
+        self.assertContains(r, 'data-limite="2"')
+        self.assertContains(r, 'id="sel-todo"')
+        self.assertContains(r, 'id="sel-limite"')
+        self.assertContains(r, 'Seleccionar 2')
+        self.assertContains(r, 'class="form-check-input m-0 js-chk"', count=2)
+        self.assertContains(r, 'data-max="2"')
 
 
 class DescargarEtiquetasTests(EtiquetasBase):

@@ -49,28 +49,43 @@
 <div class="inv-section-head">
   <h2 class="inv-h2">Etiquetas</h2>
   <div class="inv-actions">
+    {% for solo, etiqueta, ps in botones_lote %}
+    {% if ps|length > 1 %}
+    {% for k, desde, hasta in ps %}
     <span class="inv-split">
-      <a href="{{ url_etiquetas }}?solo=todos" target="_blank" class="inv-btn-ghost"><i class="bi bi-printer"></i> Imprimir todo</a>
-      <a href="{{ url_etiquetas }}?solo=todos&amp;descargar=1" class="inv-btn-ghost inv-btn-icon" title="Descargar todo" aria-label="Descargar todo"><i class="bi bi-download"></i></a>
+      <a href="{{ url_etiquetas }}?solo={{ solo }}&amp;parte={{ k }}" target="_blank" class="inv-btn-ghost" title="{{ etiqueta }}, parte {{ k }}"><i class="bi bi-printer"></i> {% if solo == 'pendientes' %}Pendientes{% else %}Etiquetas{% endif %} {{ desde }}–{{ hasta }}</a>
+      <a href="{{ url_etiquetas }}?solo={{ solo }}&amp;parte={{ k }}&amp;descargar=1" class="inv-btn-ghost inv-btn-icon" title="Descargar {{ desde }}–{{ hasta }}" aria-label="Descargar {{ desde }}–{{ hasta }}"><i class="bi bi-download"></i></a>
     </span>
+    {% endfor %}
+    {% else %}
     <span class="inv-split">
-      <a href="{{ url_etiquetas }}?solo=pendientes" target="_blank" class="inv-btn-ghost"><i class="bi bi-printer"></i> Imprimir pendientes</a>
-      <a href="{{ url_etiquetas }}?solo=pendientes&amp;descargar=1" class="inv-btn-ghost inv-btn-icon" title="Descargar pendientes" aria-label="Descargar pendientes"><i class="bi bi-download"></i></a>
+      <a href="{{ url_etiquetas }}?solo={{ solo }}" target="_blank" class="inv-btn-ghost"><i class="bi bi-printer"></i> {{ etiqueta }}</a>
+      <a href="{{ url_etiquetas }}?solo={{ solo }}&amp;descargar=1" class="inv-btn-ghost inv-btn-icon" title="Descargar {{ etiqueta|slice:'9:' }}" aria-label="Descargar {{ etiqueta|slice:'9:' }}"><i class="bi bi-download"></i></a>
     </span>
+    {% endif %}
+    {% endfor %}
   </div>
 </div>
-<p class="inv-sub mt-0 mb-3">Para imprimir solo algunas, escribe cuántas quieres en cada renglón. Vacío o 0 no imprime ese renglón.</p>
+<p class="inv-sub mt-0 mb-3">Marca los renglones que quieres imprimir, o escribe cuántas de cada uno. La impresora acepta hasta {{ limite }} etiquetas por PDF: si seleccionas más, se reparten en varios PDFs de {{ limite }}.</p>
 
-<form method="get" action="{{ url_etiquetas }}" target="_blank" id="f-seleccion">
+<form method="get" action="{{ url_etiquetas }}" target="_blank" id="f-seleccion" data-limite="{{ limite }}">
+<input type="hidden" name="parte" id="sel-parte" disabled>
+<input type="hidden" name="descargar" value="1" id="sel-descargar" disabled>
+<div class="d-flex flex-wrap gap-2 mb-2">
+  <button type="button" id="sel-todo" class="inv-btn-ghost btn-sm"><i class="bi bi-check2-all"></i> Seleccionar todo</button>
+  <button type="button" id="sel-limite" class="inv-btn-ghost btn-sm"><i class="bi bi-check2-square"></i> Seleccionar {{ limite }}</button>
+</div>
 <div class="inv-table-wrap">
   <table class="inv-table">
     <thead>
-      <tr><th>Color</th><th>Talla MX</th><th class="num">Esperados</th><th class="num">Recibidos</th><th class="num">Imprimir</th></tr>
+      <tr><th style="width:2.5rem"><span class="visually-hidden">Seleccionar</span></th><th>Color</th><th>Talla MX</th><th class="num">Esperados</th><th class="num">Recibidos</th><th class="num">Imprimir</th></tr>
     </thead>
     <tbody>
       {% for f in filas %}
-      {% ifchanged f.tipo %}<tr class="inv-group"><td colspan="5"><span class="inv-group-name">{{ f.tipo }}</span></td></tr>{% endifchanged %}
+      {% ifchanged f.tipo %}<tr class="inv-group"><td colspan="6"><span class="inv-group-name">{{ f.tipo }}</span></td></tr>{% endifchanged %}
       <tr>
+        <td><input type="checkbox" class="form-check-input m-0 js-chk" data-max="{{ f.esperados }}" data-campo="{{ f.campo }}"
+                   aria-label="Seleccionar {{ f.tipo }} {{ f.color }} {{ f.talla }}"></td>
         <td>{{ f.color|capfirst }}</td>
         <td><span class="inv-code">{{ f.talla }}</span></td>
         <td class="num">{{ f.esperados }}</td>
@@ -94,10 +109,11 @@
     </label>
     <button type="button" id="sel-limpiar" class="inv-btn-ghost btn-sm">Limpiar</button>
   </div>
-  <div class="inv-actions">
+  <div class="inv-actions" id="sel-una">
     <button type="submit" class="btn-g js-sel"><i class="bi bi-printer"></i> Imprimir selección</button>
     <button type="submit" name="descargar" value="1" formtarget="_self" class="inv-btn-ghost js-sel"><i class="bi bi-download"></i> Descargar selección</button>
   </div>
+  <div class="inv-actions" id="sel-partes" hidden></div>
 </div>
 </form>
 {% endblock %}
@@ -105,18 +121,81 @@
 {% block extra_js %}
 <script>
 (function () {
+  var form = document.getElementById('f-seleccion');
+  var limite = parseInt(form.dataset.limite, 10) || 100;
   var qtys = document.querySelectorAll('.js-qty'), n = document.getElementById('sel-n');
+  var chks = document.querySelectorAll('.js-chk');
   var botones = document.querySelectorAll('.js-sel');
+  var una = document.getElementById('sel-una'), cajaPartes = document.getElementById('sel-partes');
+  var hParte = document.getElementById('sel-parte'), hDescargar = document.getElementById('sel-descargar');
+
+  function qtyDe(chk) { return form.querySelector('input[name="' + chk.dataset.campo + '"]'); }
+  function cuantas(i) {
+    var v = parseInt(i.value, 10), max = parseInt(i.max, 10);
+    return v > 0 ? Math.min(v, max || v) : 0;
+  }
+
+  // Más del límite: un par de botones (imprimir / descargar) por cada PDF de `limite`.
+  function pintarPartes(total) {
+    cajaPartes.innerHTML = '';
+    for (var k = 1, desde = 1; desde <= total; k++, desde += limite) {
+      var hasta = Math.min(desde + limite - 1, total);
+      var grupo = document.createElement('span');
+      grupo.className = 'inv-split';
+      grupo.innerHTML =
+        '<button type="button" class="btn-g" data-parte="' + k + '"><i class="bi bi-printer"></i> PDF ' + k + ' · ' + desde + '–' + hasta + '</button>' +
+        '<button type="button" class="inv-btn-ghost inv-btn-icon" data-parte="' + k + '" data-descargar="1" title="Descargar ' + desde + '–' + hasta + '" aria-label="Descargar ' + desde + '–' + hasta + '"><i class="bi bi-download"></i></button>';
+      cajaPartes.appendChild(grupo);
+    }
+  }
+
   function contar() {
     var total = 0;
-    qtys.forEach(function (i) {
-      var v = parseInt(i.value, 10), max = parseInt(i.max, 10);
-      if (v > 0) total += Math.min(v, max || v);
-    });
+    qtys.forEach(function (i) { total += cuantas(i); });
+    chks.forEach(function (c) { c.checked = cuantas(qtyDe(c)) > 0; });
     n.textContent = total;
     botones.forEach(function (b) { b.disabled = total === 0; });
+    var varias = total > limite;
+    una.hidden = varias;
+    cajaPartes.hidden = !varias;
+    if (varias) pintarPartes(total);
   }
+
+  cajaPartes.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-parte]');
+    if (!b) return;
+    hParte.value = b.dataset.parte;
+    hParte.disabled = false;
+    hDescargar.disabled = b.dataset.descargar !== '1';
+    form.target = b.dataset.descargar === '1' ? '_self' : '_blank';
+    form.submit();
+    hParte.disabled = true;
+    hDescargar.disabled = true;
+    form.target = '_blank';
+  });
+
+  chks.forEach(function (c) {
+    c.addEventListener('change', function () {
+      qtyDe(c).value = c.checked ? c.dataset.max : '';
+      contar();
+    });
+  });
   qtys.forEach(function (i) { i.addEventListener('input', contar); });
+
+  document.getElementById('sel-todo').addEventListener('click', function () {
+    chks.forEach(function (c) { qtyDe(c).value = c.dataset.max; });
+    contar();
+  });
+  // Los primeros `limite` pares en el orden de la tabla; el último renglón puede quedar parcial.
+  document.getElementById('sel-limite').addEventListener('click', function () {
+    var resta = limite;
+    chks.forEach(function (c) {
+      var tomar = Math.min(parseInt(c.dataset.max, 10) || 0, resta);
+      qtyDe(c).value = tomar > 0 ? tomar : '';
+      resta -= tomar;
+    });
+    contar();
+  });
   document.getElementById('sel-limpiar').addEventListener('click', function () {
     qtys.forEach(function (i) { i.value = ''; });
     contar();

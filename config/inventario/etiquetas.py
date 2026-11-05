@@ -19,6 +19,15 @@ MARGEN_SUP = 2.5 * mm
 QR_LADO = 24 * mm
 FUENTE, NEGRITA = 'Helvetica', 'Helvetica-Bold'
 VIAS = {'aereo': 'AÉREO', 'maritimo': 'MARÍTIMO', 'nacional': 'NACIONAL'}
+# La app de la PM290 no imprime un trabajo de más de 100 páginas: ningún PDF
+# lleva más etiquetas que esto; lo que sobra va en otra parte (?parte=k).
+MAX_POR_PDF = 100
+
+
+def partes(total):
+    """[(k, desde, hasta)] con desde/hasta en base 1, de MAX_POR_PDF en MAX_POR_PDF."""
+    tam = MAX_POR_PDF
+    return [(k + 1, i + 1, min(i + tam, total)) for k, i in enumerate(range(0, total, tam))]
 
 
 def url_par(base_url, codigo):

@@ -13,6 +13,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from catalog.models import TipoArticulo
+from inventario import etiquetas
 from inventario.models import VIAS, Color, Lote, Par, TallaCalzado, fmt_talla
 from inventario.services.lotes import cerrar_lote, crear_lote, leer_flete, tarifas_por_via
 from inventario.services.tipos import costo_sugerido, crear_variante, tarifas_decimal
@@ -215,9 +216,15 @@ def lote_detalle(request, pk):
         .annotate(esperados=Count('pk'),
                   recibidos=Count('pk', filter=Q(estado=Par.Estado.EN_STOCK)))
         .order_by('tipo__nombre', 'color__nombre', 'talla__orden')]
+    total = sum(conteo.values())
     return render(request, 'inventario/lote_detalle.html', {
-        'lote': lote, 'conteo': conteo, 'filas': filas,
-        'total': sum(conteo.values())})
+        'lote': lote, 'conteo': conteo, 'filas': filas, 'total': total,
+        # La app de la impresora no acepta más de `limite` páginas por trabajo.
+        'limite': etiquetas.MAX_POR_PDF,
+        'botones_lote': [
+            ('todos', 'Imprimir todo', etiquetas.partes(total)),
+            ('pendientes', 'Imprimir pendientes', etiquetas.partes(conteo['por_recibir'])),
+        ]})
 
 
 @staff_member_required
