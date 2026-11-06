@@ -42,6 +42,16 @@ def _seleccion(querydict):
     return grupos if hubo else None
 
 
+def _posicion(valor):
+    """Posición en base 1 desde el GET; None si viene vacía; ValueError si no es entero >= 1."""
+    valor = (valor or '').strip()
+    if not valor:
+        return None
+    if not re.fullmatch(r'[1-9][0-9]{0,5}', valor):
+        raise ValueError(valor)
+    return int(valor)
+
+
 @staff_member_required
 def etiquetas_lote(request, pk):
     lote = get_object_or_404(Lote, pk=pk)
@@ -60,11 +70,26 @@ def etiquetas_lote(request, pk):
         return HttpResponseBadRequest(
             'Parte inválida: usa un número entero desde 1.',
             content_type='text/plain; charset=utf-8')
-    if grupos is None:
+    try:
+        desde, hasta = (_posicion(request.GET.get(k)) for k in ('desde', 'hasta'))
+    except ValueError:
+        return HttpResponseBadRequest(
+            'Intervalo inválido: usa números enteros desde 1.',
+            content_type='text/plain; charset=utf-8')
+    if desde and hasta and desde > hasta:
+        return HttpResponseBadRequest(
+            'Intervalo inválido: el inicio es mayor que el final.',
+            content_type='text/plain; charset=utf-8')
+    hay_intervalo = bool(desde or hasta)
+    # Un intervalo sin renglones marcados se toma sobre todo el lote.
+    if grupos is None or (not grupos and hay_intervalo):
         pares = list(pares)
     else:
         pares = [p for t, c, z, n in grupos
                  for p in pares.filter(tipo_id=t, color_id=c, talla_id=z)[:n]]
+    if hay_intervalo:
+        # Numeración en base 1 de la misma lista, la de los botones "Etiquetas d–h".
+        pares = pares[(desde or 1) - 1:hasta or len(pares)]
     if not pares:
         raise Http404('No hay etiquetas por imprimir.')
     # Sin ?parte va la primera: nunca sale un PDF que la app de la impresora rechace.
@@ -73,7 +98,12 @@ def etiquetas_lote(request, pk):
     trozo = pares[(parte - 1) * tam:parte * tam]
     if not trozo:
         raise Http404('Esa parte no existe.')
-    nombre = f'etiquetas-lote-{lote.pk}-parte-{parte}.pdf' if valor_parte else f'etiquetas-lote-{lote.pk}.pdf'
+    nombre = f'etiquetas-lote-{lote.pk}'
+    if hay_intervalo:
+        nombre += f'-{desde or 1}-a-{hasta or "fin"}'
+    if valor_parte:
+        nombre += f'-parte-{parte}'
+    nombre += '.pdf'
     return _pdf(request, trozo, nombre)
 
 

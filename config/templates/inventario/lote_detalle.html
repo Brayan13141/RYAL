@@ -66,14 +66,23 @@
     {% endfor %}
   </div>
 </div>
-<p class="inv-sub mt-0 mb-3">Marca los renglones que quieres imprimir, o escribe cuántas de cada uno. La impresora acepta hasta {{ limite }} etiquetas por PDF: si seleccionas más, se reparten en varios PDFs de {{ limite }}.</p>
+<p class="inv-sub mt-0 mb-3">Marca los renglones que quieres imprimir, un modelo completo desde su encabezado, o escribe cuántas de cada uno. Con un intervalo imprimes solo de la etiqueta N a la M: sobre lo marcado o, si no marcas nada, sobre todo el lote (la misma numeración de los botones de arriba). La impresora acepta hasta {{ limite }} etiquetas por PDF: si seleccionas más, se reparten en varios PDFs de {{ limite }}.</p>
 
-<form method="get" action="{{ url_etiquetas }}" target="_blank" id="f-seleccion" data-limite="{{ limite }}">
+<form method="get" action="{{ url_etiquetas }}" target="_blank" id="f-seleccion" data-limite="{{ limite }}"
+      data-total="{{ total }}" data-pendientes="{{ conteo.por_recibir }}">
 <input type="hidden" name="parte" id="sel-parte" disabled>
 <input type="hidden" name="descargar" value="1" id="sel-descargar" disabled>
-<div class="d-flex flex-wrap gap-2 mb-2">
+<div class="d-flex flex-wrap align-items-center gap-2 mb-2">
   <button type="button" id="sel-todo" class="inv-btn-ghost btn-sm"><i class="bi bi-check2-all"></i> Seleccionar todo</button>
   <button type="button" id="sel-limite" class="inv-btn-ghost btn-sm"><i class="bi bi-check2-square"></i> Seleccionar {{ limite }}</button>
+  <span class="d-inline-flex align-items-center gap-2 small ms-sm-2">
+    <i class="bi bi-arrows-expand-vertical"></i> Intervalo: de la
+    <input type="number" name="desde" id="sel-desde" min="1" step="1" inputmode="numeric" placeholder="1"
+           class="form-control form-control-sm inv-qty" aria-label="Primera etiqueta del intervalo">
+    a la
+    <input type="number" name="hasta" id="sel-hasta" min="1" step="1" inputmode="numeric" placeholder="fin"
+           class="form-control form-control-sm inv-qty" aria-label="Última etiqueta del intervalo">
+  </span>
 </div>
 <div class="inv-table-wrap">
   <table class="inv-table">
@@ -82,9 +91,13 @@
     </thead>
     <tbody>
       {% for f in filas %}
-      {% ifchanged f.tipo %}<tr class="inv-group"><td colspan="6"><span class="inv-group-name">{{ f.tipo }}</span></td></tr>{% endifchanged %}
+      {% ifchanged f.tipo %}<tr class="inv-group">
+        <td><input type="checkbox" class="form-check-input m-0 js-grupo" data-grupo="{{ f.tipo }}"
+                   aria-label="Seleccionar todo {{ f.tipo }}" title="Todo el modelo"></td>
+        <td colspan="5"><span class="inv-group-name">{{ f.tipo }}</span> <span class="inv-muted small js-grupo-n" data-grupo="{{ f.tipo }}"></span></td>
+      </tr>{% endifchanged %}
       <tr>
-        <td><input type="checkbox" class="form-check-input m-0 js-chk" data-max="{{ f.esperados }}" data-campo="{{ f.campo }}"
+        <td><input type="checkbox" class="form-check-input m-0 js-chk" data-max="{{ f.esperados }}" data-campo="{{ f.campo }}" data-grupo="{{ f.tipo }}"
                    aria-label="Seleccionar {{ f.tipo }} {{ f.color }} {{ f.talla }}"></td>
         <td>{{ f.color|capfirst }}</td>
         <td><span class="inv-code">{{ f.talla }}</span></td>
@@ -105,7 +118,7 @@
   <div class="d-flex flex-wrap align-items-center gap-3">
     <span class="inv-sticky-count"><b id="sel-n">0</b>etiquetas seleccionadas</span>
     <label class="small mb-0 d-inline-flex align-items-center gap-2">
-      <input type="checkbox" name="solo" value="pendientes" class="form-check-input m-0"> Solo pendientes
+      <input type="checkbox" name="solo" value="pendientes" id="sel-pendientes" class="form-check-input m-0"> Solo pendientes
     </label>
     <button type="button" id="sel-limpiar" class="inv-btn-ghost btn-sm">Limpiar</button>
   </div>
@@ -128,18 +141,32 @@
   var botones = document.querySelectorAll('.js-sel');
   var una = document.getElementById('sel-una'), cajaPartes = document.getElementById('sel-partes');
   var hParte = document.getElementById('sel-parte'), hDescargar = document.getElementById('sel-descargar');
+  var grupos = document.querySelectorAll('.js-grupo'), gruposN = document.querySelectorAll('.js-grupo-n');
+  var iDesde = document.getElementById('sel-desde'), iHasta = document.getElementById('sel-hasta');
+  var soloPend = document.getElementById('sel-pendientes');
+  var totalLote = parseInt(form.dataset.total, 10) || 0, pendientes = parseInt(form.dataset.pendientes, 10) || 0;
 
   function qtyDe(chk) { return form.querySelector('input[name="' + chk.dataset.campo + '"]'); }
   function cuantas(i) {
     var v = parseInt(i.value, 10), max = parseInt(i.max, 10);
     return v > 0 ? Math.min(v, max || v) : 0;
   }
+  function delGrupo(nombre) {
+    return Array.prototype.filter.call(chks, function (c) { return c.dataset.grupo === nombre; });
+  }
+  // {d, h} en base 1 (h = 0: hasta el final), o null si no hay intervalo.
+  function intervalo() {
+    var d = parseInt(iDesde.value, 10), h = parseInt(iHasta.value, 10);
+    d = d > 0 ? d : 0; h = h > 0 ? h : 0;
+    return (d || h) ? {d: d || 1, h: h} : null;
+  }
 
   // Más del límite: un par de botones (imprimir / descargar) por cada PDF de `limite`.
-  function pintarPartes(total) {
+  // `inicio` es el número de la primera etiqueta (el intervalo empieza ahí).
+  function pintarPartes(total, inicio) {
     cajaPartes.innerHTML = '';
-    for (var k = 1, desde = 1; desde <= total; k++, desde += limite) {
-      var hasta = Math.min(desde + limite - 1, total);
+    for (var k = 1, i = 0; i < total; k++, i += limite) {
+      var desde = inicio + i, hasta = inicio + Math.min(i + limite, total) - 1;
       var grupo = document.createElement('span');
       grupo.className = 'inv-split';
       grupo.innerHTML =
@@ -150,16 +177,43 @@
   }
 
   function contar() {
-    var total = 0;
-    qtys.forEach(function (i) { total += cuantas(i); });
+    var sel = 0;
+    qtys.forEach(function (i) { sel += cuantas(i); });
     chks.forEach(function (c) { c.checked = cuantas(qtyDe(c)) > 0; });
+    grupos.forEach(function (g) {
+      var filas = delGrupo(g.dataset.grupo), marcadas = filas.filter(function (c) { return c.checked; }).length;
+      g.checked = filas.length > 0 && marcadas === filas.length;
+      g.indeterminate = marcadas > 0 && marcadas < filas.length;
+    });
+    gruposN.forEach(function (s) {
+      var van = 0, hay = 0;
+      delGrupo(s.dataset.grupo).forEach(function (c) { van += cuantas(qtyDe(c)); hay += parseInt(c.dataset.max, 10) || 0; });
+      s.textContent = '· ' + (van ? van + ' de ' : '') + hay + ' pares';
+    });
+    // El intervalo recorta la selección; sin selección, todo el lote (o sus pendientes).
+    var total = sel, inicio = 1, r = intervalo();
+    if (r) {
+      var base = sel || (soloPend.checked ? pendientes : totalLote);
+      var fin = r.h ? Math.min(r.h, base) : base;
+      total = Math.max(0, fin - r.d + 1);
+      inicio = r.d;
+    }
     n.textContent = total;
     botones.forEach(function (b) { b.disabled = total === 0; });
     var varias = total > limite;
     una.hidden = varias;
     cajaPartes.hidden = !varias;
-    if (varias) pintarPartes(total);
+    if (varias) pintarPartes(total, inicio);
   }
+
+  grupos.forEach(function (g) {
+    g.addEventListener('change', function () {
+      delGrupo(g.dataset.grupo).forEach(function (c) { qtyDe(c).value = g.checked ? c.dataset.max : ''; });
+      contar();
+    });
+  });
+  [iDesde, iHasta].forEach(function (i) { i.addEventListener('input', contar); });
+  soloPend.addEventListener('change', contar);
 
   cajaPartes.addEventListener('click', function (e) {
     var b = e.target.closest('button[data-parte]');
@@ -198,6 +252,7 @@
   });
   document.getElementById('sel-limpiar').addEventListener('click', function () {
     qtys.forEach(function (i) { i.value = ''; });
+    iDesde.value = iHasta.value = '';
     contar();
   });
   contar();

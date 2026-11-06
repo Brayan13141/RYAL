@@ -281,6 +281,65 @@ class PartesEtiquetasTests(EtiquetasBase):
         self.assertContains(r, 'data-max="2"')
 
 
+class IntervaloEtiquetasTests(EtiquetasBase):
+    """?desde=N&hasta=M: de la etiqueta N a la M (base 1) de la misma lista."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse('inventario:etiquetas_lote', args=[self.lote.pk])
+        self.t26 = TallaCalzado.objects.get(mx_cm=Decimal('26'))
+        self.orden = [p.codigo for p in self.lote.pares.order_by('pk')]
+
+    def codigos(self, r):
+        return [c for c in self.orden if c.encode() in r.content]
+
+    def test_intervalo_sobre_todo_el_lote(self):
+        r = self.client.get(self.url, {'desde': '2', 'hasta': '3'})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(self.codigos(r), self.orden[1:3])
+
+    def test_solo_desde_o_solo_hasta(self):
+        self.assertEqual(self.codigos(self.client.get(self.url, {'desde': '3'})), self.orden[2:])
+        self.assertEqual(self.codigos(self.client.get(self.url, {'hasta': '1'})), self.orden[:1])
+
+    def test_campos_vacios_del_formulario_toman_todo_el_lote(self):
+        """El formulario manda todos los c_* vacíos: con intervalo no es "nada marcado"."""
+        r = self.client.get(self.url, {f'c_{self.var_a.pk}_{self.color.pk}_{self.t26.pk}': '',
+                                       'desde': '1', 'hasta': '2'})
+        self.assertEqual(self.codigos(r), self.orden[:2])
+
+    def test_intervalo_recorta_la_seleccion(self):
+        r = self.client.get(self.url, {f'c_{self.var_a.pk}_{self.color.pk}_{self.t26.pk}': '2',
+                                       'desde': '2'})
+        self.assertEqual(_paginas(r.content), 1)
+
+    @patch('inventario.etiquetas.MAX_POR_PDF', 1)
+    def test_intervalo_en_partes(self):
+        r = self.client.get(self.url, {'desde': '2', 'hasta': '3', 'parte': '2'})
+        self.assertEqual(self.codigos(r), [self.orden[2]])
+        self.assertEqual(self.client.get(self.url, {'desde': '2', 'hasta': '3', 'parte': '3'}).status_code, 404)
+
+    def test_fuera_del_lote_404(self):
+        self.assertEqual(self.client.get(self.url, {'desde': '4'}).status_code, 404)
+
+    def test_invalido_400(self):
+        for datos in ({'desde': '0'}, {'hasta': 'x'}, {'desde': '1.5'}, {'desde': '3', 'hasta': '2'}):
+            self.assertEqual(self.client.get(self.url, datos).status_code, 400, datos)
+
+    def test_nombre_del_archivo_lleva_el_intervalo(self):
+        r = self.client.get(self.url, {'desde': '2', 'descargar': '1'})
+        self.assertEqual(r['Content-Disposition'],
+                         f'attachment; filename="etiquetas-lote-{self.lote.pk}-2-a-fin.pdf"')
+
+    def test_detalle_trae_intervalo_y_check_por_modelo(self):
+        r = self.client.get(reverse('inventario:lote_detalle', args=[self.lote.pk]))
+        self.assertContains(r, 'name="desde"')
+        self.assertContains(r, 'name="hasta"')
+        self.assertContains(r, 'data-total="3"')
+        self.assertContains(r, 'class="form-check-input m-0 js-grupo"', count=1)
+        self.assertContains(r, f'data-grupo="{self.var_a.nombre}"', count=4)
+
+
 class DescargarEtiquetasTests(EtiquetasBase):
     """descargar=1 manda el PDF como archivo; sin él se abre en la pestaña."""
 
