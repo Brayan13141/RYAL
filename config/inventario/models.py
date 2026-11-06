@@ -273,3 +273,18 @@ class LecturaConteo(models.Model):
         ordering = ['creado_at', 'pk']
         constraints = [models.UniqueConstraint(
             fields=['conteo', 'codigo_leido'], name='lectura_conteo_unica')]
+
+
+class LecturaRepetida(models.Model):
+    """Un par escaneado para recibir cuando ya estaba en stock. No cambia el estado
+    (por eso no es un MovimientoPar): sirve para encontrar cajas leídas dos veces o
+    dos cajas con la misma etiqueta."""
+    par = models.ForeignKey(Par, on_delete=models.CASCADE, related_name='lecturas_repetidas')
+    lote = models.ForeignKey(Lote, on_delete=models.CASCADE, related_name='lecturas_repetidas')
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='+')
+    creado_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['creado_at', 'pk']

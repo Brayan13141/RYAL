@@ -28,6 +28,8 @@
   </div>
 </div>
 
+{% if messages %}{% for m in messages %}<div class="alert alert-{% if m.tags == 'error' %}danger{% else %}{{ m.tags }}{% endif %} py-2">{{ m }}</div>{% endfor %}{% endif %}
+
 <div class="inv-panel inv-panel-pad mb-4">
   <div class="d-flex flex-wrap justify-content-between align-items-baseline gap-2 mb-2">
     <span><span class="inv-stat-n">{{ conteo.en_stock }}</span> <span class="inv-muted">de {{ total }} recibidos</span></span>
@@ -44,6 +46,11 @@
     <div class="inv-stat inv-c-vendido"><div class="inv-stat-n">{{ conteo.vendido }}</div><div class="inv-stat-l">Vendidos</div></div>
     <div class="inv-stat inv-c-baja"><div class="inv-stat-n">{{ conteo.baja }}</div><div class="inv-stat-l">Baja</div></div>
   </div>
+  {% if n_repetidos %}
+  <a href="{% url 'inventario:repetidos' %}?lote={{ lote.pk }}" class="d-inline-flex align-items-center gap-2 mt-3 small">
+    <i class="bi bi-layers"></i> {{ n_repetidos }} par{{ n_repetidos|pluralize:"es" }} escaneado{{ n_repetidos|pluralize }} 2 veces · ver
+  </a>
+  {% endif %}
 </div>
 
 <div class="inv-section-head">
@@ -75,6 +82,7 @@
 <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
   <button type="button" id="sel-todo" class="inv-btn-ghost btn-sm"><i class="bi bi-check2-all"></i> Seleccionar todo</button>
   <button type="button" id="sel-limite" class="inv-btn-ghost btn-sm"><i class="bi bi-check2-square"></i> Seleccionar {{ limite }}</button>
+  <button type="button" id="sel-pend" class="inv-btn-ghost btn-sm"><i class="bi bi-hourglass"></i> Seleccionar no escaneados</button>
   <span class="d-inline-flex align-items-center gap-2 small ms-sm-2">
     <i class="bi bi-arrows-expand-vertical"></i> Intervalo: de la
     <input type="number" name="desde" id="sel-desde" min="1" step="1" inputmode="numeric" placeholder="1"
@@ -97,10 +105,11 @@
         <td colspan="5"><span class="inv-group-name">{{ f.tipo }}</span> <span class="inv-muted small js-grupo-n" data-grupo="{{ f.tipo }}"></span></td>
       </tr>{% endifchanged %}
       <tr>
-        <td><input type="checkbox" class="form-check-input m-0 js-chk" data-max="{{ f.esperados }}" data-campo="{{ f.campo }}" data-grupo="{{ f.tipo }}"
+        <td><input type="checkbox" class="form-check-input m-0 js-chk" data-max="{{ f.esperados }}" data-campo="{{ f.campo }}" data-grupo="{{ f.tipo }}" data-pend="{{ f.pendientes }}"
                    aria-label="Seleccionar {{ f.tipo }} {{ f.color }} {{ f.talla }}"></td>
         <td>{{ f.color|capfirst }}</td>
-        <td><span class="inv-code">{{ f.talla }}</span></td>
+        <td><span class="inv-code">{{ f.talla }}</span>
+          <a href="{{ f.url_tallas }}" class="ms-1 inv-muted" title="Corregir talla" aria-label="Corregir talla de {{ f.tipo }} {{ f.color }} {{ f.talla }}"><i class="bi bi-pencil-square"></i></a></td>
         <td class="num">{{ f.esperados }}</td>
         <td class="num">{% if f.recibidos == f.esperados %}<span class="inv-chip inv-chip-ok">{{ f.recibidos }}</span>{% else %}{{ f.recibidos }}{% endif %}</td>
         <td class="num">
@@ -178,7 +187,11 @@
 
   function contar() {
     var sel = 0;
-    qtys.forEach(function (i) { sel += cuantas(i); });
+    // Con "Solo pendientes", de cada renglón salen como mucho sus no escaneados.
+    chks.forEach(function (c) {
+      var v = cuantas(qtyDe(c));
+      sel += soloPend.checked ? Math.min(v, parseInt(c.dataset.pend, 10) || 0) : v;
+    });
     chks.forEach(function (c) { c.checked = cuantas(qtyDe(c)) > 0; });
     grupos.forEach(function (g) {
       var filas = delGrupo(g.dataset.grupo), marcadas = filas.filter(function (c) { return c.checked; }).length;
@@ -248,6 +261,15 @@
       qtyDe(c).value = tomar > 0 ? tomar : '';
       resta -= tomar;
     });
+    contar();
+  });
+  // Cada renglón con sus pares por recibir, y "Solo pendientes" para que el PDF tome esos.
+  document.getElementById('sel-pend').addEventListener('click', function () {
+    chks.forEach(function (c) {
+      var p = parseInt(c.dataset.pend, 10) || 0;
+      qtyDe(c).value = p > 0 ? p : '';
+    });
+    soloPend.checked = true;
     contar();
   });
   document.getElementById('sel-limpiar').addEventListener('click', function () {

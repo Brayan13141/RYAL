@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from django.db import transaction
 
 from inventario.models import (
-    Conteo, LecturaConteo, Lote, MovimientoPar, Par, TransicionInvalida)
+    Conteo, LecturaConteo, LecturaRepetida, Lote, MovimientoPar, Par, TransicionInvalida)
 
 _RE_URL = re.compile(r'/panel/inventario/p/([^/?#\s]+)', re.IGNORECASE)
 
@@ -46,6 +46,8 @@ def recibir(lectura, *, lote, usuario):
             return _rojo(f'Este par es del lote {par.lote.referencia}', par)
 
         if par.estado == Par.Estado.EN_STOCK:
+            # Queda registrada para la pantalla de "Escaneados 2 veces".
+            LecturaRepetida.objects.create(par=par, lote=lote, usuario=usuario)
             return Resultado('amarillo', 'Ya estaba recibido', par, None)
         if par.estado == Par.Estado.POR_RECIBIR:
             mensaje = 'Recibido'

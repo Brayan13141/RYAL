@@ -38,6 +38,9 @@
     <div class="d-flex flex-wrap gap-2 mt-3">
       <a href="{% url 'inventario:etiqueta_par' par.codigo %}" target="_blank" class="btn-g"><i class="bi bi-printer"></i> Reimprimir etiqueta</a>
       <a href="{% url 'inventario:etiqueta_par' par.codigo %}?descargar=1" class="inv-btn-ghost"><i class="bi bi-download"></i> Descargar etiqueta</a>
+      {% if par.estado == 'por_recibir' or par.estado == 'en_stock' %}
+      <a href="{% url 'inventario:lote_tallas' par.lote_id par.tipo_id par.color_id par.talla_id %}?par={{ par.pk }}" class="inv-btn-ghost"><i class="bi bi-pencil-square"></i> Corregir talla</a>
+      {% endif %}
     </div>
   </div>
 

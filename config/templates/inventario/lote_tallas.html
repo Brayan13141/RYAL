@@ -1,0 +1,81 @@
+{% extends "inventario/_base.html" %}
+{% block title %}Corregir talla · Lote #{{ lote.pk }}{% endblock %}
+
+{% block inv_content %}
+<div class="inv-head">
+  <div>
+    <a href="{% url 'inventario:lote_detalle' lote.pk %}" class="small inv-muted text-decoration-none"><i class="bi bi-arrow-left"></i> Lote #{{ lote.pk }}{% if lote.referencia %} {{ lote.referencia }}{% endif %}</a>
+    <h1 class="inv-title mt-1">Corregir talla</h1>
+    <div class="inv-meta">
+      <span>{{ muestra.tipo.modelo_base.nombre }}</span>
+      <span>{{ muestra.tipo.get_via_display }}</span>
+      <span>{{ muestra.color.nombre|capfirst }}</span>
+      <span>Talla MX {{ talla }}</span>
+    </div>
+    <p class="inv-sub mt-2">Marca los pares que en realidad son de otra talla y elige la correcta. El código no cambia, pero la etiqueta impresa trae la talla anterior: al guardar te doy el enlace para imprimir las nuevas. Los vendidos y los de baja no se pueden corregir.</p>
+  </div>
+</div>
+
+{% if messages %}{% for m in messages %}<div class="alert alert-{% if m.tags == 'error' %}danger{% else %}{{ m.tags }}{% endif %} py-2">{{ m }}</div>{% endfor %}{% endif %}
+
+<form method="post" id="f-tallas">
+  {% csrf_token %}
+  <div class="d-flex flex-wrap gap-2 mb-2">
+    <button type="button" class="inv-btn-ghost btn-sm" data-marcar="todos"><i class="bi bi-check2-all"></i> Todos</button>
+    <button type="button" class="inv-btn-ghost btn-sm" data-marcar="por_recibir"><i class="bi bi-hourglass"></i> Solo no escaneados</button>
+    <button type="button" class="inv-btn-ghost btn-sm" data-marcar="en_stock"><i class="bi bi-box"></i> Solo escaneados</button>
+    <button type="button" class="inv-btn-ghost btn-sm" data-marcar="ninguno">Ninguno</button>
+  </div>
+  <div class="inv-table-wrap mb-3">
+    <table class="inv-table">
+      <thead><tr><th style="width:2.5rem"><span class="visually-hidden">Corregir</span></th><th>Código</th><th>Estado</th></tr></thead>
+      <tbody>
+        {% for p in pares %}
+        <tr>
+          <td>{% if p.pk in corregibles %}<input type="checkbox" name="par" value="{{ p.pk }}" data-estado="{{ p.estado }}" class="form-check-input m-0 js-par"{% if p.pk == marcado %} checked{% endif %} aria-label="Corregir {{ p.codigo }}">{% endif %}</td>
+          <td><a href="{% url 'inventario:par_ficha' p.codigo %}"><span class="inv-code">{{ p.codigo }}</span></a></td>
+          <td><span class="inv-chip inv-chip-{{ p.estado|cut:"_" }}">{{ p.get_estado_display }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="inv-panel inv-panel-pad">
+    <div class="row g-3 align-items-end">
+      <div class="col-12 col-sm-5">
+        <label class="form-label small" for="talla">Talla correcta (MX)</label>
+        <select name="talla" id="talla" class="form-select" required>
+          <option value="">Elige…</option>
+          {% for pk, mx, eq in tallas %}<option value="{{ pk }}">{{ mx }}{% if eq %} · {{ eq }}{% endif %}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-sm-7">
+        <label class="form-label small" for="nota">Nota (opcional)</label>
+        <input type="text" name="nota" id="nota" maxlength="200" class="form-control" placeholder="Ej. la caja dice 27">
+      </div>
+    </div>
+    <div class="d-flex align-items-center gap-3 mt-3">
+      <button type="submit" class="btn-g"><i class="bi bi-arrow-left-right"></i> Corregir <span id="n-marcados">0</span> par(es)</button>
+    </div>
+  </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var chks = document.querySelectorAll('.js-par'), n = document.getElementById('n-marcados');
+  function contar() { n.textContent = Array.prototype.filter.call(chks, function (c) { return c.checked; }).length; }
+  document.querySelectorAll('[data-marcar]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var m = b.dataset.marcar;
+      chks.forEach(function (c) { c.checked = m === 'todos' || c.dataset.estado === m; });
+      contar();
+    });
+  });
+  chks.forEach(function (c) { c.addEventListener('change', contar); });
+  contar();
+})();
+</script>
+{% endblock %}

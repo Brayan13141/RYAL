@@ -81,6 +81,11 @@ def etiquetas_lote(request, pk):
             'Intervalo inválido: el inicio es mayor que el final.',
             content_type='text/plain; charset=utf-8')
     hay_intervalo = bool(desde or hasta)
+    # ?codigos=A,B: esos pares del lote (p. ej. los de una talla recién corregida).
+    codigos = [c.strip().upper() for c in request.GET.get('codigos', '').split(',') if c.strip()]
+    if codigos:
+        pares = pares.filter(codigo__in=codigos[:etiquetas.MAX_POR_PDF * 10])
+        grupos = None
     # Un intervalo sin renglones marcados se toma sobre todo el lote.
     if grupos is None or (not grupos and hay_intervalo):
         pares = list(pares)

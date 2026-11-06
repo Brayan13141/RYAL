@@ -1,0 +1,52 @@
+{% extends "inventario/_base.html" %}
+{% load inventario_tags %}
+{% block title %}Escaneados 2 veces{% endblock %}
+
+{% block inv_content %}
+<div class="inv-head">
+  <div>
+    {% if lote %}<a href="{% url 'inventario:lote_detalle' lote.pk %}" class="small inv-muted text-decoration-none"><i class="bi bi-arrow-left"></i> Lote #{{ lote.pk }}</a>{% endif %}
+    <h1 class="inv-title{% if lote %} mt-1{% endif %}">Escaneados 2 veces{% if lote %} <small>Lote #{{ lote.pk }}{% if lote.referencia %} · {{ lote.referencia }}{% endif %}</small>{% endif %}</h1>
+    <p class="inv-sub">Pares que se volvieron a escanear al recibir cuando ya estaban recibidos. Puede ser la misma caja leída dos veces, o dos cajas con la misma etiqueta: revisa físicamente que solo haya una caja con ese código.</p>
+  </div>
+  {% if lotes_con %}
+  <form method="get" class="inv-actions">
+    <select name="lote" class="form-select form-select-sm" onchange="this.form.submit()" aria-label="Filtrar por lote">
+      <option value="">Todos los lotes</option>
+      {% for l in lotes_con %}<option value="{{ l.pk }}"{% if lote and lote.pk == l.pk %} selected{% endif %}>Lote #{{ l.pk }}{% if l.referencia %} · {{ l.referencia }}{% endif %}</option>{% endfor %}
+    </select>
+    <noscript><button type="submit" class="inv-btn-ghost btn-sm">Filtrar</button></noscript>
+  </form>
+  {% endif %}
+</div>
+
+{% if filas %}
+<div class="inv-table-wrap">
+  <table class="inv-table">
+    <thead>
+      <tr><th>Código</th><th>Modelo</th><th>Color</th><th>Talla MX</th>{% if not lote %}<th>Lote</th>{% endif %}<th class="num">Veces</th><th>Recibido</th><th>Última lectura repetida</th><th>Estado</th></tr>
+    </thead>
+    <tbody>
+      {% for f in filas %}
+      <tr>
+        <td><a href="{% url 'inventario:par_ficha' f.par.codigo %}"><span class="inv-code">{{ f.par.codigo }}</span></a></td>
+        <td>{{ f.par.tipo.modelo_base.nombre }}<div class="small inv-muted">{{ f.par.tipo.get_via_display }}</div></td>
+        <td>{{ f.par.color.nombre|capfirst }}</td>
+        <td><span class="inv-code">{{ f.talla }}</span></td>
+        {% if not lote %}<td><a href="{% url 'inventario:lote_detalle' f.par.lote_id %}">#{{ f.par.lote_id }}</a></td>{% endif %}
+        <td class="num"><b>{{ f.veces }}</b></td>
+        <td>{% if f.recepcion %}{{ f.recepcion.creado_at|date:"d/m/Y H:i" }}<div class="small inv-muted">{{ f.recepcion.usuario.username|default:"—" }}</div>{% else %}—{% endif %}</td>
+        <td>{% if f.ultima %}{{ f.ultima.creado_at|date:"d/m/Y H:i" }}<div class="small inv-muted">{{ f.ultima.usuario.username|default:"—" }}</div>{% endif %}</td>
+        <td>{{ f.par.get_estado_display }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="inv-empty">
+  <i class="bi bi-layers"></i>
+  <p>{% if lote %}En este lote ningún par se ha escaneado dos veces.{% else %}Ningún par se ha escaneado dos veces.{% endif %}</p>
+</div>
+{% endif %}
+{% endblock %}

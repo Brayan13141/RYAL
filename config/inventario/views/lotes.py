@@ -6,16 +6,19 @@ from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q
-from django.http import JsonResponse
+from django.db.models import Count, Max, Q
+from django.http import Http404, JsonResponse
+from django.utils.html import format_html
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from catalog.models import TipoArticulo
 from inventario import etiquetas
-from inventario.models import VIAS, Color, Lote, Par, TallaCalzado, fmt_talla
+from inventario.models import (
+    VIAS, Color, LecturaRepetida, Lote, MovimientoPar, Par, TallaCalzado, fmt_talla)
 from inventario.services.lotes import cerrar_lote, crear_lote, leer_flete, tarifas_por_via
+from inventario.services.tallas import CORREGIBLES, corregir_talla
 from inventario.services.tipos import costo_sugerido, crear_variante, tarifas_decimal
 from inventario.validacion import cabe_en
 
@@ -208,23 +211,106 @@ def lote_detalle(request, pk):
     filas = [{
         'tipo': r['tipo__nombre'], 'color': r['color__nombre'],
         'talla': fmt_talla(r['talla__mx_cm']), 'esperados': r['esperados'],
-        'recibidos': r['recibidos'],
+        'recibidos': r['recibidos'], 'pendientes': r['pendientes'],
+        'url_tallas': reverse('inventario:lote_tallas',
+                              args=[lote.pk, r['tipo_id'], r['color_id'], r['talla_id']]),
         # Campo de "cuántas imprimir" de este grupo (lo lee views/etiquetas.py).
         'campo': f'c_{r["tipo_id"]}_{r["color_id"]}_{r["talla_id"]}',
     } for r in lote.pares.values('tipo_id', 'color_id', 'talla_id',
                                  'tipo__nombre', 'color__nombre', 'talla__mx_cm')
         .annotate(esperados=Count('pk'),
-                  recibidos=Count('pk', filter=Q(estado=Par.Estado.EN_STOCK)))
+                  recibidos=Count('pk', filter=Q(estado=Par.Estado.EN_STOCK)),
+                  pendientes=Count('pk', filter=Q(estado=Par.Estado.POR_RECIBIR)))
         .order_by('tipo__nombre', 'color__nombre', 'talla__orden')]
     total = sum(conteo.values())
     return render(request, 'inventario/lote_detalle.html', {
         'lote': lote, 'conteo': conteo, 'filas': filas, 'total': total,
+        'n_repetidos': lote.lecturas_repetidas.values('par').distinct().count(),
         # La app de la impresora no acepta más de `limite` páginas por trabajo.
         'limite': etiquetas.MAX_POR_PDF,
         'botones_lote': [
             ('todos', 'Imprimir todo', etiquetas.partes(total)),
             ('pendientes', 'Imprimir pendientes', etiquetas.partes(conteo['por_recibir'])),
         ]})
+
+
+@staff_member_required
+def repetidos(request):
+    """Pares escaneados para recibir cuando ya estaban en stock, del más reciente al más viejo."""
+    lotes_con = Lote.objects.filter(lecturas_repetidas__isnull=False).distinct().order_by('-pk')
+    try:
+        lote = Lote.objects.filter(pk=int(request.GET.get('lote', ''))).first()
+    except ValueError:
+        lote = None
+    qs = Par.objects.filter(lecturas_repetidas__isnull=False)
+    if lote is not None:
+        qs = qs.filter(lecturas_repetidas__lote=lote)
+    pares = list(
+        qs.annotate(repetidas=Count('lecturas_repetidas', distinct=True),
+                    ultima_at=Max('lecturas_repetidas__creado_at'))
+        .select_related('tipo__padre', 'color', 'talla', 'lote')
+        .order_by('-ultima_at', '-pk')[:500])
+    # La recepción (la primera lectura) y la última repetida de cada par, con su usuario.
+    recepcion, ultima = {}, {}
+    for m in (MovimientoPar.objects.filter(par__in=pares, a_estado=Par.Estado.EN_STOCK)
+              .select_related('usuario').order_by('creado_at', 'pk')):
+        recepcion[m.par_id] = m
+    for lr in (LecturaRepetida.objects.filter(par__in=pares)
+               .select_related('usuario').order_by('creado_at', 'pk')):
+        ultima[lr.par_id] = lr
+    filas = [{
+        'par': p, 'talla': fmt_talla(p.talla.mx_cm), 'veces': p.repetidas + 1,
+        'recepcion': recepcion.get(p.pk), 'ultima': ultima.get(p.pk),
+    } for p in pares]
+    return render(request, 'inventario/repetidos.html', {
+        'filas': filas, 'lote': lote, 'lotes_con': lotes_con})
+
+
+@staff_member_required
+def lote_tallas(request, pk, tipo_id, color_id, talla_id):
+    """Corregir la talla de pares de un renglón del lote (tipo × color × talla)."""
+    lote = get_object_or_404(Lote, pk=pk)
+    pares = list(lote.pares.filter(tipo_id=tipo_id, color_id=color_id, talla_id=talla_id)
+                 .select_related('tipo__padre', 'color', 'talla').order_by('pk'))
+    if not pares:
+        raise Http404('Ese renglón no está en el lote.')
+    corregibles = {p.pk: p for p in pares if p.estado in CORREGIBLES}
+    tallas_activas = TallaCalzado.objects.filter(activa=True).exclude(pk=talla_id)
+    if request.method == 'POST':
+        ids = set()
+        for v in request.POST.getlist('par'):
+            if v.isdigit() and int(v) in corregibles:
+                ids.add(int(v))
+        talla = tallas_activas.filter(pk=request.POST.get('talla') or 0).first() \
+            if (request.POST.get('talla') or '').isdigit() else None
+        if not ids:
+            messages.error(request, 'Marca al menos un par por recibir o en stock.')
+        elif talla is None:
+            messages.error(request, 'Elige la talla correcta.')
+        else:
+            try:
+                cambiados = corregir_talla([corregibles[i] for i in sorted(ids)], talla,
+                                           usuario=request.user, nota=request.POST.get('nota', ''))
+            except ValueError as e:
+                messages.error(request, str(e))
+            else:
+                codigos = ','.join(p.codigo for p in cambiados)
+                url = reverse('inventario:etiquetas_lote', args=[lote.pk]) + f'?codigos={codigos}'
+                n = len(cambiados)
+                messages.success(request, format_html(
+                    '{} par{} pasado{} de la talla {} a la {}. La etiqueta impresa trae la talla '
+                    'anterior: <a href="{}" target="_blank">imprime las nuevas</a>.',
+                    n, 'es' if n != 1 else '', 's' if n != 1 else '',
+                    fmt_talla(pares[0].talla.mx_cm), fmt_talla(talla.mx_cm), url))
+                return redirect('inventario:lote_detalle', pk=lote.pk)
+    try:
+        marcado = int(request.GET.get('par', ''))
+    except ValueError:
+        marcado = None
+    return render(request, 'inventario/lote_tallas.html', {
+        'lote': lote, 'pares': pares, 'muestra': pares[0], 'talla': fmt_talla(pares[0].talla.mx_cm),
+        'corregibles': corregibles, 'marcado': marcado,
+        'tallas': [(t.pk, fmt_talla(t.mx_cm), etiquetas.equivalencias(t)) for t in tallas_activas]})
 
 
 @staff_member_required
