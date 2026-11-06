@@ -337,7 +337,7 @@ class IntervaloEtiquetasTests(EtiquetasBase):
         self.assertContains(r, 'name="hasta"')
         self.assertContains(r, 'data-total="3"')
         self.assertContains(r, 'class="form-check-input m-0 js-grupo"', count=1)
-        self.assertContains(r, f'data-grupo="{self.var_a.nombre}"', count=4)
+        self.assertContains(r, f'data-grupo="{self.var_a.pk}"', count=4)
 
 
 class DescargarEtiquetasTests(EtiquetasBase):

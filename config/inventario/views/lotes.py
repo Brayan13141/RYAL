@@ -202,6 +202,33 @@ def lotes(request):
     return render(request, 'inventario/lotes_lista.html', {'lotes': qs[:200]})
 
 
+# La lista de no escaneados se muestra mientras sean menos que esto (filtrando por modelo).
+MAX_LISTA_NO_ESCANEADOS = 30
+
+
+def _modelos_del_lote(filas):
+    """Los renglones del lote agrupados en una card por modelo, con sus totales."""
+    modelos = {}
+    for f in filas:
+        m = modelos.setdefault(f['tipo_id'], {
+            'tipo_id': f['tipo_id'], 'tipo': f['tipo'], 'filas': [],
+            'esperados': 0, 'recibidos': 0, 'pendientes': 0})
+        m['filas'].append(f)
+        for k in ('esperados', 'recibidos', 'pendientes'):
+            m[k] += f[k]
+    return list(modelos.values())
+
+
+def _no_escaneados(lote):
+    """Pares por recibir con su número de etiqueta: la posición en "Imprimir todo"."""
+    pares = lote.pares.select_related('tipo', 'color', 'talla').order_by('pk')
+    return [{
+        'numero': i, 'codigo': p.codigo, 'tipo_id': p.tipo_id, 'tipo': p.tipo.nombre,
+        'color': p.color.nombre, 'talla': fmt_talla(p.talla.mx_cm),
+        'url': reverse('inventario:par_ficha', args=[p.codigo]),
+    } for i, p in enumerate(pares, 1) if p.estado == Par.Estado.POR_RECIBIR]
+
+
 @staff_member_required
 def lote_detalle(request, pk):
     lote = get_object_or_404(Lote, pk=pk)
@@ -216,6 +243,7 @@ def lote_detalle(request, pk):
                               args=[lote.pk, r['tipo_id'], r['color_id'], r['talla_id']]),
         # Campo de "cuántas imprimir" de este grupo (lo lee views/etiquetas.py).
         'campo': f'c_{r["tipo_id"]}_{r["color_id"]}_{r["talla_id"]}',
+        'tipo_id': r['tipo_id'],
     } for r in lote.pares.values('tipo_id', 'color_id', 'talla_id',
                                  'tipo__nombre', 'color__nombre', 'talla__mx_cm')
         .annotate(esperados=Count('pk'),
@@ -225,6 +253,8 @@ def lote_detalle(request, pk):
     total = sum(conteo.values())
     return render(request, 'inventario/lote_detalle.html', {
         'lote': lote, 'conteo': conteo, 'filas': filas, 'total': total,
+        'modelos': _modelos_del_lote(filas), 'no_escaneados': _no_escaneados(lote),
+        'max_lista': MAX_LISTA_NO_ESCANEADOS,
         'n_repetidos': lote.lecturas_repetidas.values('par').distinct().count(),
         # La app de la impresora no acepta más de `limite` páginas por trabajo.
         'limite': etiquetas.MAX_POR_PDF,

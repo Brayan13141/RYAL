@@ -73,13 +73,22 @@
     {% endfor %}
   </div>
 </div>
-<p class="inv-sub mt-0 mb-3">Marca los renglones que quieres imprimir, un modelo completo desde su encabezado, o escribe cuántas de cada uno. Con un intervalo imprimes solo de la etiqueta N a la M: sobre lo marcado o, si no marcas nada, sobre todo el lote (la misma numeración de los botones de arriba). La impresora acepta hasta {{ limite }} etiquetas por PDF: si seleccionas más, se reparten en varios PDFs de {{ limite }}.</p>
+<p class="inv-sub mt-0 mb-3">Filtra por modelo para ubicarlo rápido. Marca los renglones que quieres imprimir, un modelo completo desde su encabezado, o escribe cuántas de cada uno; los botones de selección toman solo los modelos que estás viendo. Con un intervalo imprimes solo de la etiqueta N a la M: sobre lo marcado o, si no marcas nada, sobre todo el lote (la misma numeración de los botones de arriba). La impresora acepta hasta {{ limite }} etiquetas por PDF: si seleccionas más, se reparten en varios PDFs de {{ limite }}.</p>
 
 <form method="get" action="{{ url_etiquetas }}" target="_blank" id="f-seleccion" data-limite="{{ limite }}"
       data-total="{{ total }}" data-pendientes="{{ conteo.por_recibir }}">
 <input type="hidden" name="parte" id="sel-parte" disabled>
 <input type="hidden" name="descargar" value="1" id="sel-descargar" disabled>
-<div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+
+<div class="inv-filtros mb-3" role="group" aria-label="Filtrar por modelo">
+  <span class="small inv-muted"><i class="bi bi-funnel"></i> Modelo</span>
+  <button type="button" id="filtro-todos" class="inv-filtro-chip is-on" aria-pressed="true">Todos <span class="inv-filtro-n">{{ modelos|length }}</span></button>
+  {% for m in modelos %}
+  <button type="button" class="inv-filtro-chip js-filtro" data-modelo="{{ m.tipo_id }}" aria-pressed="false">{{ m.tipo }} <span class="inv-filtro-n{% if m.pendientes %} is-pend{% endif %}">{% if m.pendientes %}{{ m.pendientes }} sin escanear{% else %}<i class="bi bi-check2"></i> completo{% endif %}</span><span class="inv-filtro-sel js-filtro-sel" hidden></span></button>
+  {% endfor %}
+</div>
+
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
   <button type="button" id="sel-todo" class="inv-btn-ghost btn-sm"><i class="bi bi-check2-all"></i> Seleccionar todo</button>
   <button type="button" id="sel-limite" class="inv-btn-ghost btn-sm"><i class="bi bi-check2-square"></i> Seleccionar {{ limite }}</button>
   <button type="button" id="sel-pend" class="inv-btn-ghost btn-sm"><i class="bi bi-hourglass"></i> Seleccionar no escaneados</button>
@@ -92,36 +101,55 @@
            class="form-control form-control-sm inv-qty" aria-label="Última etiqueta del intervalo">
   </span>
 </div>
-<div class="inv-table-wrap">
-  <table class="inv-table">
-    <thead>
-      <tr><th style="width:2.5rem"><span class="visually-hidden">Seleccionar</span></th><th>Color</th><th>Talla MX</th><th class="num">Esperados</th><th class="num">Recibidos</th><th class="num">Imprimir</th></tr>
-    </thead>
-    <tbody>
-      {% for f in filas %}
-      {% ifchanged f.tipo %}<tr class="inv-group">
-        <td><input type="checkbox" class="form-check-input m-0 js-grupo" data-grupo="{{ f.tipo }}"
-                   aria-label="Seleccionar todo {{ f.tipo }}" title="Todo el modelo"></td>
-        <td colspan="5"><span class="inv-group-name">{{ f.tipo }}</span> <span class="inv-muted small js-grupo-n" data-grupo="{{ f.tipo }}"></span></td>
-      </tr>{% endifchanged %}
-      <tr>
-        <td><input type="checkbox" class="form-check-input m-0 js-chk" data-max="{{ f.esperados }}" data-campo="{{ f.campo }}" data-grupo="{{ f.tipo }}" data-pend="{{ f.pendientes }}"
-                   aria-label="Seleccionar {{ f.tipo }} {{ f.color }} {{ f.talla }}"></td>
-        <td>{{ f.color|capfirst }}</td>
-        <td><span class="inv-code">{{ f.talla }}</span>
-          <a href="{{ f.url_tallas }}" class="ms-1 inv-muted" title="Corregir talla" aria-label="Corregir talla de {{ f.tipo }} {{ f.color }} {{ f.talla }}"><i class="bi bi-pencil-square"></i></a></td>
-        <td class="num">{{ f.esperados }}</td>
-        <td class="num">{% if f.recibidos == f.esperados %}<span class="inv-chip inv-chip-ok">{{ f.recibidos }}</span>{% else %}{{ f.recibidos }}{% endif %}</td>
-        <td class="num">
+
+{# Se muestra con "Solo pendientes": los pares sin escanear de los modelos visibles. #}
+<section id="pend-box" class="inv-panel inv-pend-box mb-3" data-max-lista="{{ max_lista }}" hidden aria-live="polite">
+  <div class="inv-panel-head">
+    <h3 class="inv-h3 m-0"><i class="bi bi-hourglass-split"></i> No escaneados <span id="pend-n" class="inv-pend-total"></span></h3>
+    <span class="small inv-muted">El número es el de la etiqueta en «Imprimir todo».</span>
+  </div>
+  <div class="inv-panel-pad">
+    <p id="pend-aviso" class="small m-0" hidden></p>
+    <ol id="pend-lista" class="inv-pend-lista" hidden></ol>
+  </div>
+</section>
+
+<div class="inv-lote-cards" id="cards">
+  {% for m in modelos %}
+  <section class="inv-lote-card js-card" data-modelo="{{ m.tipo_id }}">
+    <header class="inv-lote-card-head">
+      <input type="checkbox" class="form-check-input m-0 js-grupo" data-grupo="{{ m.tipo_id }}"
+             aria-label="Seleccionar todo {{ m.tipo }}" title="Todo el modelo">
+      <div class="flex-grow-1 min-w-0">
+        <div class="inv-group-name">{{ m.tipo }}</div>
+        <div class="small inv-muted">{{ m.recibidos }} de {{ m.esperados }} recibidos{% if m.pendientes %} · <span class="inv-pend-txt">{{ m.pendientes }} sin escanear</span>{% endif %}
+          <span class="js-grupo-n" data-grupo="{{ m.tipo_id }}"></span></div>
+      </div>
+      {% if not m.pendientes %}<span class="inv-chip inv-chip-ok"><i class="bi bi-check2"></i></span>{% endif %}
+    </header>
+    <div class="inv-progress mb-2"><span class="p-stock" style="width:{% widthratio m.recibidos m.esperados 100 %}%"></span></div>
+    <div class="inv-lote-rows">
+      <div class="inv-lote-row inv-lote-row-head" aria-hidden="true"><span></span><span>Color</span><span>Talla</span><span class="num">Recib.</span><span class="num">Imprimir</span></div>
+      {% for f in m.filas %}
+      <div class="inv-lote-row{% if f.pendientes %} has-pend{% endif %}">
+        <input type="checkbox" class="form-check-input m-0 js-chk" data-max="{{ f.esperados }}" data-campo="{{ f.campo }}" data-grupo="{{ m.tipo_id }}" data-pend="{{ f.pendientes }}"
+               aria-label="Seleccionar {{ f.tipo }} {{ f.color }} {{ f.talla }}">
+        <span class="text-truncate">{{ f.color|capfirst }}</span>
+        <span><span class="inv-code">{{ f.talla }}</span>
+          <a href="{{ f.url_tallas }}" class="ms-1 inv-muted" title="Corregir talla" aria-label="Corregir talla de {{ f.tipo }} {{ f.color }} {{ f.talla }}"><i class="bi bi-pencil-square"></i></a></span>
+        <span class="num">{% if f.recibidos == f.esperados %}<span class="inv-chip inv-chip-ok">{{ f.recibidos }}/{{ f.esperados }}</span>{% else %}{{ f.recibidos }}/{{ f.esperados }}{% if f.pendientes %} <span class="inv-pend-txt small">· {{ f.pendientes }}</span>{% endif %}{% endif %}</span>
+        <span class="num">
           <input type="number" name="{{ f.campo }}" min="0" max="{{ f.esperados }}" step="1" inputmode="numeric" placeholder=" "
                  class="form-control form-control-sm d-inline-block inv-qty js-qty"
                  aria-label="Etiquetas a imprimir de {{ f.tipo }} {{ f.color }} {{ f.talla }}">
-        </td>
-      </tr>
+        </span>
+      </div>
       {% endfor %}
-    </tbody>
-  </table>
+    </div>
+  </section>
+  {% endfor %}
 </div>
+<p id="cards-vacio" class="inv-muted small" hidden>Ningún modelo con ese filtro.</p>
 
 <div class="inv-sticky">
   <div class="d-flex flex-wrap align-items-center gap-3">
@@ -138,6 +166,57 @@
   <div class="inv-actions" id="sel-partes" hidden></div>
 </div>
 </form>
+{{ no_escaneados|json_script:"no-escaneados-json" }}
+{% endblock %}
+
+{% block inv_css %}
+<style>
+  .min-w-0 { min-width: 0; }
+  .inv-filtros { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .inv-filtro-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 99px;
+    border: 1px solid var(--inv-line-2); background: transparent; color: var(--inv-ink); font-size: 13px;
+    line-height: 1.2; cursor: pointer; transition: background .12s, border-color .12s, color .12s; }
+  .inv-filtro-chip:hover { border-color: #4a4a4a; background: var(--inv-raise-2); }
+  .inv-filtro-chip.is-on { background: var(--inv-gold); border-color: var(--inv-gold); color: #000; font-weight: 600; }
+  .inv-filtro-n { font-size: 11.5px; color: var(--inv-mute); font-weight: 500; }
+  .inv-filtro-n.is-pend { color: var(--inv-warn); }
+  .inv-filtro-chip.is-on .inv-filtro-n { color: rgba(0, 0, 0, .65); }
+  .inv-filtro-sel { font-size: 11px; padding: 1px 7px; border-radius: 99px; background: var(--inv-gold-soft);
+    color: var(--inv-gold); font-weight: 600; }
+  .inv-filtro-chip.is-on .inv-filtro-sel { background: rgba(0, 0, 0, .18); color: #000; }
+
+  .inv-lote-cards { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); }
+  .inv-lote-card { background: var(--inv-raise); border: 1px solid var(--inv-line); border-radius: var(--inv-r-lg);
+    padding: 14px 16px; min-width: 0; transition: border-color .15s; }
+  .inv-lote-card.is-sel { border-color: rgba(212, 175, 55, .45); }
+  .inv-lote-card-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+  .inv-lote-card-head .js-grupo { margin-top: 4px !important; }
+  .inv-lote-rows { display: flex; flex-direction: column; }
+  .inv-lote-row { display: grid; grid-template-columns: 1.6rem minmax(0, 1fr) auto 4.6rem 4.4rem; align-items: center;
+    gap: 8px; padding: 6px 0; border-top: 1px solid var(--inv-line); font-size: 14px; transition: opacity .15s; }
+  .inv-lote-row-head { border-top: 0; padding-top: 0; font-size: 11px; color: var(--inv-mute);
+    text-transform: uppercase; letter-spacing: .06em; }
+  .inv-lote-row .num { text-align: right; }
+  .inv-pend-txt { color: var(--inv-warn); }
+  /* Con "Solo pendientes" se apagan los renglones ya completos. */
+  .inv-solo-pend .inv-lote-row:not(.has-pend):not(.inv-lote-row-head) { opacity: .38; }
+  .inv-solo-pend .inv-lote-card:not(.has-pend) { opacity: .55; }
+
+  .inv-pend-box { border-color: rgba(232, 191, 90, .35); }
+  .inv-pend-total { color: var(--inv-warn); font-family: var(--inv-display); font-size: 18px; margin-left: 4px; }
+  .inv-pend-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); }
+  .inv-pend-lista li { display: flex; align-items: baseline; gap: 10px; padding: 8px 10px; border-radius: var(--inv-r-sm);
+    background: var(--inv-raise-2); border: 1px solid var(--inv-line); min-width: 0; }
+  .inv-pend-num { font-family: var(--inv-display); font-weight: 700; font-size: 18px; color: var(--inv-warn);
+    min-width: 2.6em; }
+  .inv-pend-desc { color: var(--inv-mute); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #pend-aviso.is-warn { color: var(--inv-warn); }
+  @media (max-width: 575.98px) {
+    .inv-lote-card { padding: 12px; }
+    .inv-lote-row { grid-template-columns: 1.4rem minmax(0, 1fr) auto 3.8rem 4rem; gap: 6px; font-size: 13.5px; }
+  }
+</style>
 {% endblock %}
 
 {% block extra_js %}
@@ -154,14 +233,26 @@
   var iDesde = document.getElementById('sel-desde'), iHasta = document.getElementById('sel-hasta');
   var soloPend = document.getElementById('sel-pendientes');
   var totalLote = parseInt(form.dataset.total, 10) || 0, pendientes = parseInt(form.dataset.pendientes, 10) || 0;
+  var cards = document.querySelectorAll('.js-card'), chips = document.querySelectorAll('.js-filtro');
+  var chipTodos = document.getElementById('filtro-todos'), cardsVacio = document.getElementById('cards-vacio');
+  var pendBox = document.getElementById('pend-box'), pendLista = document.getElementById('pend-lista');
+  var pendAviso = document.getElementById('pend-aviso'), pendN = document.getElementById('pend-n');
+  var maxLista = parseInt(pendBox.dataset.maxLista, 10) || 30;
+  var NO_ESCANEADOS = JSON.parse(document.getElementById('no-escaneados-json').textContent);
+  var filtro = {};  // tipo_id -> true; vacío = todos los modelos
 
   function qtyDe(chk) { return form.querySelector('input[name="' + chk.dataset.campo + '"]'); }
   function cuantas(i) {
     var v = parseInt(i.value, 10), max = parseInt(i.max, 10);
     return v > 0 ? Math.min(v, max || v) : 0;
   }
-  function delGrupo(nombre) {
-    return Array.prototype.filter.call(chks, function (c) { return c.dataset.grupo === nombre; });
+  function delGrupo(id) {
+    return Array.prototype.filter.call(chks, function (c) { return c.dataset.grupo === id; });
+  }
+  function hayFiltro() { return Object.keys(filtro).length > 0; }
+  function visible(id) { return !hayFiltro() || filtro[id] === true; }
+  function chksVisibles() {
+    return Array.prototype.filter.call(chks, function (c) { return visible(c.dataset.grupo); });
   }
   // {d, h} en base 1 (h = 0: hasta el final), o null si no hay intervalo.
   function intervalo() {
@@ -185,6 +276,60 @@
     }
   }
 
+  // La sección de no escaneados: los pares sin escanear de los modelos visibles.
+  function pintarPendientes() {
+    pendBox.hidden = !soloPend.checked;
+    document.getElementById('cards').classList.toggle('inv-solo-pend', soloPend.checked);
+    if (!soloPend.checked) return;
+    var lista = NO_ESCANEADOS.filter(function (p) { return visible(String(p.tipo_id)); });
+    pendN.textContent = lista.length;
+    pendLista.replaceChildren();
+    pendAviso.classList.remove('is-warn');
+    if (!lista.length) {
+      pendAviso.textContent = hayFiltro()
+        ? 'Estos modelos no tienen pares sin escanear.' : 'No quedan pares sin escanear en este lote.';
+      pendAviso.hidden = false; pendLista.hidden = true;
+      return;
+    }
+    if (lista.length >= maxLista) {
+      pendAviso.textContent = 'Son ' + lista.length + ' pares sin escanear: filtra por modelo para ver cuáles son ' +
+        '(la lista aparece con menos de ' + maxLista + ').';
+      pendAviso.classList.add('is-warn');
+      pendAviso.hidden = false; pendLista.hidden = true;
+      return;
+    }
+    lista.forEach(function (p) {
+      var li = document.createElement('li');
+      var num = document.createElement('span');
+      num.className = 'inv-pend-num'; num.textContent = '#' + p.numero;
+      var cod = document.createElement('a');
+      cod.className = 'inv-code'; cod.href = p.url; cod.textContent = p.codigo;
+      var desc = document.createElement('span');
+      desc.className = 'inv-pend-desc'; desc.textContent = p.tipo + ' · ' + p.color + ' · ' + p.talla;
+      li.append(num, cod, desc);
+      pendLista.append(li);
+    });
+    pendAviso.hidden = true; pendLista.hidden = false;
+  }
+
+  function aplicarFiltro() {
+    var algunaVisible = false;
+    cards.forEach(function (c) {
+      var ver = visible(c.dataset.modelo);
+      c.hidden = !ver;
+      if (ver) algunaVisible = true;
+    });
+    cardsVacio.hidden = algunaVisible;
+    chips.forEach(function (ch) {
+      var on = filtro[ch.dataset.modelo] === true;
+      ch.classList.toggle('is-on', on);
+      ch.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    chipTodos.classList.toggle('is-on', !hayFiltro());
+    chipTodos.setAttribute('aria-pressed', hayFiltro() ? 'false' : 'true');
+    pintarPendientes();
+  }
+
   function contar() {
     var sel = 0;
     // Con "Solo pendientes", de cada renglón salen como mucho sus no escaneados.
@@ -198,11 +343,20 @@
       g.checked = filas.length > 0 && marcadas === filas.length;
       g.indeterminate = marcadas > 0 && marcadas < filas.length;
     });
+    var porModelo = {};
     gruposN.forEach(function (s) {
-      var van = 0, hay = 0;
-      delGrupo(s.dataset.grupo).forEach(function (c) { van += cuantas(qtyDe(c)); hay += parseInt(c.dataset.max, 10) || 0; });
-      s.textContent = '· ' + (van ? van + ' de ' : '') + hay + ' pares';
+      var van = 0;
+      delGrupo(s.dataset.grupo).forEach(function (c) { van += cuantas(qtyDe(c)); });
+      porModelo[s.dataset.grupo] = van;
+      s.textContent = van ? '· ' + van + ' por imprimir' : '';
     });
+    // Lo marcado en un modelo oculto por el filtro se ve en su chip.
+    chips.forEach(function (ch) {
+      var van = porModelo[ch.dataset.modelo] || 0, b = ch.querySelector('.js-filtro-sel');
+      b.hidden = !van;
+      b.textContent = van ? van + ' ✓' : '';
+    });
+    cards.forEach(function (c) { c.classList.toggle('is-sel', (porModelo[c.dataset.modelo] || 0) > 0); });
     // El intervalo recorta la selección; sin selección, todo el lote (o sus pendientes).
     var total = sel, inicio = 1, r = intervalo();
     if (r) {
@@ -219,6 +373,29 @@
     if (varias) pintarPartes(total, inicio);
   }
 
+  // Los botones de selección reemplazan lo marcado con lo de los modelos visibles.
+  function seleccionar(valorDe) {
+    chks.forEach(function (c) {
+      var v = visible(c.dataset.grupo) ? valorDe(c) : 0;
+      qtyDe(c).value = v > 0 ? v : '';
+    });
+  }
+
+  // Cards con pares sin escanear (para apagar las completas con "Solo pendientes").
+  cards.forEach(function (c) {
+    var hay = delGrupo(c.dataset.modelo).some(function (k) { return (parseInt(k.dataset.pend, 10) || 0) > 0; });
+    c.classList.toggle('has-pend', hay);
+  });
+
+  chips.forEach(function (ch) {
+    ch.addEventListener('click', function () {
+      if (filtro[ch.dataset.modelo]) delete filtro[ch.dataset.modelo];
+      else filtro[ch.dataset.modelo] = true;
+      aplicarFiltro();
+    });
+  });
+  chipTodos.addEventListener('click', function () { filtro = {}; aplicarFiltro(); });
+
   grupos.forEach(function (g) {
     g.addEventListener('change', function () {
       delGrupo(g.dataset.grupo).forEach(function (c) { qtyDe(c).value = g.checked ? c.dataset.max : ''; });
@@ -226,7 +403,7 @@
     });
   });
   [iDesde, iHasta].forEach(function (i) { i.addEventListener('input', contar); });
-  soloPend.addEventListener('change', contar);
+  soloPend.addEventListener('change', function () { contar(); pintarPendientes(); });
 
   cajaPartes.addEventListener('click', function (e) {
     var b = e.target.closest('button[data-parte]');
@@ -250,34 +427,37 @@
   qtys.forEach(function (i) { i.addEventListener('input', contar); });
 
   document.getElementById('sel-todo').addEventListener('click', function () {
-    chks.forEach(function (c) { qtyDe(c).value = c.dataset.max; });
+    seleccionar(function (c) { return parseInt(c.dataset.max, 10) || 0; });
     contar();
   });
-  // Los primeros `limite` pares en el orden de la tabla; el último renglón puede quedar parcial.
+  // Los primeros `limite` pares visibles en el orden de las cards; el último renglón puede quedar parcial.
   document.getElementById('sel-limite').addEventListener('click', function () {
     var resta = limite;
-    chks.forEach(function (c) {
+    seleccionar(function (c) {
       var tomar = Math.min(parseInt(c.dataset.max, 10) || 0, resta);
-      qtyDe(c).value = tomar > 0 ? tomar : '';
       resta -= tomar;
+      return tomar;
     });
     contar();
   });
-  // Cada renglón con sus pares por recibir, y "Solo pendientes" para que el PDF tome esos.
+  // Cada renglón visible con sus pares por recibir, y "Solo pendientes" para que el PDF tome
+  // esos y aparezca la lista de cuáles son.
   document.getElementById('sel-pend').addEventListener('click', function () {
-    chks.forEach(function (c) {
-      var p = parseInt(c.dataset.pend, 10) || 0;
-      qtyDe(c).value = p > 0 ? p : '';
-    });
+    seleccionar(function (c) { return parseInt(c.dataset.pend, 10) || 0; });
     soloPend.checked = true;
     contar();
+    pintarPendientes();
+    pendBox.scrollIntoView({behavior: 'smooth', block: 'nearest'});
   });
   document.getElementById('sel-limpiar').addEventListener('click', function () {
     qtys.forEach(function (i) { i.value = ''; });
     iDesde.value = iHasta.value = '';
+    soloPend.checked = false;
     contar();
+    pintarPendientes();
   });
   contar();
+  aplicarFiltro();
 })();
 </script>
 {% endblock %}
