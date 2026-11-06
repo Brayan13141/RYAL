@@ -12,7 +12,11 @@
   const token = csrf ? decodeURIComponent(csrf.split('=')[1]) : '';
 
   const TONOS = { verde: 880, amarillo: 520, rojo: 220 };
-  let ocupado = false;  // true mientras se envía y durante 1.5 s después
+  // Las lecturas se encolan y se mandan de una en una: con la pistola el siguiente par
+  // llega antes de la respuesta del anterior y no puede perderse.
+  const cola = [];
+  let enCurso = false;
+  let ultimaLectura = '', ultimaLecturaAt = 0;  // la misma lectura en 1.5 s es un rebote
 
   function bip(nivel) {
     try {
@@ -185,8 +189,7 @@
   }
 
   function escanearVender(lectura) {
-    ocupado = true;
-    post(cfg.venderInfo, { lectura: lectura })
+    return post(cfg.venderInfo, { lectura: lectura })
       .then(d => {
         if (d.nivel === 'amarillo') {  // vendido por el bot: no entra al carrito
           const n = (d.items_bot && d.items_bot[0]) ? ' (pedido #' + d.items_bot[0].pedido_id + ')' : '';
@@ -206,12 +209,7 @@
         pintarCarrito();
         avisar('verde', d.par.codigo + ' agregado');
       })
-      .catch(() => avisar('rojo', 'Error de red'))
-      .finally(() => {
-        input.value = '';
-        input.focus();
-        setTimeout(() => { ocupado = false; }, 1500);
-      });
+      .catch(() => avisar('rojo', 'Error de red'));
   }
 
   vd.cobrar.addEventListener('click', () => {
@@ -267,9 +265,8 @@
 
   // ── Modo Contar: las lecturas van al conteo abierto (nunca cambian el estado del par) ──
   function escanearContar(lectura) {
-    if (!cfg.conteoId) { avisar('rojo', 'Inicia un conteo primero.'); return; }
-    ocupado = true;
-    post(cfg.contar, { lectura: lectura, conteo_id: cfg.conteoId })
+    if (!cfg.conteoId) { avisar('rojo', 'Inicia un conteo primero.'); return Promise.resolve(); }
+    return post(cfg.contar, { lectura: lectura, conteo_id: cfg.conteoId })
       .then(d => {
         avisar(d.nivel || 'rojo', d.mensaje || d.error || 'Error');
         const l = document.getElementById('ct-lista');
@@ -280,40 +277,50 @@
           l.prepend(li);
         }
       })
-      .catch(() => avisar('rojo', 'Error de red'))
-      .finally(() => {
-        input.value = '';
-        input.focus();
-        setTimeout(() => { ocupado = false; }, 1500);
-      });
+      .catch(() => avisar('rojo', 'Error de red'));
   }
 
-  function enviar(lectura) {
-    lectura = (lectura || '').trim();
-    if (!lectura || ocupado) return;
-    if (modo === 'vender') { escanearVender(lectura); return; }
-    if (modo === 'contar') { escanearContar(lectura); return; }
-    if (!lote.value) { mostrar('rojo', 'Elige un lote primero.'); bip('rojo'); return; }
-    ocupado = true;
-    post(cfg.recibir, { lectura: lectura, lote_id: lote.value })
+  function escanearRecibir(lectura) {
+    if (!lote.value) { mostrar('rojo', 'Elige un lote primero.'); bip('rojo'); return Promise.resolve(); }
+    return post(cfg.recibir, { lectura: lectura, lote_id: lote.value })
       .then(d => {
         const nivel = d.nivel || 'rojo';
         mostrar(nivel, d.mensaje || d.error || 'Error');
         bip(nivel);
         if (d.nivel) agregarLectura(d);
       })
-      .catch(() => { mostrar('rojo', 'Error de red'); bip('rojo'); })
-      .finally(() => {
-        input.value = '';
-        input.focus();
-        setTimeout(() => { ocupado = false; }, 1500);  // ignora relecturas inmediatas
-      });
+      .catch(() => { mostrar('rojo', 'Error de red'); bip('rojo'); });
+  }
+
+  function procesarCola() {
+    if (enCurso || !cola.length) return;
+    enCurso = true;
+    const { lectura, modoLectura } = cola.shift();
+    const accion = modoLectura === 'vender' ? escanearVender
+      : modoLectura === 'contar' ? escanearContar : escanearRecibir;
+    accion(lectura).finally(() => { enCurso = false; procesarCola(); });
+  }
+
+  function enviar(lectura) {
+    lectura = (lectura || '').trim();
+    if (!lectura) return;
+    const ahora = Date.now();
+    if (lectura === ultimaLectura && ahora - ultimaLecturaAt < 1500) return;  // rebote
+    ultimaLectura = lectura; ultimaLecturaAt = ahora;
+    cola.push({ lectura: lectura, modoLectura: modo });
+    procesarCola();
   }
 
   if (new URLSearchParams(location.search).has('conteo')) cambiarModo('contar');
 
   input.addEventListener('keydown', e => {
-    if (e.key === 'Enter') { e.preventDefault(); enviar(input.value); }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      // Se vacía al instante: lo que teclee la pistola después es el siguiente par.
+      const lectura = input.value;
+      input.value = '';
+      enviar(lectura);
+    }
   });
   // La pistola necesita el foco siempre: lo recupera al tocar fuera de controles.
   document.addEventListener('click', e => {
@@ -344,8 +351,8 @@
       if (code && code.data) {
         const ahora = Date.now();
         if (code.data !== ultimoCodigo || ahora - ultimoEnvio > 4000) {
-          if (!ocupado) { ultimoCodigo = code.data; ultimoEnvio = ahora; }
-          enviar(code.data);  // `enviar` descarta lo que llegue en cooldown
+          ultimoCodigo = code.data; ultimoEnvio = ahora;
+          enviar(code.data);
         }
       }
     }

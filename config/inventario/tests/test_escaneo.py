@@ -62,9 +62,16 @@ class RecibirTests(LotesBase):
         otro = self.crear()
         r = recibir(self.par.codigo, lote=otro, usuario=self.user)
         self.assertEqual(r.nivel, 'rojo')
-        self.assertEqual(r.mensaje, f'Este par es del lote {self.lote.referencia}')
+        self.assertEqual(r.mensaje, f'Este par es del lote #{self.lote.pk} ({self.lote.referencia})')
         self.par.refresh_from_db()
         self.assertEqual(self.par.estado, 'por_recibir')
+
+    def test_otro_lote_sin_referencia_dice_el_numero(self):
+        otro = self.crear()
+        self.lote.referencia = ''
+        self.lote.save(update_fields=['referencia'])
+        r = recibir(self.par.codigo, lote=otro, usuario=self.user)
+        self.assertEqual(r.mensaje, f'Este par es del lote #{self.lote.pk}')
 
     def test_segunda_lectura_amarillo_y_un_solo_movimiento(self):
         recibir(self.par.codigo, lote=self.lote, usuario=self.user)

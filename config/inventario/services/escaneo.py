@@ -43,7 +43,9 @@ def recibir(lectura, *, lote, usuario):
         if par is None:
             return _rojo('Código no existe')
         if par.lote_id != lote.pk:
-            return _rojo(f'Este par es del lote {par.lote.referencia}', par)
+            # La referencia es opcional en el alta: el número siempre identifica el lote.
+            ref = f' ({par.lote.referencia})' if par.lote.referencia else ''
+            return _rojo(f'Este par es del lote #{par.lote.pk}{ref}', par)
 
         if par.estado == Par.Estado.EN_STOCK:
             # Queda registrada para la pantalla de "Escaneados 2 veces".
