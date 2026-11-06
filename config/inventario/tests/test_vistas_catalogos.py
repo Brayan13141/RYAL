@@ -178,3 +178,72 @@ class TipoArticuloFormTests(TestCase):
         qs = TipoArticuloForm().fields['padre'].queryset
         self.assertIn(base, qs)
         self.assertNotIn(v, qs)
+
+
+class ColoresDeVarianteVanAlBaseTests(TestCase):
+    """Los colores viven en el modelo base (colores_efectivos, el alta, el bot y
+    el import leen solo de ahí). Marcar un color al editar la variante aérea
+    lo guardaba en la variante y el alta nunca lo mostraba."""
+
+    def setUp(self):
+        self.base = _base()
+        self.negro = Color.objects.create(nombre='negro')
+        self.rojo = Color.objects.create(nombre='rojo')
+        self.base.colores.add(self.negro)
+        self.var = TipoArticulo(nombre='Jordan 4 A', keywords='jordan 4 aereo', costo=Decimal('620'),
+                                padre=self.base, via='aereo', usa_tallas=True, prefijo='JD4A')
+        self.var.full_clean()
+        self.var.save()
+
+    def _datos(self, colores):
+        return {'nombre': 'Jordan 4 A', 'keywords': 'jordan 4 aereo', 'costo': '620',
+                'padre': self.base.pk, 'via': 'aereo', 'usa_tallas': 'on', 'prefijo': 'JD4A',
+                'colores': [c.pk for c in colores]}
+
+    def test_editar_variante_muestra_los_colores_del_base(self):
+        f = TipoArticuloForm(instance=self.var)
+        self.assertEqual(list(f.initial['colores']), [self.negro])
+
+    def test_color_marcado_en_la_variante_queda_en_el_base(self):
+        f = TipoArticuloForm(self._datos([self.negro, self.rojo]), instance=self.var)
+        self.assertTrue(f.is_valid(), f.errors)
+        f.save()
+        self.assertEqual(set(self.base.colores.all()), {self.negro, self.rojo})
+        self.assertFalse(self.var.colores.exists())
+        self.assertIn(self.rojo, self.var.colores_efectivos())
+
+    def test_nueva_variante_suma_colores_sin_quitar_los_del_base(self):
+        self.var.delete()
+        f = TipoArticuloForm(self._datos([self.rojo]))
+        self.assertTrue(f.is_valid(), f.errors)
+        nueva = f.save()
+        self.assertEqual(set(self.base.colores.all()), {self.negro, self.rojo})
+        self.assertFalse(nueva.colores.exists())
+
+    def test_el_alta_ofrece_el_color_agregado_desde_la_variante(self):
+        f = TipoArticuloForm(self._datos([self.negro, self.rojo]), instance=self.var)
+        self.assertTrue(f.is_valid(), f.errors)
+        f.save()
+        staff = User.objects.create_user('st', password='x', is_staff=True)
+        self.client.force_login(staff)
+        r = self.client.get(reverse('inventario:alta_manual'))
+        modelo = next(m for m in r.context['modelos'] if m['id'] == self.base.pk)
+        self.assertIn('rojo', [c['nombre'] for c in modelo['colores']])
+
+
+class MigracionColoresDeVarianteTests(TestCase):
+    def test_mueve_los_colores_de_la_variante_al_base(self):
+        import importlib
+        from django.apps import apps
+        mig = importlib.import_module('catalog.migrations.0040_colores_de_variante_al_base')
+        base = _base()
+        negro, rojo = Color.objects.create(nombre='negro'), Color.objects.create(nombre='rojo')
+        base.colores.add(negro)
+        var = TipoArticulo(nombre='Jordan 4 A', keywords='jordan 4 aereo', costo=Decimal('620'),
+                           padre=base, via='aereo', usa_tallas=True)
+        var.full_clean()
+        var.save()
+        var.colores.add(rojo)
+        mig.mover_colores_al_base(apps, None)
+        self.assertEqual(set(base.colores.all()), {negro, rojo})
+        self.assertFalse(var.colores.exists())

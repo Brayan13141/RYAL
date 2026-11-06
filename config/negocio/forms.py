@@ -78,6 +78,29 @@ class TipoArticuloForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields['padre'].queryset = TipoArticulo.objects.filter(
             padre__isnull=True).exclude(pk=self.instance.pk).order_by('nombre')
+        # Los colores viven en el modelo base: colores_efectivos(), el alta, el
+        # import y el bot leen solo de ahí. Al editar una variante se muestran
+        # y se guardan los del base; si no, el color marcado aquí no aparece.
+        self._base_de_variante = self.instance.padre if self.instance.padre_id else None
+        if self._base_de_variante is not None:
+            self.initial['colores'] = list(self._base_de_variante.colores.all())
+            self.fields['colores'].help_text = (
+                f'Se guardan en el modelo base «{self._base_de_variante.nombre}» '
+                'y aplican a todas sus vías.')
+
+    def save(self, commit=True):
+        tipo = super().save(commit=commit)
+        if commit and tipo.padre_id:
+            colores = self.cleaned_data.get('colores') or []
+            base = tipo.padre
+            if self._base_de_variante is not None and self._base_de_variante.pk == base.pk:
+                # Edición: el form mostró los colores del base, así que manda el conjunto.
+                base.colores.set(colores)
+            else:
+                # Variante nueva (o cambio de base): suma sin quitar lo que el base ya tenía.
+                base.colores.add(*colores)
+            tipo.colores.clear()
+        return tipo
 
 
 class CodigoDescuentoForm(forms.ModelForm):
