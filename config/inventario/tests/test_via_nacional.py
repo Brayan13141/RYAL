@@ -194,4 +194,4 @@ class VistasTests(Base):
     def test_stock_filtra_por_nacional(self):
         r = self.client.get(reverse('inventario:stock'), {'via': 'nacional'})
         self.assertEqual(r.status_code, 200)
-        self.assertIn('value="nacional"', r.content.decode())
+        self.assertContains(r, 'class="inv-filtro-chip is-on" href="?estado=en_stock&amp;via=nacional"')

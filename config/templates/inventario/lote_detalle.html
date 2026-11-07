@@ -180,26 +180,10 @@
 {% endblock %}
 
 {% block inv_css %}
+{% include "inventario/_filtros_css.html" %}
 <style>
   .min-w-0 { min-width: 0; }
-  .inv-filtros { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-  .inv-filtro-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 99px;
-    border: 1px solid var(--inv-line-2); background: transparent; color: var(--inv-ink); font-size: 13px;
-    line-height: 1.2; cursor: pointer; transition: background .12s, border-color .12s, color .12s; }
-  .inv-filtro-chip:hover { border-color: #4a4a4a; background: var(--inv-raise-2); }
-  .inv-filtro-chip.is-on { background: var(--inv-gold); border-color: var(--inv-gold); color: #000; font-weight: 600; }
-  .inv-filtro-n { font-size: 11.5px; color: var(--inv-mute); font-weight: 500; }
-  .inv-filtro-n.is-pend { color: var(--inv-warn); }
-  .inv-filtro-chip.is-on .inv-filtro-n { color: rgba(0, 0, 0, .65); }
-  .inv-filtro-sel { font-size: 11px; padding: 1px 7px; border-radius: 99px; background: var(--inv-gold-soft);
-    color: var(--inv-gold); font-weight: 600; }
-  .inv-filtro-chip.is-on .inv-filtro-sel { background: rgba(0, 0, 0, .18); color: #000; }
-
-  .inv-lote-cards { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); }
-  .inv-lote-card { background: var(--inv-raise); border: 1px solid var(--inv-line); border-radius: var(--inv-r-lg);
-    padding: 14px 16px; min-width: 0; transition: border-color .15s; }
   .inv-lote-card.is-sel { border-color: rgba(212, 175, 55, .45); }
-  .inv-lote-card-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
   .inv-lote-card-head .js-grupo { margin-top: 4px !important; }
   .inv-lote-rows { display: flex; flex-direction: column; }
   .inv-lote-row { display: grid; grid-template-columns: 1.6rem minmax(0, 1fr) auto 4.6rem 4.4rem; align-items: center;

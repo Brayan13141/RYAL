@@ -171,3 +171,60 @@ class VistaStockTests(StockBase):
         self.assertEqual(r.context['tablas'][0]['total'], 1)
         r = self.client.get(reverse('inventario:stock'))
         self.assertEqual(r.context['estado'], 'en_stock')
+
+
+class StockCardsTests(StockBase):
+    """Stock en cards por modelo con chips de modelo y talla (filtran en el navegador)."""
+
+    def setUp(self):
+        super().setUp()
+        staff = get_user_model().objects.create_user('stc', password='x', is_staff=True)
+        self.client.force_login(staff)
+        self.base2 = TipoArticulo.objects.create(
+            nombre='Air Force', keywords='air force', costo=Decimal('100'))
+        self.af_a = TipoArticulo.objects.create(
+            nombre='Air Force A', keywords='air force aereo', costo=Decimal('500'),
+            padre=self.base2, via='aereo', usa_tallas=True, prefijo='AF1A')
+        self.base2.colores.add(self.negro)
+        self.par()
+        self.par()
+        self.par_m()
+        Par.objects.create(codigo='AF1A-0001', tipo=self.af_a, color=self.negro, talla=self.t265,
+                           lote=self.lote, estado=E.EN_STOCK, costo=Decimal('400'))
+
+    def get(self, **params):
+        return self.client.get(reverse('inventario:stock'), params)
+
+    def test_cada_card_trae_solo_las_tallas_de_su_modelo(self):
+        r = self.get()
+        cols = {t['base'].nombre: t['columnas'] for t in r.context['tablas']}
+        self.assertEqual(cols, {'Jordan 4': ['27'], 'Air Force': ['26.5']})
+
+    def test_chips_de_talla_con_su_total_en_orden(self):
+        r = self.get()
+        self.assertEqual(r.context['tallas'], [{'clave': '26.5', 'n': 1}, {'clave': '27', 'n': 3}])
+        self.assertContains(r, 'class="inv-filtro-chip js-talla" data-talla="26.5"')
+
+    def test_chips_de_modelo_y_cards_con_el_mismo_id(self):
+        r = self.get()
+        self.assertContains(r, f'class="inv-filtro-chip js-filtro" data-modelo="{self.base.pk}"')
+        self.assertContains(r, f'class="inv-lote-card js-card" data-modelo="{self.base.pk}"')
+        self.assertContains(r, f'class="inv-lote-card js-card" data-modelo="{self.base2.pk}"')
+
+    def test_las_celdas_llevan_su_talla_y_cantidad_para_filtrar(self):
+        r = self.get()
+        self.assertContains(r, 'data-talla="27" data-n="3"')
+        self.assertContains(r, 'data-talla="26.5" data-n="1"')
+
+    def test_via_en_chips_que_conservan_el_estado(self):
+        r = self.get(estado='por_recibir')
+        self.assertContains(r, 'href="?estado=por_recibir&amp;via=maritimo"')
+        self.assertContains(r, 'href="?estado=por_recibir"')
+        r = self.get(via='maritimo')
+        self.assertEqual([t['total'] for t in r.context['tablas']], [1])
+        self.assertContains(r, 'class="inv-filtro-chip is-on" href="?estado=en_stock&amp;via=maritimo"')
+
+    def test_sin_desplegables_de_modelo_ni_via(self):
+        r = self.get()
+        self.assertNotContains(r, 'Todos los modelos</option>')
+        self.assertNotContains(r, 'name="via"')

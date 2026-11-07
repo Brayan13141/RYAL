@@ -5,20 +5,8 @@
 <div class="inv-head">
   <div>
     <h1 class="inv-title">Stock</h1>
-    <p class="inv-sub">Pares por modelo, color y talla MX. Cada celda separa lo que llegó por avión (A) y por barco (M).</p>
+    <p class="inv-sub">Pares por modelo, color y talla MX. Cada celda separa lo que llegó por avión (A) y por barco (M). Prende varios chips para ver solo esos modelos o tallas.</p>
   </div>
-  <form method="get" class="inv-filters">
-    <input type="hidden" name="estado" value="{{ estado }}">
-    <select name="base_id" class="form-select form-select-sm" onchange="this.form.submit()" aria-label="Modelo">
-      <option value="">Todos los modelos</option>
-      {% for b in bases %}<option value="{{ b.pk }}" {% if b.pk == base_id %}selected{% endif %}>{{ b.nombre }}</option>{% endfor %}
-    </select>
-    <select name="via" class="form-select form-select-sm" onchange="this.form.submit()" aria-label="Vía">
-      <option value="">Todas las vías</option>
-      {% for valor, nombre in vias.items %}<option value="{{ valor }}" {% if via == valor %}selected{% endif %}>{{ nombre }}</option>{% endfor %}
-    </select>
-    <noscript><button class="btn-o btn-sm" type="submit">Filtrar</button></noscript>
-  </form>
 </div>
 
 <nav class="inv-seg mb-4" aria-label="Estado de los pares">
@@ -28,6 +16,28 @@
   </a>
   {% endfor %}
 </nav>
+
+<div class="mb-4">
+  <div class="inv-filtros mb-3" role="group" aria-label="Filtrar por vía">
+    <span class="small inv-muted"><i class="bi bi-truck"></i> Vía</span>
+    {% for c in chips_via %}<a class="inv-filtro-chip{% if c.on %} is-on{% endif %}" href="?{{ c.query }}"{% if c.on %} aria-current="page"{% endif %}>{{ c.etiqueta }}</a>
+    {% endfor %}
+  </div>
+  {% if tablas %}
+  <div class="inv-filtros mb-3" role="group" aria-label="Filtrar por modelo">
+    <span class="small inv-muted"><i class="bi bi-funnel"></i> Modelo</span>
+    <button type="button" id="filtro-todos" class="inv-filtro-chip is-on" aria-pressed="true">Todos <span class="inv-filtro-n">{{ tablas|length }}</span></button>
+    {% for t in tablas %}<button type="button" class="inv-filtro-chip js-filtro" data-modelo="{{ t.base.pk }}" aria-pressed="false">{{ t.base.nombre }} <span class="inv-filtro-n">{{ t.total }} par{{ t.total|pluralize:",es" }}</span></button>
+    {% endfor %}
+  </div>
+  <div class="inv-filtros mb-3" role="group" aria-label="Filtrar por talla">
+    <span class="small inv-muted"><i class="bi bi-rulers"></i> Talla</span>
+    <button type="button" id="talla-todas" class="inv-filtro-chip is-on" aria-pressed="true">Todas</button>
+    {% for t in tallas %}<button type="button" class="inv-filtro-chip js-talla" data-talla="{{ t.clave }}" aria-pressed="false">{{ t.clave }} <span class="inv-filtro-n">{{ t.n }} par{{ t.n|pluralize:",es" }}</span></button>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
 
 {% if alertas.ventas_bot_sin_par or alertas.lotes_abiertos_con_faltantes or alertas.vendidos_bot_sin_escaneo %}
 <div class="inv-alert inv-alert-warn">
@@ -57,31 +67,36 @@
 {% endif %}
 
 {% for t in tablas %}
-<section class="inv-section{% if forloop.first %} mt-0{% endif %}">
-  <div class="inv-section-head">
-    <h2 class="inv-h2">{{ t.base.nombre }}</h2>
-    <span class="inv-muted">{{ t.total }} par{{ t.total|pluralize:",es" }} {{ estado_label }}</span>
-  </div>
-  <div class="inv-table-wrap">
-    <table class="inv-table inv-matrix">
-      <thead>
-        <tr><th>Color</th>{% for c in t.columnas %}<th class="inv-size-head">{{ c }}</th>{% endfor %}<th class="tot">Total</th></tr>
-      </thead>
-      <tbody>
-        {% for f in t.filas %}
-        <tr>
-          <td>{{ f.color.nombre|capfirst }}</td>
-          {% for c in f.celdas %}<td><span class="inv-cell {% if not c.n %}h0{% elif c.n >= 4 %}h3{% elif c.n >= 2 %}h2{% else %}h1{% endif %}">{% if c.n %}<b>{{ c.n }}</b><i>{{ c.desglose }}</i>{% else %}·{% endif %}</span></td>{% endfor %}
-          <td class="tot"><b>{{ f.total }}</b></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-      <tfoot>
-        <tr><td>Total</td>{% for n in t.totales %}<td>{{ n }}</td>{% endfor %}<td class="tot">{{ t.total }}</td></tr>
-      </tfoot>
-    </table>
-  </div>
-</section>
+  {% if forloop.first %}<div class="inv-lote-cards" id="cards">{% endif %}
+  <section class="inv-lote-card js-card" data-modelo="{{ t.base.pk }}">
+    <header class="inv-lote-card-head">
+      <div class="flex-grow-1">
+        <div class="inv-group-name">{{ t.base.nombre }}</div>
+        <div class="small inv-muted"><span class="js-card-tot">{{ t.total }}</span> <span class="js-card-par">par{{ t.total|pluralize:",es" }}</span> {{ estado_label }}</div>
+      </div>
+    </header>
+    <div class="inv-table-wrap">
+      <table class="inv-table inv-matrix">
+        <thead>
+          <tr><th>Color</th>{% for c in t.columnas %}<th class="inv-size-head" data-talla="{{ c }}">{{ c }}</th>{% endfor %}<th class="tot">Total</th></tr>
+        </thead>
+        <tbody>
+          {% for f in t.filas %}
+          <tr class="js-fila">
+            <td>{{ f.color.nombre|capfirst }}</td>
+            {% for c in f.celdas %}<td data-talla="{{ c.clave }}" data-n="{{ c.n }}"><span class="inv-cell {% if not c.n %}h0{% elif c.n >= 4 %}h3{% elif c.n >= 2 %}h2{% else %}h1{% endif %}">{% if c.n %}<b>{{ c.n }}</b><i>{{ c.desglose }}</i>{% else %}·{% endif %}</span></td>{% endfor %}
+            <td class="tot"><b class="js-fila-tot">{{ f.total }}</b></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr><td>Total</td>{% for n in t.totales %}<td data-talla="{{ n.clave }}">{{ n.n }}</td>{% endfor %}<td class="tot js-pie-tot">{{ t.total }}</td></tr>
+        </tfoot>
+      </table>
+    </div>
+  </section>
+  {% if forloop.last %}</div>
+<p id="cards-vacio" class="inv-empty-inline inv-muted" hidden><i class="bi bi-search"></i> Ningún par con esos filtros.</p>{% endif %}
 {% empty %}
 <div class="inv-empty">
   <i class="bi bi-box2"></i>
@@ -93,4 +108,69 @@
   {% endif %}
 </div>
 {% endfor %}
+{% endblock %}
+
+{% block inv_css %}
+{% include "inventario/_filtros_css.html" %}
+<style>
+  a.inv-filtro-chip { text-decoration: none; }
+  /* Dentro de la card la tabla no lleva su propia caja: la card ya la tiene. */
+  .inv-lote-card .inv-table-wrap { border: 0; border-radius: 0; background: transparent; margin: 0 -16px; }
+  .inv-lote-card .inv-matrix th:first-child, .inv-lote-card .inv-matrix td:first-child { min-width: 110px; }
+  @media (max-width: 575.98px) { .inv-lote-card .inv-table-wrap { margin: 0 -12px; } }
+  .inv-empty-inline { padding: 24px 0; text-align: center; }
+  @media (max-width: 575.98px) {
+    .inv-lote-card { padding: 12px; }
+  }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var cards = document.querySelectorAll('.js-card');
+  if (!cards.length) return;
+  var chipsModelo = document.querySelectorAll('.js-filtro'), chipsTalla = document.querySelectorAll('.js-talla');
+  var todos = document.getElementById('filtro-todos'), todas = document.getElementById('talla-todas');
+  var vacio = document.getElementById('cards-vacio');
+  var modelos = {}, tallas = {};  // vacío = sin filtro
+
+  function hay(o) { return Object.keys(o).length > 0; }
+  function marcar(chip, on) { chip.classList.toggle('is-on', on); chip.setAttribute('aria-pressed', on ? 'true' : 'false'); }
+
+  function aplicar() {
+    var conTalla = hay(tallas), conModelo = hay(modelos), alguna = false;
+    cards.forEach(function (card) {
+      if (conModelo && !modelos[card.dataset.modelo]) { card.hidden = true; return; }
+      card.querySelectorAll('[data-talla]').forEach(function (el) {
+        el.hidden = conTalla && !tallas[el.dataset.talla];
+      });
+      var total = 0;
+      card.querySelectorAll('.js-fila').forEach(function (fila) {
+        var n = 0;
+        fila.querySelectorAll('td[data-n]').forEach(function (td) { if (!td.hidden) n += +td.dataset.n; });
+        fila.hidden = conTalla && n === 0;
+        fila.querySelector('.js-fila-tot').textContent = n;
+        total += n;
+      });
+      card.querySelector('.js-card-tot').textContent = total;
+      card.querySelector('.js-card-par').textContent = total === 1 ? 'par' : 'pares';
+      card.querySelector('.js-pie-tot').textContent = total;
+      card.hidden = total === 0;
+      if (!card.hidden) alguna = true;
+    });
+    vacio.hidden = alguna;
+    chipsModelo.forEach(function (c) { marcar(c, !!modelos[c.dataset.modelo]); });
+    chipsTalla.forEach(function (c) { marcar(c, !!tallas[c.dataset.talla]); });
+    marcar(todos, !conModelo);
+    marcar(todas, !conTalla);
+  }
+
+  function alternar(obj, clave) { if (obj[clave]) delete obj[clave]; else obj[clave] = true; aplicar(); }
+  chipsModelo.forEach(function (c) { c.addEventListener('click', function () { alternar(modelos, c.dataset.modelo); }); });
+  chipsTalla.forEach(function (c) { c.addEventListener('click', function () { alternar(tallas, c.dataset.talla); }); });
+  todos.addEventListener('click', function () { modelos = {}; aplicar(); });
+  todas.addEventListener('click', function () { tallas = {}; aplicar(); });
+})();
+</script>
 {% endblock %}

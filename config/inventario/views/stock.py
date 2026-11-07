@@ -32,23 +32,48 @@ def _celda(por_via):
 
 
 def _tablas(matriz):
-    """Prepara cada base para la plantilla: columnas de talla ordenadas y celdas alineadas."""
+    """Una card por modelo base: solo las tallas que ese modelo tiene, celdas alineadas.
+
+    Devuelve también los chips de talla (todas las tallas presentes, con su total) en el
+    orden de `TallaCalzado.orden`. Cada celda lleva su `clave` de talla para que el
+    navegador pueda filtrar columnas sin recargar.
+    """
     claves = {t for m in matriz for f in m['colores'] for t in f['tallas']}
     orden = {t.mx_cm: t.orden for t in TallaCalzado.objects.filter(mx_cm__in=claves)}
-    columnas = sorted(claves, key=lambda t: (orden.get(t, 0), t))
-    etiquetas = [fmt_talla(t) for t in columnas]
+
+    def ordenar(ts):
+        return sorted(ts, key=lambda t: (orden.get(t, 0), t))
+
     vacia = dict.fromkeys(VIAS, 0)
+    por_talla = {}
     tablas = []
     for m in matriz:
-        filas = [{
-            'color': f['color'], 'total': f['total'],
-            'celdas': [_celda(f['tallas'].get(t, vacia)) for t in columnas]}
-            for f in m['colores']]
-        totales = [sum(sum(f['tallas'].get(t, vacia).values()) for f in m['colores'])
-                   for t in columnas]
+        columnas = ordenar({t for f in m['colores'] for t in f['tallas']})
+        filas = []
+        for f in m['colores']:
+            celdas = []
+            for t in columnas:
+                celda = _celda(f['tallas'].get(t, vacia))
+                celda['clave'] = fmt_talla(t)
+                celdas.append(celda)
+            filas.append({'color': f['color'], 'total': f['total'], 'celdas': celdas})
+        totales = []
+        for t in columnas:
+            n = sum(sum(f['tallas'].get(t, vacia).values()) for f in m['colores'])
+            por_talla[t] = por_talla.get(t, 0) + n
+            totales.append({'clave': fmt_talla(t), 'n': n})
         tablas.append({'base': m['base'], 'total': m['total'], 'filas': filas,
-                       'totales': totales, 'columnas': etiquetas})
-    return tablas
+                       'totales': totales, 'columnas': [fmt_talla(t) for t in columnas]})
+    tallas = [{'clave': fmt_talla(t), 'n': por_talla[t]} for t in ordenar(por_talla)]
+    return tablas, tallas
+
+
+def _chips_via(estado, via):
+    """Chips de vía como enlaces: cambiar de vía conserva el estado elegido."""
+    opciones = [(None, 'Todas')] + list(VIAS.items())
+    return [{'etiqueta': nombre, 'on': valor == via,
+             'query': urlencode({'estado': estado, **({'via': valor} if valor else {})})}
+            for valor, nombre in opciones]
 
 
 def _pestanas(base_id, via):
@@ -78,9 +103,10 @@ def stock(request):
     bases = TipoArticulo.objects.filter(padre__isnull=True, variantes__isnull=False).distinct()
     if base_id is not None and not bases.filter(pk=base_id).exists():
         base_id = None
+    tablas, tallas = _tablas(matriz_stock(base_id=base_id, via=via, estado=estado))
     return render(request, 'inventario/stock.html', {
         'pestanas': _pestanas(base_id, via),
-        'tablas': _tablas(matriz_stock(base_id=base_id, via=via, estado=estado)),
+        'tablas': tablas, 'tallas': tallas, 'chips_via': _chips_via(estado, via),
         'alertas': alertas(),
         'bases': bases, 'base_id': base_id, 'via': via, 'vias': VIAS,
         'estado': estado, 'estados': ESTADOS, 'estado_label': dict(ESTADOS)[estado].lower(),
