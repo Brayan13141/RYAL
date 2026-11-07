@@ -73,7 +73,7 @@
     {% endfor %}
   </div>
 </div>
-<p class="inv-sub mt-0 mb-3">Filtra por modelo para ubicarlo rápido. Marca los renglones que quieres imprimir, un modelo completo desde su encabezado, o escribe cuántas de cada uno; los botones de selección toman solo los modelos que estás viendo. Con un intervalo imprimes solo de la etiqueta N a la M: sobre lo marcado o, si no marcas nada, sobre todo el lote (la misma numeración de los botones de arriba). La impresora acepta hasta {{ limite }} etiquetas por PDF: si seleccionas más, se reparten en varios PDFs de {{ limite }}.</p>
+<p class="inv-sub mt-0 mb-3">Filtra por modelo para ubicarlo rápido. Marca los renglones que quieres imprimir, un modelo completo desde su encabezado, o escribe cuántas de cada uno (salen primero los pares sin escanear de ese renglón y, si pides más, los ya escaneados); cada modelo con pendientes trae su botón «Imprimir sin escanear». Los botones de selección toman solo los modelos que estás viendo. Con un intervalo imprimes solo de la etiqueta N a la M: sobre lo marcado o, si no marcas nada, sobre todo el lote (la misma numeración de los botones de arriba). La impresora acepta hasta {{ limite }} etiquetas por PDF: si seleccionas más, se reparten en varios PDFs de {{ limite }}.</p>
 
 <form method="get" action="{{ url_etiquetas }}" target="_blank" id="f-seleccion" data-limite="{{ limite }}"
       data-total="{{ total }}" data-pendientes="{{ conteo.por_recibir }}">
@@ -127,6 +127,16 @@
       </div>
       {% if not m.pendientes %}<span class="inv-chip inv-chip-ok"><i class="bi bi-check2"></i></span>{% endif %}
     </header>
+    {% if m.pendientes %}
+    <div class="d-flex flex-wrap gap-2 mb-2">
+      {% for k, desde, hasta in m.partes_pend %}
+      <span class="inv-split">
+        <a href="{{ url_etiquetas }}?solo=pendientes&amp;modelo={{ m.tipo_id }}{% if m.partes_pend|length > 1 %}&amp;parte={{ k }}{% endif %}" target="_blank" class="inv-btn-ghost btn-sm" title="Etiquetas de los pares de {{ m.tipo }} que faltan por escanear"><i class="bi bi-printer"></i> Imprimir sin escanear{% if m.partes_pend|length > 1 %} {{ desde }}–{{ hasta }}{% else %} ({{ m.pendientes }}){% endif %}</a>
+        <a href="{{ url_etiquetas }}?solo=pendientes&amp;modelo={{ m.tipo_id }}{% if m.partes_pend|length > 1 %}&amp;parte={{ k }}{% endif %}&amp;descargar=1" class="inv-btn-ghost btn-sm inv-btn-icon" title="Descargar" aria-label="Descargar las etiquetas sin escanear de {{ m.tipo }}"><i class="bi bi-download"></i></a>
+      </span>
+      {% endfor %}
+    </div>
+    {% endif %}
     <div class="inv-progress mb-2"><span class="p-stock" style="width:{% widthratio m.recibidos m.esperados 100 %}%"></span></div>
     <div class="inv-lote-rows">
       <div class="inv-lote-row inv-lote-row-head" aria-hidden="true"><span></span><span>Color</span><span>Talla</span><span class="num">Recib.</span><span class="num">Imprimir</span></div>

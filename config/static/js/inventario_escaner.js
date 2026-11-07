@@ -338,6 +338,7 @@
     video.srcObject = null;
     video.classList.remove('on');
   }
+  window.addEventListener('pagehide', detener);  // no dejar la cámara prendida al salir
 
   function bucle() {
     if (!stream) return;
@@ -359,23 +360,67 @@
     requestAnimationFrame(bucle);
   }
 
-  camBtn.addEventListener('click', async () => {
-    if (stream) { detener(); return; }
+  const camTexto = camBtn.querySelector('span');
+  function pintarBoton() {
+    if (camTexto) camTexto.textContent = stream ? ' Apagar cámara' : ' Cámara';
+    camBtn.classList.toggle('active', !!stream);
+  }
+
+  // Por qué getUserMedia falló, en palabras de quien está en el mostrador.
+  function motivoCamara(err) {
+    switch (err && err.name) {
+      case 'NotAllowedError':
+      case 'SecurityError':
+        return 'Permiso de cámara negado. Toca el candado junto a la dirección, ' +
+          'permite la cámara y vuelve a tocar "Cámara".';
+      case 'NotFoundError':
+      case 'OverconstrainedError':
+        return 'Este dispositivo no tiene cámara disponible.';
+      case 'NotReadableError':
+      case 'AbortError':
+        return 'Otra app está usando la cámara. Ciérrala y vuelve a intentar.';
+      default:
+        return 'Sin acceso a la cámara: ' + ((err && err.message) || 'error desconocido');
+    }
+  }
+
+  async function encender() {
+    if (!window.isSecureContext) {
+      mostrar('rojo', 'La cámara solo funciona por HTTPS. Usa el campo de texto o la pistola.');
+      return;
+    }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       mostrar('rojo', 'Tu navegador no soporta acceso a la cámara.');
       return;
     }
+    mostrar(null, 'Pidiendo permiso para usar la cámara…');
     try {
+      // Esta llamada es la que hace que el navegador muestre el aviso de permiso.
       stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
       });
       video.srcObject = stream;
       video.classList.add('on');
       await video.play();
+      pintarBoton();
+      mostrar(null, 'Apunta la cámara al QR de la etiqueta.');
       bucle();
     } catch (err) {
       detener();
-      mostrar('rojo', 'Sin acceso a la cámara: ' + err.message);
+      mostrar('rojo', motivoCamara(err));
+      bip('rojo');
     }
+  }
+
+  camBtn.addEventListener('click', () => {
+    if (stream) { detener(); pintarBoton(); mostrar(null, 'Listo para escanear.'); return; }
+    encender();
   });
+
+  // Si el permiso ya se negó antes, el navegador no vuelve a preguntar: se avisa al cargar.
+  if (navigator.permissions && navigator.permissions.query) {
+    navigator.permissions.query({ name: 'camera' }).then(p => {
+      if (p.state === 'denied') mostrar('amarillo', motivoCamara({ name: 'NotAllowedError' }));
+    }).catch(() => { /* Firefox/Safari viejos no conocen 'camera': no pasa nada */ });
+  }
 })();

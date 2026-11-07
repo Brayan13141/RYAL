@@ -428,3 +428,59 @@ class VistasEtiquetasTests(EtiquetasBase):
         r = self.client.get(reverse('inventario:lote_detalle', args=[self.lote.pk]))
         self.assertContains(r, reverse('inventario:etiquetas_lote', args=[self.lote.pk]) + '?solo=todos')
         self.assertContains(r, reverse('inventario:etiquetas_lote', args=[self.lote.pk]) + '?solo=pendientes')
+
+
+class PendientesPrimeroTests(EtiquetasBase):
+    """Al pedir N etiquetas de un renglón salen primero las de los pares sin escanear;
+    cada card del lote trae un botón para imprimir solo lo que le falta."""
+
+    def setUp(self):
+        super().setUp()
+        self.t26 = TallaCalzado.objects.get(mx_cm=Decimal('26'))
+        self.url = reverse('inventario:etiquetas_lote', args=[self.lote.pk])
+        self.campo = f'c_{self.var_a.pk}_{self.color.pk}_{self.t26.pk}'
+        # El primero (por pk) ya se escaneó: el pendiente es el segundo.
+        self.escaneado, self.pendiente = self.lote.pares.filter(talla=self.t26).order_by('pk')
+        Par.objects.filter(pk=self.escaneado.pk).update(estado='en_stock')
+
+    def impresos(self, datos):
+        with patch('inventario.views.etiquetas.etiquetas.pdf_etiquetas',
+                   return_value=b'%PDF') as pdf:
+            r = self.client.get(self.url, datos)
+        self.assertEqual(r.status_code, 200)
+        return [p.codigo for p in pdf.call_args[0][0]]
+
+    def test_una_etiqueta_toma_el_pendiente_no_el_escaneado(self):
+        self.assertEqual(self.impresos({self.campo: '1'}), [self.pendiente.codigo])
+
+    def test_si_piden_mas_que_los_pendientes_siguen_los_escaneados(self):
+        self.assertEqual(self.impresos({self.campo: '2'}),
+                         [self.pendiente.codigo, self.escaneado.codigo])
+
+    def test_por_modelo_solo_imprime_sus_pendientes(self):
+        otro = crear_variante(
+            TipoArticulo.objects.create(nombre='Nike 270', keywords='nike 270', costo=Decimal('500')),
+            'aereo', costo=Decimal('600'))
+        otro.padre.colores.add(self.color)
+        lote2 = crear_lote(via='aereo', origen='manual', usuario=self.staff, lineas=[
+            {'tipo': otro, 'color': self.color, 'talla': self.t26, 'cantidad': 1,
+             'precio_proveedor': Decimal('300')}])
+        lote2.pares.update(lote=self.lote)
+        codigos = self.impresos({'solo': 'pendientes', 'modelo': str(self.var_a.pk)})
+        esperados = list(self.lote.pares.filter(tipo=self.var_a, estado='por_recibir')
+                         .order_by('pk').values_list('codigo', flat=True))
+        self.assertEqual(codigos, esperados)
+        self.assertNotIn(self.escaneado.codigo, codigos)
+
+    def test_modelo_invalido_400(self):
+        r = self.client.get(self.url, {'solo': 'pendientes', 'modelo': 'x'})
+        self.assertEqual(r.status_code, 400)
+
+    def test_la_card_trae_el_boton_de_sus_pendientes(self):
+        r = self.client.get(reverse('inventario:lote_detalle', args=[self.lote.pk]))
+        self.assertContains(r, f'href="{self.url}?solo=pendientes&amp;modelo={self.var_a.pk}"')
+
+    def test_la_card_completa_no_trae_el_boton(self):
+        self.lote.pares.update(estado='en_stock')
+        r = self.client.get(reverse('inventario:lote_detalle', args=[self.lote.pk]))
+        self.assertNotContains(r, f'modelo={self.var_a.pk}')

@@ -1,6 +1,7 @@
 import re
 
 from django.conf import settings
+from django.db.models import Case, When
 from django.contrib.admin.views.decorators import staff_member_required
 from django.http import Http404, HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404
@@ -58,6 +59,13 @@ def etiquetas_lote(request, pk):
     pares = lote.pares.select_related('tipo__padre', 'color', 'talla').order_by('pk')
     if request.GET.get('solo') == 'pendientes':
         pares = pares.filter(estado=Par.Estado.POR_RECIBIR)
+    # ?modelo=<tipo_id>: solo ese modelo (el botón de cada card del lote).
+    modelo = request.GET.get('modelo')
+    if modelo is not None:
+        if not re.fullmatch(r'[1-9][0-9]*', modelo):
+            return HttpResponseBadRequest(
+                'Modelo inválido.', content_type='text/plain; charset=utf-8')
+        pares = pares.filter(tipo_id=int(modelo))
     try:
         grupos = _seleccion(request.GET)
     except ValueError:
@@ -90,8 +98,12 @@ def etiquetas_lote(request, pk):
     if grupos is None or (not grupos and hay_intervalo):
         pares = list(pares)
     else:
+        # De cada renglón salen primero los pares sin escanear: pedir 1 de un renglón
+        # con un par ya recibido y otro pendiente imprime el pendiente.
+        primero_pend = Case(When(estado=Par.Estado.POR_RECIBIR, then=0), default=1)
         pares = [p for t, c, z, n in grupos
-                 for p in pares.filter(tipo_id=t, color_id=c, talla_id=z)[:n]]
+                 for p in pares.filter(tipo_id=t, color_id=c, talla_id=z)
+                 .order_by(primero_pend, 'pk')[:n]]
     if hay_intervalo:
         # Numeración en base 1 de la misma lista, la de los botones "Etiquetas d–h".
         pares = pares[(desde or 1) - 1:hasta or len(pares)]

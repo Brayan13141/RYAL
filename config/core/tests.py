@@ -167,6 +167,20 @@ class PermissionsPolicyHeaderTests(TestCase):
         for feature in ('camera', 'microphone', 'geolocation'):
             self.assertIn(f'{feature}=()', policy)
 
+    def test_escaner_y_pos_permiten_la_camara_del_propio_sitio(self):
+        """Con `camera=()` el navegador niega getUserMedia sin preguntar: el escáner
+        de inventario y el POS leen QR con la cámara y necesitan `camera=(self)`."""
+        for ruta in ('/panel/inventario/escanear/', '/panel/negocio/pos/'):
+            policy = self.client.get(ruta).headers.get('Permissions-Policy', '')
+            self.assertIn('camera=(self)', policy, ruta)
+            self.assertNotIn('camera=()', policy, ruta)
+            self.assertIn('microphone=()', policy, ruta)
+
+    def test_el_resto_del_panel_sigue_sin_camara(self):
+        for ruta in ('/panel/', '/panel/inventario/escanear/recibir/', '/panel/inventario/lotes/'):
+            policy = self.client.get(ruta).headers.get('Permissions-Policy', '')
+            self.assertIn('camera=()', policy, ruta)
+
 
 @override_settings(REQUIRE_STAFF_MFA=True)
 class StaffDebeTener2FATests(TestCase):

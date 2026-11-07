@@ -89,6 +89,9 @@ class ContentSecurityPolicyMiddleware:
         "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
         "magnetometer=(), microphone=(), payment=(), usb=()"
     )
+    # Excepción: las pantallas que leen QR con la cámara. Con `camera=()` el
+    # navegador niega getUserMedia sin mostrar siquiera el aviso de permiso.
+    _RUTAS_CON_CAMARA = ('/panel/inventario/escanear/', '/panel/negocio/pos/')
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -96,7 +99,10 @@ class ContentSecurityPolicyMiddleware:
     def __call__(self, request):
         response = self.get_response(request)
         response.setdefault('Content-Security-Policy', self._CSP)
-        response.setdefault('Permissions-Policy', self._PERMISSIONS_POLICY)
+        policy = self._PERMISSIONS_POLICY
+        if request.path in self._RUTAS_CON_CAMARA:
+            policy = policy.replace('camera=()', 'camera=(self)')
+        response.setdefault('Permissions-Policy', policy)
         return response
 
 

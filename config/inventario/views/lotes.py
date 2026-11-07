@@ -251,9 +251,12 @@ def lote_detalle(request, pk):
                   pendientes=Count('pk', filter=Q(estado=Par.Estado.POR_RECIBIR)))
         .order_by('tipo__nombre', 'color__nombre', 'talla__orden')]
     total = sum(conteo.values())
+    modelos = _modelos_del_lote(filas)
+    for m in modelos:  # botón "Imprimir sin escanear" de la card, en PDFs de MAX_POR_PDF
+        m['partes_pend'] = etiquetas.partes(m['pendientes'])
     return render(request, 'inventario/lote_detalle.html', {
         'lote': lote, 'conteo': conteo, 'filas': filas, 'total': total,
-        'modelos': _modelos_del_lote(filas), 'no_escaneados': _no_escaneados(lote),
+        'modelos': modelos, 'no_escaneados': _no_escaneados(lote),
         'max_lista': MAX_LISTA_NO_ESCANEADOS,
         'n_repetidos': lote.lecturas_repetidas.values('par').distinct().count(),
         # La app de la impresora no acepta más de `limite` páginas por trabajo.
