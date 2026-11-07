@@ -14,11 +14,13 @@
       <span><i class="bi bi-cash-coin"></i>Flete ${{ lote.flete_por_par|floatformat:"-2" }} por par</span>
       <span><i class="bi bi-file-earmark"></i>{{ lote.get_origen_display }}</span>
       <span><i class="bi bi-calendar3"></i>{{ lote.creado_at|date:"d/m/Y H:i" }}</span>
+      {% if n_anulados %}<span class="inv-muted" title="Etiquetas quitadas al editar el lote; no cuentan en los totales"><i class="bi bi-x-circle"></i>{{ n_anulados }} etiqueta{{ n_anulados|pluralize }} anulada{{ n_anulados|pluralize }}</span>{% endif %}
     </div>
   </div>
   <div class="inv-actions">
     <a href="{% url 'inventario:escanear' %}?lote={{ lote.pk }}" class="btn-g"><i class="bi bi-upc-scan"></i> Escanear este lote</a>
     {% if not lote.cerrado_at %}
+    <a href="{% url 'inventario:lote_editar' lote.pk %}" class="inv-btn-ghost"><i class="bi bi-pencil-square"></i> Editar lote</a>
     <form method="post" action="{% url 'inventario:lote_cerrar' lote.pk %}"
           onsubmit="return confirm('Los pares que no se han recibido pasarán a baja como faltante. ¿Cerrar el lote?')">
       {% csrf_token %}

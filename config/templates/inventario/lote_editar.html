@@ -1,0 +1,198 @@
+{% extends "inventario/_base.html" %}
+{% block title %}Editar lote #{{ lote.pk }}{% endblock %}
+
+{% block inv_content %}
+<div class="inv-head">
+  <div>
+    <a href="{% url 'inventario:lote_detalle' lote.pk %}" class="small inv-muted text-decoration-none"><i class="bi bi-arrow-left"></i> Lote #{{ lote.pk }}</a>
+    <h1 class="inv-title mt-1">Editar lote #{{ lote.pk }}{% if lote.referencia %} <small>{{ lote.referencia }}</small>{% endif %}</h1>
+    <p class="inv-sub">Cambia cuántos pares tiene cada talla o agrega modelos que llegaron. Si bajas una cantidad, se anulan las etiquetas más recientes que no se han escaneado; no se puede bajar de lo ya escaneado.</p>
+  </div>
+</div>
+
+<div id="ed-error" class="inv-alert inv-alert-bad d-none" role="alert"></div>
+
+{% for g in grupos %}
+<div class="inv-panel inv-line mb-3 grupo">
+  <div class="inv-panel-head">
+    <strong>{{ g.tipo }} · {{ g.color }}</strong>
+  </div>
+  <div class="inv-line-body">
+    <div class="inv-sizes">
+      {% for f in g.filas %}
+      <div class="inv-size">
+        <label>{{ f.talla }}</label>
+        <input class="form-control form-control-sm i-cant" type="number" step="1" inputmode="numeric"
+               min="{{ f.minimo }}" max="500" value="{{ f.activos }}"
+               data-clave="{{ f.clave }}" data-original="{{ f.activos }}" data-minimo="{{ f.minimo }}"
+               aria-label="Pares de {{ g.tipo }} {{ g.color }} talla {{ f.talla }}">
+        {% if f.minimo %}<div class="form-text small" title="Ya escaneados, vendidos o dados de baja">mín. {{ f.minimo }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% empty %}
+<p class="inv-muted">Este lote no tiene pares. Agrega un modelo abajo.</p>
+{% endfor %}
+
+<h2 class="h6 mt-4 mb-2">Agregar modelos al lote</h2>
+<p class="inv-muted small">Solo modelos, colores y tallas que ya existan en Tipos y Catálogos. Si el renglón ya está en el lote, se suma.</p>
+<div id="lineas"></div>
+<button type="button" id="btn-linea" class="inv-btn-ghost w-100 justify-content-center py-3" style="border-style:dashed">
+  <i class="bi bi-plus-lg"></i> Agregar modelo
+</button>
+
+<div class="inv-sticky">
+  <span class="inv-sticky-count"><b id="ed-mas">0</b>pares nuevos · <b id="ed-menos">0</b>etiquetas a anular</span>
+  <button type="button" id="btn-guardar" class="btn-g"><i class="bi bi-check-lg"></i> Guardar cambios</button>
+</div>
+
+<template id="tpl-linea">
+  <div class="linea inv-panel inv-line mb-3">
+    <div class="inv-panel-head">
+      <span class="inv-line-total"><b class="js-linea-total">0</b> pares</span>
+      <button type="button" class="inv-btn-danger btn-sm b-quitar"><i class="bi bi-trash"></i> Quitar</button>
+    </div>
+    <div class="inv-line-body">
+      <div class="row g-2">
+        <div class="col-12 col-md-5">
+          <label class="form-label">Modelo</label>
+          <select class="form-select s-tipo"></select>
+          <div class="form-text d-none js-se-crea"></div>
+        </div>
+        <div class="col-6 col-md-4">
+          <label class="form-label">Color</label>
+          <select class="form-select s-color"></select>
+          <div class="form-text text-warning d-none js-sin-colores">Este modelo no tiene colores asignados. <a href="{% url 'inventario:catalogos' %}">Asígnalos en Catálogos</a>.</div>
+        </div>
+        {% if con_precio %}
+        <div class="col-6 col-md-3">
+          <label class="form-label">Precio proveedor</label>
+          <input class="form-control i-precio" inputmode="decimal" placeholder="0.00">
+        </div>
+        {% endif %}
+      </div>
+      <div class="inv-sizes tallas">
+        {% for t in tallas %}
+        <div class="inv-size">
+          <label>{{ t.mx_cm|floatformat:"-1" }}</label>
+          <input class="form-control form-control-sm i-talla" type="number" min="0" step="1" inputmode="numeric" placeholder=" "
+                 data-talla="{{ t.mx_cm|stringformat:'s' }}" aria-label="Pares talla {{ t.mx_cm|floatformat:'-1' }}">
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</template>
+
+{{ modelos|json_script:'modelos-json' }}
+<script>
+(function () {
+  var MODELOS = JSON.parse(document.getElementById('modelos-json').textContent);
+  var VIA = "{{ lote.via }}", NOMBRE_VIA = "{{ lote.get_via_display|lower }}";
+  var VERSION = {{ version }};
+  var CSRF = "{{ csrf_token }}";
+  var POR_ID = {};
+  MODELOS.forEach(function (m) { POR_ID[m.id] = m; });
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var cont = $('#lineas');
+
+  function llenarTipos(sel) {
+    var con = document.createElement('optgroup'), sin = document.createElement('optgroup');
+    con.label = 'Con variante ' + NOMBRE_VIA;
+    sin.label = 'Sin variante ' + NOMBRE_VIA + ' (se crea al guardar)';
+    MODELOS.forEach(function (m) {
+      var o = document.createElement('option');
+      o.value = m.id; o.textContent = m.nombre + (m.colores.length ? '' : ' · sin colores');
+      (m.variantes[VIA] ? con : sin).appendChild(o);
+    });
+    if (con.children.length) sel.appendChild(con);
+    if (sin.children.length) sel.appendChild(sin);
+  }
+  function cargarColores(linea) {
+    var m = POR_ID[$('.s-tipo', linea).value], sc = $('.s-color', linea);
+    sc.innerHTML = '';
+    (m ? m.colores : []).forEach(function (c) {
+      var o = document.createElement('option');
+      o.value = c.id; o.textContent = c.nombre; sc.appendChild(o);
+    });
+    $('.js-sin-colores', linea).classList.toggle('d-none', !m || m.colores.length > 0);
+    var aviso = $('.js-se-crea', linea), nueva = m && !m.variantes[VIA];
+    aviso.classList.toggle('d-none', !nueva);
+    if (nueva) aviso.textContent = 'Se creará «' + m.nombre + '» ' + NOMBRE_VIA + ' con el costo de Modelos y vías.';
+  }
+  function tipoDe(linea) {
+    var m = POR_ID[$('.s-tipo', linea).value];
+    return m ? (m.variantes[VIA] || m.id) : null;
+  }
+  function totales() {
+    var mas = 0, menos = 0;
+    document.querySelectorAll('.i-cant').forEach(function (i) {
+      var v = parseInt(i.value, 10), o = parseInt(i.dataset.original, 10);
+      if (isNaN(v)) return;
+      if (v > o) mas += v - o; else menos += o - v;
+      i.classList.toggle('is-invalid', v < parseInt(i.dataset.minimo, 10));
+    });
+    document.querySelectorAll('.linea').forEach(function (l) {
+      var n = 0;
+      l.querySelectorAll('.i-talla').forEach(function (i) { var v = parseInt(i.value, 10); if (v > 0) n += v; });
+      $('.js-linea-total', l).textContent = n;
+      mas += n;
+    });
+    $('#ed-mas').textContent = mas;
+    $('#ed-menos').textContent = menos;
+  }
+  function agregarLinea() {
+    var n = document.importNode($('#tpl-linea').content, true), linea = $('.linea', n);
+    llenarTipos($('.s-tipo', linea));
+    $('.s-tipo', linea).addEventListener('change', function () { cargarColores(linea); });
+    $('.b-quitar', linea).addEventListener('click', function () { linea.remove(); totales(); });
+    linea.addEventListener('input', totales);
+    cont.appendChild(n);
+    cargarColores(linea);
+  }
+  function error(msg) {
+    var e = $('#ed-error');
+    e.textContent = msg; e.classList.toggle('d-none', !msg);
+    if (msg) window.scrollTo(0, 0);
+  }
+  document.querySelectorAll('.i-cant').forEach(function (i) { i.addEventListener('input', totales); });
+  $('#btn-linea').addEventListener('click', agregarLinea);
+  $('#btn-guardar').addEventListener('click', function () {
+    var btn = this;
+    if (btn.disabled) return;
+    var cantidades = {}, malas = 0;
+    document.querySelectorAll('.i-cant').forEach(function (i) {
+      var v = i.value.trim() === '' ? 0 : parseInt(i.value, 10);
+      if (isNaN(v) || v < parseInt(i.dataset.minimo, 10)) malas++;
+      if (v !== parseInt(i.dataset.original, 10)) cantidades[i.dataset.clave] = v;
+    });
+    if (malas) { error('Hay tallas por debajo de lo ya escaneado (marcadas en rojo).'); return; }
+    var lineas = [];
+    document.querySelectorAll('.linea').forEach(function (l) {
+      var cant = {}, hay = false;
+      l.querySelectorAll('.i-talla').forEach(function (i) {
+        if (i.value) { cant[i.dataset.talla] = parseInt(i.value, 10); hay = hay || parseInt(i.value, 10) > 0; }
+      });
+      if (!hay) return;  // Un modelo agregado sin cantidades no cuenta.
+      var precio = $('.i-precio', l);
+      lineas.push({tipo_id: tipoDe(l), color_id: $('.s-color', l).value || null,
+                   cantidades: cant, precio_proveedor: precio ? (precio.value.trim() || null) : null});
+    });
+    var menos = parseInt($('#ed-menos').textContent, 10);
+    if (menos && !confirm('Se anularán ' + menos + ' etiqueta(s) sin escanear. Si ya estaban pegadas, habrá que retirarlas. ¿Continuar?')) return;
+    btn.disabled = true;
+    error('');
+    fetch(window.location.href, {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+      body: JSON.stringify({version: VERSION, cantidades: cantidades, lineas: lineas})
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.ok) window.location.href = d.url;
+      else { error(d.error || 'No se pudo guardar.'); btn.disabled = false; }
+    }).catch(function () { error('No hay conexión con el servidor. Revisa tu red e inténtalo de nuevo.'); btn.disabled = false; });
+  });
+})();
+</script>
+{% endblock %}
