@@ -2,7 +2,25 @@
 {% block title %}{{ titulo }}{% endblock %}
 
 {% block content %}
-<div style="max-width:520px;">
+<style>
+  /* `.fp input` estira todo a lo ancho: aquí los checkboxes van pegados a su texto. */
+  .tipo-form input[type=checkbox] {
+    width: 16px; height: 16px; padding: 0; margin: 0; flex: none;
+    accent-color: var(--pg); cursor: pointer;
+  }
+  .tipo-form #id_colores {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px;
+  }
+  .tipo-form #id_colores label {
+    display: flex; align-items: center; gap: 8px; margin: 0; padding: 7px 10px;
+    border: 1px solid var(--pl); border-radius: 6px; cursor: pointer;
+    font-size: 13px; font-weight: 400; letter-spacing: 0; text-transform: none; color: #ccc;
+  }
+  .tipo-form #id_colores label:has(input:checked) {
+    border-color: var(--pg); color: #e0e0e0; background: rgba(255,255,255,.03);
+  }
+</style>
+<div class="tipo-form" style="max-width:520px;">
 
   <a href="{% url 'negocio:tipos_list' %}" class="btn-o btn-sm" style="display:inline-flex;margin-bottom:20px;">
     <i class="bi bi-arrow-left me-1"></i> Volver
