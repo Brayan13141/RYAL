@@ -308,3 +308,86 @@ class AnuladosFueraDelDetalleTests(EditarBase):
         r = self.client.get(reverse('inventario:etiquetas_lote', args=[self.lote.pk])
                             + '?desde=2&hasta=3')
         self.assertEqual(r.status_code, 404)
+
+
+class TallasNuevasTests(EditarBase):
+    """Una talla que el modelo·color del lote aún no tiene se puede agregar desde su cuadrícula."""
+
+    def test_talla_nueva_crea_pares_con_el_precio_del_renglon(self):
+        res = self.editar({self.clave(talla=self.t27): 2})
+        self.assertEqual(len(res.creados), 2)
+        for p in res.creados:
+            self.assertEqual((p.tipo_id, p.color_id, p.talla_id), self.clave(talla=self.t27))
+            self.assertEqual(p.precio_proveedor, Decimal('360.00'))
+            self.assertEqual(p.costo, Decimal('410.00'))
+        self.assertEqual(self.activos(), 5)
+
+    def test_talla_nueva_en_cero_no_hace_nada(self):
+        res = self.editar({self.clave(talla=self.t27): 0})
+        self.assertEqual((res.creados, res.anulados), ([], []))
+
+    def test_talla_inactiva_se_rechaza(self):
+        self.t27.activa = False
+        self.t27.save()
+        with self.assertRaisesMessage(ValueError, 'no está activa'):
+            self.editar({self.clave(talla=self.t27): 2})
+
+    def test_color_ajeno_al_lote_sigue_rechazado(self):
+        with self.assertRaisesMessage(ValueError, 'no está en el lote'):
+            self.editar({self.clave(color=self.blanco, talla=self.t27): 2})
+
+    def test_renglon_anulado_por_completo_se_puede_volver_a_llenar(self):
+        self.editar({self.clave(): 0})
+        res = self.editar({self.clave(): 1, self.clave(talla=self.t27): 1})
+        self.assertEqual(len(res.creados), 2)
+        self.assertEqual(self.activos(), 2)
+
+    def test_talla_nueva_valida_la_cantidad(self):
+        with self.assertRaisesMessage(ValueError, 'máximo'):
+            self.editar({self.clave(talla=self.t27): 501})
+
+    def test_lote_inicial_talla_nueva_usa_el_costo_del_tipo(self):
+        lote = crear_lote(
+            via='aereo', origen='inicial', usuario=self.user,
+            lineas=[{'tipo': self.var_a, 'color': self.negro, 'talla': self.t26,
+                     'cantidad': 1, 'precio_proveedor': None}])
+        res = editar_lote(lote, cantidades={self.clave(talla=self.t27): 1}, lineas=[],
+                          usuario=self.user, version=None)
+        self.assertIsNone(res.creados[0].precio_proveedor)
+        self.assertEqual(res.creados[0].costo, Decimal('640.00'))
+
+
+class VistaTallasYFiltrosTests(EditarBase):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+        self.url = reverse('inventario:lote_editar', args=[self.lote.pk])
+
+    def campo(self, color=None, talla=None):
+        return '{}_{}_{}'.format(*self.clave(color, talla))
+
+    def test_la_cuadricula_trae_todas_las_tallas_activas(self):
+        r = self.client.get(self.url)
+        filas = r.context['grupos'][0]['filas']
+        self.assertEqual(len(filas), TallaCalzado.objects.filter(activa=True).count())
+        nueva = next(f for f in filas if f['clave'] == self.campo(talla=self.t27))
+        self.assertEqual((nueva['activos'], nueva['minimo']), (0, 0))
+        self.assertContains(r, f'data-clave="{self.campo(talla=self.t27)}"')
+
+    def test_post_talla_nueva(self):
+        r = self.client.post(self.url, json.dumps({
+            'version': version_lote(self.lote),
+            'cantidades': {self.campo(talla=self.t27): 2}}), content_type='application/json')
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(self.lote.pares.filter(talla=self.t27).count(), 2)
+
+    def test_chips_de_filtro_por_modelo(self):
+        r = self.client.get(self.url)
+        self.assertContains(r, 'id="filtro-todos"')
+        self.assertContains(r, f'data-modelo="{self.var_a.pk}"')
+        self.assertContains(r, 'class="inv-panel inv-line mb-3 grupo js-grupo" '
+                               f'data-modelo="{self.var_a.pk}"')
+
+    def test_agregar_modelo_va_antes_de_la_cuadricula(self):
+        html = self.client.get(self.url).content.decode()
+        self.assertLess(html.index('id="btn-linea"'), html.index('class="inv-panel inv-line mb-3 grupo'))

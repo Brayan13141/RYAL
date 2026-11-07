@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from django.db import transaction
 from django.db.models import Count, Max, Q
 
-from inventario.models import Lote, MovimientoPar, Par, TransicionInvalida
+from inventario.models import (
+    Lote, MovimientoPar, Par, TallaCalzado, TransicionInvalida, fmt_talla)
 from inventario.services.lotes import _validar_linea, crear_pares
 
 MAX_POR_RENGLON = 500
@@ -51,6 +52,24 @@ def _cantidad(valor, nombre):
     return valor
 
 
+def _talla_nueva(lote, clave, valor):
+    """Talla que el modelo·color del lote no tiene (o tenía y se anuló entera).
+
+    Hereda el precio del proveedor del par más reciente de ese modelo·color en el lote.
+    Devuelve None si la cantidad es 0; ValueError si el modelo·color no es del lote."""
+    tipo_id, color_id, talla_id = clave
+    muestra = (lote.pares.filter(tipo_id=tipo_id, color_id=color_id)
+               .select_related('tipo', 'color').order_by('-pk').first())
+    if muestra is None:
+        raise ValueError('Uno de los renglones no está en el lote. Recarga la página.')
+    talla = TallaCalzado.objects.filter(pk=talla_id).first()
+    if talla is None or not talla.activa:
+        raise ValueError(f'{muestra.tipo.nombre} {muestra.color.nombre}: '
+                         'esa talla no está activa en Catálogos.')
+    n = _cantidad(valor, f'{muestra.tipo.nombre} {muestra.color.nombre} {fmt_talla(talla.mx_cm)}')
+    return (muestra, talla, n) if n else None
+
+
 def editar_lote(lote, *, cantidades, lineas, usuario, version):
     """Aplica la edición completa o nada.
 
@@ -68,10 +87,14 @@ def editar_lote(lote, *, cantidades, lineas, usuario, version):
 
         filas = {(f['tipo_id'], f['color_id'], f['talla_id']): f for f in filas_editables(lote)}
         objetivo = {}
+        tallas_nuevas = []  # [muestra, talla, cantidad]: tallas que el modelo·color aún no tenía
         for clave, valor in cantidades.items():
             fila = filas.get(clave)
             if fila is None:
-                raise ValueError('Uno de los renglones no está en el lote. Recarga la página.')
+                nueva = _talla_nueva(lote, clave, valor)
+                if nueva:
+                    tallas_nuevas.append(nueva)
+                continue
             nombre = f'{fila["tipo"]} {fila["color"]} {fila["talla_mx"].normalize():f}'
             n = _cantidad(valor, nombre)
             if n < fila['minimo']:
@@ -112,6 +135,9 @@ def editar_lote(lote, *, cantidades, lineas, usuario, version):
                 res.creados += crear_pares(
                     lote, muestra.tipo, muestra.color, muestra.talla, delta,
                     muestra.precio_proveedor, usuario=usuario)
+        for muestra, talla, cantidad in tallas_nuevas:
+            res.creados += crear_pares(lote, muestra.tipo, muestra.color, talla, cantidad,
+                                       muestra.precio_proveedor, usuario=usuario)
         for tipo, color, talla, cantidad, precio in nuevas.values():
             res.creados += crear_pares(lote, tipo, color, talla, cantidad, precio,
                                        usuario=usuario)

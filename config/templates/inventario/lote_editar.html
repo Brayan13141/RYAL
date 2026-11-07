@@ -12,18 +12,37 @@
 
 <div id="ed-error" class="inv-alert inv-alert-bad d-none" role="alert"></div>
 
+<h2 class="h6 mb-2">Agregar modelos al lote</h2>
+<p class="inv-muted small">Solo modelos, colores y tallas que ya existan en Tipos y Catálogos. Si el renglón ya está en el lote, se suma.</p>
+<button type="button" id="btn-linea" class="inv-btn-ghost w-100 justify-content-center py-3 mb-3" style="border-style:dashed">
+  <i class="bi bi-plus-lg"></i> Agregar modelo
+</button>
+<div id="lineas"></div>
+
+{% if grupos %}
+<h2 class="h6 mt-4 mb-2">Modelos del lote</h2>
+<p class="inv-muted small">Cada modelo trae todas las tallas: escribe una cantidad en una talla vacía para agregarla, o déjala en 0 para quitarla.</p>
+<div class="inv-filtros mb-3" role="group" aria-label="Filtrar por modelo">
+  <span class="small inv-muted"><i class="bi bi-funnel"></i> Modelo</span>
+  <button type="button" id="filtro-todos" class="inv-filtro-chip is-on" aria-pressed="true">Todos <span class="inv-filtro-n">{{ modelos_lote|length }}</span></button>
+  {% for m in modelos_lote %}<button type="button" class="inv-filtro-chip js-filtro" data-modelo="{{ m.pk }}" aria-pressed="false">{{ m.nombre }} <span class="inv-filtro-n">{{ m.total }} par{{ m.total|pluralize:",es" }}</span></button>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% for g in grupos %}
-<div class="inv-panel inv-line mb-3 grupo">
+<div class="inv-panel inv-line mb-3 grupo js-grupo" data-modelo="{{ g.tipo_id }}">
   <div class="inv-panel-head">
     <strong>{{ g.tipo }} · {{ g.color }}</strong>
+    <span class="inv-line-total"><b class="js-grupo-total">{{ g.total }}</b> pares</span>
   </div>
   <div class="inv-line-body">
     <div class="inv-sizes">
       {% for f in g.filas %}
-      <div class="inv-size">
+      <div class="inv-size{% if not f.activos %} is-vacia{% endif %}">
         <label>{{ f.talla }}</label>
         <input class="form-control form-control-sm i-cant" type="number" step="1" inputmode="numeric"
-               min="{{ f.minimo }}" max="500" value="{{ f.activos }}"
+               min="{{ f.minimo }}" max="500" {% if f.activos %}value="{{ f.activos }}"{% else %}value="" placeholder="0"{% endif %}
                data-clave="{{ f.clave }}" data-original="{{ f.activos }}" data-minimo="{{ f.minimo }}"
                aria-label="Pares de {{ g.tipo }} {{ g.color }} talla {{ f.talla }}">
         {% if f.minimo %}<div class="form-text small" title="Ya escaneados, vendidos o dados de baja">mín. {{ f.minimo }}</div>{% endif %}
@@ -33,15 +52,9 @@
   </div>
 </div>
 {% empty %}
-<p class="inv-muted">Este lote no tiene pares. Agrega un modelo abajo.</p>
+<p class="inv-muted">Este lote no tiene pares. Agrega un modelo arriba.</p>
 {% endfor %}
-
-<h2 class="h6 mt-4 mb-2">Agregar modelos al lote</h2>
-<p class="inv-muted small">Solo modelos, colores y tallas que ya existan en Tipos y Catálogos. Si el renglón ya está en el lote, se suma.</p>
-<div id="lineas"></div>
-<button type="button" id="btn-linea" class="inv-btn-ghost w-100 justify-content-center py-3" style="border-style:dashed">
-  <i class="bi bi-plus-lg"></i> Agregar modelo
-</button>
+<p id="grupos-vacio" class="inv-muted text-center py-4" hidden><i class="bi bi-search"></i> Ningún modelo con ese filtro.</p>
 
 <div class="inv-sticky">
   <span class="inv-sticky-count"><b id="ed-mas">0</b>pares nuevos · <b id="ed-menos">0</b>etiquetas a anular</span>
@@ -129,10 +142,16 @@
   function totales() {
     var mas = 0, menos = 0;
     document.querySelectorAll('.i-cant').forEach(function (i) {
-      var v = parseInt(i.value, 10), o = parseInt(i.dataset.original, 10);
+      var v = i.value.trim() === '' ? 0 : parseInt(i.value, 10), o = parseInt(i.dataset.original, 10);
       if (isNaN(v)) return;
       if (v > o) mas += v - o; else menos += o - v;
       i.classList.toggle('is-invalid', v < parseInt(i.dataset.minimo, 10));
+      i.closest('.inv-size').classList.toggle('is-vacia', v === 0);
+    });
+    document.querySelectorAll('.js-grupo').forEach(function (g) {
+      var n = 0;
+      g.querySelectorAll('.i-cant').forEach(function (i) { var v = parseInt(i.value, 10); if (v > 0) n += v; });
+      $('.js-grupo-total', g).textContent = n;
     });
     document.querySelectorAll('.linea').forEach(function (l) {
       var n = 0;
@@ -149,9 +168,36 @@
     $('.s-tipo', linea).addEventListener('change', function () { cargarColores(linea); });
     $('.b-quitar', linea).addEventListener('click', function () { linea.remove(); totales(); });
     linea.addEventListener('input', totales);
-    cont.appendChild(n);
+    // La más reciente queda arriba, junto al botón: no hay que bajar a buscarla.
+    cont.insertBefore(n, cont.firstChild);
     cargarColores(linea);
+    $('.s-tipo', linea).focus();
   }
+  // Filtro por modelo: como en Stock, se pueden prender varios chips a la vez.
+  (function () {
+    var todos = $('#filtro-todos');
+    if (!todos) return;
+    var chips = document.querySelectorAll('.js-filtro'), grupos = document.querySelectorAll('.js-grupo');
+    var vacio = $('#grupos-vacio'), activos = {};
+    function marcar(chip, on) { chip.classList.toggle('is-on', on); chip.setAttribute('aria-pressed', on ? 'true' : 'false'); }
+    function aplicar() {
+      var con = Object.keys(activos).length > 0, alguno = false;
+      grupos.forEach(function (g) {
+        g.hidden = con && !activos[g.dataset.modelo];
+        if (!g.hidden) alguno = true;
+      });
+      vacio.hidden = alguno;
+      chips.forEach(function (c) { marcar(c, !!activos[c.dataset.modelo]); });
+      marcar(todos, !con);
+    }
+    chips.forEach(function (c) {
+      c.addEventListener('click', function () {
+        if (activos[c.dataset.modelo]) delete activos[c.dataset.modelo]; else activos[c.dataset.modelo] = true;
+        aplicar();
+      });
+    });
+    todos.addEventListener('click', function () { activos = {}; aplicar(); });
+  })();
   function error(msg) {
     var e = $('#ed-error');
     e.textContent = msg; e.classList.toggle('d-none', !msg);
@@ -195,4 +241,14 @@
   });
 })();
 </script>
+{% endblock %}
+
+{% block inv_css %}
+{% include "inventario/_filtros_css.html" %}
+<style>
+  .grupo .inv-panel-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  /* Tallas que el modelo aún no tiene: atenuadas hasta que se les pone cantidad. */
+  .inv-size.is-vacia label { opacity: .45; }
+  .inv-size.is-vacia .i-cant:not(:focus) { opacity: .55; }
+</style>
 {% endblock %}
