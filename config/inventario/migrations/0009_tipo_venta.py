@@ -25,7 +25,7 @@ def sembrar(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('inventario', '0007_lectura_repetida'),
+        ('inventario', '0008_par_anulado'),
     ]
 
     operations = [
