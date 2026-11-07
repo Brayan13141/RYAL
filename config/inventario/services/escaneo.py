@@ -47,6 +47,8 @@ def recibir(lectura, *, lote, usuario):
             ref = f' ({par.lote.referencia})' if par.lote.referencia else ''
             return _rojo(f'Este par es del lote #{par.lote.pk}{ref}', par)
 
+        if par.estado == Par.Estado.ANULADO:
+            return _rojo('Etiqueta anulada: este par se quitó del lote. Retira la etiqueta.', par)
         if par.estado == Par.Estado.EN_STOCK:
             # Queda registrada para la pantalla de "Escaneados 2 veces".
             LecturaRepetida.objects.create(par=par, lote=lote, usuario=usuario)

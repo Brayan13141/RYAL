@@ -56,7 +56,8 @@ def _posicion(valor):
 @staff_member_required
 def etiquetas_lote(request, pk):
     lote = get_object_or_404(Lote, pk=pk)
-    pares = lote.pares.select_related('tipo__padre', 'color', 'talla').order_by('pk')
+    pares = (lote.pares.exclude(estado=Par.Estado.ANULADO)
+             .select_related('tipo__padre', 'color', 'talla').order_by('pk'))
     if request.GET.get('solo') == 'pendientes':
         pares = pares.filter(estado=Par.Estado.POR_RECIBIR)
     # ?modelo=<tipo_id>: solo ese modelo (el botón de cada card del lote).

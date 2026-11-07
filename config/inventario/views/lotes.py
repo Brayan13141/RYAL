@@ -197,7 +197,7 @@ def tipo_colores(request, pk):
 @staff_member_required
 def lotes(request):
     qs = Lote.objects.annotate(
-        total=Count('pares'),
+        total=Count('pares', filter=~Q(pares__estado=Par.Estado.ANULADO)),
         recibidos=Count('pares', filter=Q(pares__estado=Par.Estado.EN_STOCK)))
     return render(request, 'inventario/lotes_lista.html', {'lotes': qs[:200]})
 
@@ -221,7 +221,7 @@ def _modelos_del_lote(filas):
 
 def _no_escaneados(lote):
     """Pares por recibir con su número de etiqueta: la posición en "Imprimir todo"."""
-    pares = lote.pares.select_related('tipo', 'color', 'talla').order_by('pk')
+    pares = lote.pares.exclude(estado=Par.Estado.ANULADO).select_related('tipo', 'color', 'talla').order_by('pk')
     return [{
         'numero': i, 'codigo': p.codigo, 'tipo_id': p.tipo_id, 'tipo': p.tipo.nombre,
         'color': p.color.nombre, 'talla': fmt_talla(p.talla.mx_cm),
@@ -233,7 +233,9 @@ def _no_escaneados(lote):
 def lote_detalle(request, pk):
     lote = get_object_or_404(Lote, pk=pk)
     conteo = {e: 0 for e in ESTADOS}
-    for fila in lote.pares.values('estado').annotate(n=Count('pk')):
+    # Las etiquetas anuladas al editar el lote no son pares: no cuentan en nada.
+    vigentes = lote.pares.exclude(estado=Par.Estado.ANULADO)
+    for fila in vigentes.values('estado').annotate(n=Count('pk')):
         conteo[fila['estado']] = fila['n']
     filas = [{
         'tipo': r['tipo__nombre'], 'color': r['color__nombre'],
@@ -244,7 +246,7 @@ def lote_detalle(request, pk):
         # Campo de "cuántas imprimir" de este grupo (lo lee views/etiquetas.py).
         'campo': f'c_{r["tipo_id"]}_{r["color_id"]}_{r["talla_id"]}',
         'tipo_id': r['tipo_id'],
-    } for r in lote.pares.values('tipo_id', 'color_id', 'talla_id',
+    } for r in vigentes.values('tipo_id', 'color_id', 'talla_id',
                                  'tipo__nombre', 'color__nombre', 'talla__mx_cm')
         .annotate(esperados=Count('pk'),
                   recibidos=Count('pk', filter=Q(estado=Par.Estado.EN_STOCK)),
@@ -258,6 +260,7 @@ def lote_detalle(request, pk):
         'lote': lote, 'conteo': conteo, 'filas': filas, 'total': total,
         'modelos': modelos, 'no_escaneados': _no_escaneados(lote),
         'max_lista': MAX_LISTA_NO_ESCANEADOS,
+        'n_anulados': lote.pares.filter(estado=Par.Estado.ANULADO).count(),
         'n_repetidos': lote.lecturas_repetidas.values('par').distinct().count(),
         # La app de la impresora no acepta más de `limite` páginas por trabajo.
         'limite': etiquetas.MAX_POR_PDF,

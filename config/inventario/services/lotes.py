@@ -90,22 +90,31 @@ def crear_lote(*, via, origen, lineas, usuario, referencia='', notas='', token_s
             referencia=referencia, origen=origen, via=via, flete_por_par=flete,
             creado_por=usuario, notas=notas, token_sha=token_sha)
         for tipo, color, talla, cantidad, precio in limpias:
-            if origen == 'inicial':
-                precio_par, flete_par = None, None
-                costo = Decimal(tipo.costo).quantize(_CENTAVOS)
-            else:
-                precio_par, flete_par = precio.quantize(_CENTAVOS), flete
-                costo = precio_par + flete_par
-            for _ in range(cantidad):
-                par = Par.objects.create(
-                    codigo=generar_codigo(tipo.prefijo), tipo=tipo, color=color,
-                    talla=talla, lote=lote, precio_proveedor=precio_par,
-                    flete=flete_par, costo=costo)
-                # Alta: no hay estado previo, por eso no pasa por `transicionar`.
-                MovimientoPar.objects.create(
-                    par=par, de_estado='', a_estado=Par.Estado.POR_RECIBIR,
-                    usuario=usuario, origen='alta')
+            crear_pares(lote, tipo, color, talla, cantidad, precio, usuario=usuario)
     return lote
+
+
+def crear_pares(lote, tipo, color, talla, cantidad, precio, *, usuario):
+    """`cantidad` pares `por_recibir` en el lote. El costo sale del precio del proveedor
+    más el flete del lote; en el inventario inicial, del costo del tipo."""
+    if lote.origen == 'inicial':
+        precio_par, flete_par = None, None
+        costo = Decimal(tipo.costo).quantize(_CENTAVOS)
+    else:
+        precio_par, flete_par = Decimal(precio).quantize(_CENTAVOS), lote.flete_por_par
+        costo = precio_par + flete_par
+    creados = []
+    for _ in range(cantidad):
+        par = Par.objects.create(
+            codigo=generar_codigo(tipo.prefijo), tipo=tipo, color=color,
+            talla=talla, lote=lote, precio_proveedor=precio_par,
+            flete=flete_par, costo=costo)
+        # Alta: no hay estado previo, por eso no pasa por `transicionar`.
+        MovimientoPar.objects.create(
+            par=par, de_estado='', a_estado=Par.Estado.POR_RECIBIR,
+            usuario=usuario, origen='alta')
+        creados.append(par)
+    return creados
 
 
 def cerrar_lote(lote, *, usuario):

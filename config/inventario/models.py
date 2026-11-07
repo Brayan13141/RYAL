@@ -116,6 +116,8 @@ TRANSICIONES = {
     ('en_stock', 'vendido'): {'origenes': {'escaner', 'bot'}},
     ('en_stock', 'baja'): {'origenes': None},  # danado / perdido con nota
     ('vendido', 'en_stock'): {'origenes': {'deshacer'}},
+    # Editar el lote: una etiqueta capturada de más. Anulado no tiene salida.
+    ('por_recibir', 'anulado'): {'origenes': {'edicion'}},
     ('en_stock', 'por_recibir'): {'origenes': {'deshacer'}},
 }
 # Transiciones que solo se aceptan con nota no vacía.
@@ -128,6 +130,8 @@ class Par(models.Model):
         EN_STOCK = 'en_stock', 'En stock'
         VENDIDO = 'vendido', 'Vendido'
         BAJA = 'baja', 'Baja'
+        # Capturado por error al editar el lote: no es mercancía ni pérdida.
+        ANULADO = 'anulado', 'Anulado'
 
     MOTIVO_CHOICES = [
         ('faltante', 'Faltante'), ('danado', 'Dañado'), ('perdido', 'Perdido')]
@@ -210,7 +214,8 @@ class Par(models.Model):
 class MovimientoPar(models.Model):
     ORIGEN_CHOICES = [
         ('escaner', 'Escáner'), ('bot', 'Bot'), ('cierre_lote', 'Cierre de lote'),
-        ('deshacer', 'Deshacer'), ('manual', 'Manual'), ('alta', 'Alta')]
+        ('deshacer', 'Deshacer'), ('manual', 'Manual'), ('alta', 'Alta'),
+        ('edicion', 'Edición de lote')]
 
     par = models.ForeignKey(Par, on_delete=models.CASCADE, related_name='movimientos')
     de_estado = models.CharField(max_length=12, choices=Par.Estado.choices)

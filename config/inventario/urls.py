@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import catalogos, escaner, etiquetas, importar, lotes, stock, tipos
+from .views import catalogos, escaner, etiquetas, importar, lote_editar, lotes, stock, tipos
 
 app_name = 'inventario'
 
@@ -13,6 +13,7 @@ urlpatterns = [
     path('lotes/', lotes.lotes, name='lotes'),
     path('lotes/<int:pk>/', lotes.lote_detalle, name='lote_detalle'),
     path('lotes/<int:pk>/cerrar/', lotes.lote_cerrar, name='lote_cerrar'),
+    path('lotes/<int:pk>/editar/', lote_editar.lote_editar, name='lote_editar'),
     path('repetidos/', lotes.repetidos, name='repetidos'),
     path('lotes/<int:pk>/tallas/<int:tipo_id>/<int:color_id>/<int:talla_id>/',
          lotes.lote_tallas, name='lote_tallas'),
