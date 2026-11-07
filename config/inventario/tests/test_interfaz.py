@@ -44,16 +44,35 @@ class NavegacionTests(InterfazBase):
             reverse('inventario:par_ficha', args=[par.codigo]),
         ]
 
-    def test_todas_las_pantallas_traen_la_navegacion_y_la_hoja_de_estilos(self):
+    GRUPO_ABIERTO = 'class="p-nav-group open" id="navGroupInv"'
+
+    def test_sin_barra_superior_y_con_el_grupo_del_menu_lateral_abierto(self):
         for url in self.paginas():
             r = self.client.get(url)
             self.assertEqual(r.status_code, 200, url)
-            self.assertContains(r, 'class="inv-nav"', msg_prefix=url)
+            self.assertNotContains(r, 'class="inv-nav"', msg_prefix=url)
+            self.assertContains(r, self.GRUPO_ABIERTO, msg_prefix=url)
             self.assertContains(r, 'css/inventario.css', msg_prefix=url)
 
-    def test_la_seccion_actual_queda_marcada(self):
-        r = self.client.get(reverse('inventario:lotes'))
-        self.assertContains(r, f'href="{reverse("inventario:lotes")}" class="inv-nav-link is-active"')
+    def test_fuera_del_inventario_el_grupo_queda_cerrado(self):
+        r = self.client.get(reverse('panel:dashboard'))
+        self.assertContains(r, 'class="p-nav-group" id="navGroupInv"')
+
+    def test_la_seccion_actual_queda_marcada_en_el_menu_lateral(self):
+        url = reverse('inventario:lotes')
+        for pagina in (url, reverse('inventario:lote_detalle', args=[self.lote.pk])):
+            r = self.client.get(pagina)
+            self.assertContains(r, f'href="{url}" title="Lotes" class="nav-child on"', msg_prefix=pagina)
+
+    def test_la_pantalla_de_importar_tiene_un_solo_nombre(self):
+        r = self.client.get(reverse('inventario:stock'))
+        self.assertNotContains(r, 'Recibir llegada')
+        self.assertContains(r, f'href="{reverse("inventario:importar")}" title="Importar CSV"')
+
+    def test_escaneados_2_veces_esta_en_el_menu_lateral(self):
+        url = reverse('inventario:repetidos')
+        r = self.client.get(url)
+        self.assertContains(r, f'href="{url}" title="Escaneados 2 veces" class="nav-child on"')
 
 
 class FichaEtiquetaTests(InterfazBase):

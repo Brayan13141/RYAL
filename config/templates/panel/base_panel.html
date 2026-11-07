@@ -899,7 +899,7 @@
     }
 
     .p-nav-group.open .p-nav-sub {
-      max-height: 420px;
+      max-height: 640px;
     }
 
     .p-nav-sub a {
@@ -916,6 +916,27 @@
       color: var(--pg);
       background: rgba(212, 175, 55, .04);
       border-left-color: var(--pg);
+    }
+
+    /* Pantallas que dependen de otra (Stock → Lotes…): un nivel más adentro. */
+    .p-nav-sub a.nav-child {
+      padding-left: 58px !important;
+    }
+
+    .p-nav-subhead {
+      padding: 10px 16px 4px 40px;
+      font-size: 10px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: #444;
+    }
+
+    .p-layout.collapsed .p-nav-sub a.nav-child {
+      padding-left: 30px !important;
+    }
+
+    .p-layout.collapsed .p-nav-subhead {
+      padding: 8px 12px 2px;
     }
 
     /* Collapsed: ocultar sub y chevron, centrar botón */
@@ -1266,46 +1287,57 @@
         </a>
 
         <div class="p-nav-sec">Inventario</div>
-        <a href="{% url 'inventario:stock' %}" title="Stock"
-          class="{% if request.resolver_match.namespace == 'inventario' and request.resolver_match.url_name == 'stock' %}on{% endif %}">
-          <i class="bi bi-grid-3x3-gap"></i>
-          <span class="nav-label">Stock</span>
-        </a>
-        <a href="{% url 'inventario:catalogos' %}" title="Catálogos de inventario"
-          class="{% if request.resolver_match.namespace == 'inventario' and request.resolver_match.url_name == 'catalogos' %}on{% endif %}">
-          <i class="bi bi-sliders"></i>
-          <span class="nav-label">Catálogos</span>
-        </a>
-        <a href="{% url 'inventario:tipos_convertir' %}" title="Modelos y vías"
-          class="{% if request.resolver_match.namespace == 'inventario' and request.resolver_match.url_name == 'tipos_convertir' %}on{% endif %}">
-          <i class="bi bi-diagram-2"></i>
-          <span class="nav-label">Modelos y vías</span>
-        </a>
-        <a href="{% url 'inventario:alta_manual' %}" title="Alta manual"
-          class="{% if request.resolver_match.namespace == 'inventario' and request.resolver_match.url_name == 'alta_manual' %}on{% endif %}">
-          <i class="bi bi-plus-square"></i>
-          <span class="nav-label">Alta manual</span>
-        </a>
-        <a href="{% url 'inventario:importar' %}" title="Recibir llegada"
-          class="{% if request.resolver_match.namespace == 'inventario' and request.resolver_match.url_name|slice:':8' == 'importar' %}on{% endif %}">
-          <i class="bi bi-file-earmark-arrow-up"></i>
-          <span class="nav-label">Recibir llegada</span>
-        </a>
-        <a href="{% url 'inventario:escanear' %}" title="Escanear"
-          class="{% if request.resolver_match.namespace == 'inventario' and request.resolver_match.url_name == 'escanear' %}on{% endif %}">
-          <i class="bi bi-upc-scan"></i>
-          <span class="nav-label">Escanear</span>
-        </a>
-        <a href="{% url 'inventario:lotes' %}" title="Lotes"
-          class="{% if request.resolver_match.namespace == 'inventario' and request.resolver_match.url_name == 'lotes' or request.resolver_match.namespace == 'inventario' and request.resolver_match.url_name == 'lote_detalle' %}on{% endif %}">
-          <i class="bi bi-box-seam"></i>
-          <span class="nav-label">Lotes</span>
-        </a>
-        <a href="{% url 'inventario:conteos' %}" title="Conteos"
-          class="{% if request.resolver_match.namespace == 'inventario' and request.resolver_match.url_name == 'conteos' or request.resolver_match.namespace == 'inventario' and request.resolver_match.url_name == 'conteo_resumen' %}on{% endif %}">
-          <i class="bi bi-clipboard-check"></i>
-          <span class="nav-label">Conteos</span>
-        </a>
+        {% with inv_ns=request.resolver_match.namespace inv_u=request.resolver_match.url_name %}
+        <div class="p-nav-group{% if inv_ns == 'inventario' %} open{% endif %}" id="navGroupInv">
+          <button
+            class="p-nav-group-btn {% if inv_ns == 'inventario' %}on{% endif %}"
+            title="Inventario" onclick="toggleNavGroup('navGroupInv')">
+            <i class="bi bi-box-seam"></i>
+            <span class="nav-label">Inventario</span>
+            <i class="bi bi-chevron-down nav-chevron"></i>
+          </button>
+          <div class="p-nav-sub">
+            <a href="{% url 'inventario:stock' %}" title="Stock" class="{% if inv_ns == 'inventario' %}{% if inv_u == 'stock' or inv_u == 'par_ficha' %}on{% endif %}{% endif %}">
+              <i class="bi bi-grid-3x3-gap"></i>
+              <span class="nav-label">Stock</span>
+            </a>
+            <a href="{% url 'inventario:lotes' %}" title="Lotes" class="nav-child{% if inv_ns == 'inventario' %}{% if inv_u == 'lotes' or inv_u == 'lote_detalle' %} on{% endif %}{% endif %}">
+              <i class="bi bi-boxes"></i>
+              <span class="nav-label">Lotes</span>
+            </a>
+            <a href="{% url 'inventario:escanear' %}" title="Escanear" class="nav-child{% if inv_ns == 'inventario' %}{% if inv_u == 'escanear' %} on{% endif %}{% endif %}">
+              <i class="bi bi-upc-scan"></i>
+              <span class="nav-label">Escanear</span>
+            </a>
+            <a href="{% url 'inventario:repetidos' %}" title="Escaneados 2 veces" class="nav-child{% if inv_ns == 'inventario' %}{% if inv_u == 'repetidos' %} on{% endif %}{% endif %}">
+              <i class="bi bi-layers"></i>
+              <span class="nav-label">Escaneados 2 veces</span>
+            </a>
+            <div class="p-nav-subhead">Recibir mercancía</div>
+            <a href="{% url 'inventario:importar' %}" title="Importar CSV" class="nav-child{% if inv_ns == 'inventario' %}{% if inv_u == 'importar' or inv_u == 'importar_preview' or inv_u == 'importar_confirmar' %} on{% endif %}{% endif %}">
+              <i class="bi bi-filetype-csv"></i>
+              <span class="nav-label">Importar CSV</span>
+            </a>
+            <a href="{% url 'inventario:alta_manual' %}" title="Alta manual" class="nav-child{% if inv_ns == 'inventario' %}{% if inv_u == 'alta_manual' %} on{% endif %}{% endif %}">
+              <i class="bi bi-plus-square"></i>
+              <span class="nav-label">Alta manual</span>
+            </a>
+            <a href="{% url 'inventario:conteos' %}" title="Conteos" class="{% if inv_ns == 'inventario' %}{% if inv_u == 'conteos' or inv_u == 'conteo_resumen' %}on{% endif %}{% endif %}">
+              <i class="bi bi-clipboard-check"></i>
+              <span class="nav-label">Conteos</span>
+            </a>
+            <div class="p-nav-subhead">Configuración</div>
+            <a href="{% url 'inventario:catalogos' %}" title="Catálogos" class="nav-child{% if inv_ns == 'inventario' %}{% if inv_u == 'catalogos' %} on{% endif %}{% endif %}">
+              <i class="bi bi-palette"></i>
+              <span class="nav-label">Catálogos</span>
+            </a>
+            <a href="{% url 'inventario:tipos_convertir' %}" title="Modelos y vías" class="nav-child{% if inv_ns == 'inventario' %}{% if inv_u == 'tipos_convertir' %} on{% endif %}{% endif %}">
+              <i class="bi bi-diagram-2"></i>
+              <span class="nav-label">Modelos y vías</span>
+            </a>
+          </div>
+        </div>
+        {% endwith %}
 
         <div class="p-nav-sec">Catálogo</div>
 
