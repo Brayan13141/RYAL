@@ -16,6 +16,7 @@
     <button type="button" id="tab-recibir" class="nav-link active" role="tab"><i class="bi bi-box-arrow-in-down"></i>Recibir</button>
     <button type="button" id="tab-vender" class="nav-link" role="tab"><i class="bi bi-bag-check"></i>Vender</button>
     <button type="button" id="tab-contar" class="nav-link" role="tab"><i class="bi bi-clipboard-check"></i>Contar</button>
+    <button type="button" id="tab-cambio" class="nav-link" role="tab"><i class="bi bi-arrow-left-right"></i>Cambio</button>
   </div>
 
   <div id="esc-lote-box" class="mb-3">
@@ -63,7 +64,13 @@
   </section>
 
   <section id="esc-vender" hidden>
-    <h2 class="inv-h3">Carrito</h2>
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+      <h2 class="inv-h3 m-0">Carrito</h2>
+      <div id="vd-tipo-venta" class="inv-seg" role="radiogroup" aria-label="Tipo de venta">
+        <label><input type="radio" name="vd-tipo-venta" value="menudeo" checked> Menudeo</label>
+        <label><input type="radio" name="vd-tipo-venta" value="mayoreo"> Mayoreo</label>
+      </div>
+    </div>
     <div id="vd-carrito" class="mb-2"></div>
     <div id="vd-vacio" class="inv-empty py-4 mb-3"><i class="bi bi-bag"></i><p class="mb-0">Escanea los pares que se venden.</p></div>
     <div class="inv-sticky">
@@ -80,6 +87,47 @@
     </div>
     <div id="vd-msg" class="small mt-2"></div>
   </section>
+
+  <section id="esc-cambio" hidden>
+    <p id="cb-paso" class="inv-sub mb-2">1. Escanea el par que el cliente regresa.</p>
+    <div class="inv-panel inv-panel-pad mb-2">
+      <div class="small inv-muted">Regresa</div>
+      <div id="cb-regresa">—</div>
+    </div>
+    <div class="inv-panel inv-panel-pad mb-3">
+      <div class="small inv-muted">Se lleva</div>
+      <div id="cb-nuevo">—</div>
+    </div>
+    <div id="cb-form" hidden>
+      <div class="row g-2 mb-2">
+        <div class="col-6">
+          <label class="form-label" for="cb-precio">Precio del que se lleva</label>
+          <input id="cb-precio" type="text" inputmode="decimal" class="form-control">
+        </div>
+        <div class="col-6">
+          <div class="small inv-muted">Diferencia a cobrar</div>
+          <div class="inv-total">$<span id="cb-dif">0.00</span></div>
+          <div id="cb-dif-nota" class="small inv-muted"></div>
+        </div>
+      </div>
+      <div id="cb-metodo-box" class="mb-2" hidden>
+        <label class="form-label" for="cb-metodo">Método de pago de la diferencia</label>
+        <select id="cb-metodo" class="form-select">
+          {% for valor, etiqueta in metodos %}<option value="{{ valor }}">{{ etiqueta }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-check mb-2">
+        <input id="cb-danado" class="form-check-input" type="checkbox">
+        <label class="form-check-label" for="cb-danado">El par que regresa viene dañado (se da de baja, no vuelve a stock)</label>
+      </div>
+      <input id="cb-nota" type="text" class="form-control mb-3" placeholder="Nota (opcional)" maxlength="200">
+      <div class="d-flex gap-2">
+        <button id="cb-confirmar" type="button" class="btn-g"><i class="bi bi-check2"></i> Confirmar cambio</button>
+        <button id="cb-reiniciar" type="button" class="inv-btn-ghost">Empezar de nuevo</button>
+      </div>
+    </div>
+    <div id="cb-msg" class="small mt-2"></div>
+  </section>
 </div>
 
 <div id="esc-cfg" hidden data-conteo-id="{% if conteo_sel and not conteo_sel.cerrado_at %}{{ conteo_sel.pk }}{% endif %}"
@@ -88,6 +136,9 @@
      data-vender-info="{% url 'inventario:vender_info' %}"
      data-vender-ligar="{% url 'inventario:vender_ligar' %}"
      data-vender-cerrar="{% url 'inventario:vender_cerrar' %}"
+     data-cambio-regresa="{% url 'inventario:cambio_regresa' %}"
+     data-cambio-nuevo="{% url 'inventario:cambio_nuevo' %}"
+     data-cambio-confirmar="{% url 'inventario:cambio_confirmar' %}"
      data-pedido="{% url 'negocio:pedido_detail' 0 %}"
      data-deshacer="{% url 'inventario:deshacer' %}"
      data-ficha="{% url 'inventario:par_ficha' 'CODIGO' %}"></div>

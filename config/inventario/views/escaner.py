@@ -13,8 +13,8 @@ from django.conf import settings
 from django.utils.safestring import mark_safe
 
 from inventario import etiquetas
-from inventario.models import Conteo, Lote, Par, fmt_talla
-from inventario.services import conteos, escaneo, ventas
+from inventario.models import Conteo, Lote, Par, fmt_talla, precio_lista_de
+from inventario.services import cambios, conteos, escaneo, ventas
 from inventario.validacion import cabe_en
 from negocio.models import Pago, Pedido, PedidoItem
 
@@ -157,9 +157,12 @@ def vender_info(request):
         'nivel': 'verde',
         'par': {
             'codigo': par.codigo, 'nombre': base.nombre, 'color': par.color.nombre,
-            'talla': fmt_talla(par.talla.mx_cm), 'costo': _dos_decimales(par.costo)},
+            # Sin costo: el cliente puede ver esta pantalla. El costo vive en la ficha del par.
+            'talla': fmt_talla(par.talla.mx_cm)},
         'precios': [{'nombre': pv.nombre, 'precio': _dos_decimales(pv.precio)}
                     for pv in base.precios_venta.order_by('orden', 'pk')],
+        # Con este precio se llena el par según el selector Menudeo / Mayoreo.
+        'precio_lista': {tv: _dos_decimales(p) for tv, p in precio_lista_de(par).items()},
         'items_bot': _items_bot_json(par),
     })
 
@@ -215,6 +218,10 @@ def vender_cerrar(request):
     metodo = datos.get('metodo_pago')
     if metodo not in {m[0] for m in Pago.METODO_CHOICES}:
         return _error_venta('Elige un método de pago válido.')
+    tipo_venta = datos.get('tipo_venta')
+    if not isinstance(tipo_venta, str) or tipo_venta not in {
+            t[0] for t in Pedido.TIPO_VENTA_CHOICES}:
+        return _error_venta('Elige si la venta es de menudeo o de mayoreo.')
     lineas, vistos = [], set()
     for cruda in crudas:
         if not isinstance(cruda, dict):
@@ -240,10 +247,105 @@ def vender_cerrar(request):
                               f'{par.color.nombre} {fmt_talla(par.talla.mx_cm)}. '
                               '¿Es una venta distinta?')}, status=409)
     try:
-        pedido = ventas.vender_pares(lineas, metodo_pago=metodo, usuario=request.user)
+        pedido = ventas.vender_pares(
+            lineas, metodo_pago=metodo, usuario=request.user, tipo_venta=tipo_venta)
     except ValueError as e:
         return _error_venta(str(e))
     return JsonResponse({'ok': True, 'pedido_id': pedido.pk})
+
+
+# ── Cambio de par ────────────────────────────────────────────────────────────
+
+def _par_json(par):
+    # Sin costo: el cliente puede ver esta pantalla.
+    return {'codigo': par.codigo, 'nombre': par.tipo.modelo_base.nombre,
+            'color': par.color.nombre, 'talla': fmt_talla(par.talla.mx_cm)}
+
+
+def _par_por_lectura(lectura):
+    codigo = escaneo.extraer_codigo(str(lectura or ''))
+    if not codigo:
+        return None
+    return (Par.objects.select_related('tipo__padre', 'color', 'talla', 'lote',
+                                       'pedido_item__pedido')
+            .filter(codigo=codigo).first())
+
+
+def _venta_del_par(par):
+    """El ítem de venta (no cancelada) donde salió el par, o un mensaje de por qué no."""
+    if par.estado != Par.Estado.VENDIDO or par.pedido_item is None:
+        return None, f'Este par no está vendido (estado {par.get_estado_display()})'
+    if par.pedido_item.pedido.estado == Pedido.CANCELADO:
+        return None, 'La venta de este par está cancelada'
+    return par.pedido_item, None
+
+
+@staff_member_required
+@require_POST
+def cambio_regresa(request):
+    """Par que el cliente regresa: tiene que estar vendido en una venta vigente."""
+    datos = _cuerpo(request)
+    if datos is None:
+        return _error('Solicitud inválida.')
+    par = _par_por_lectura(datos.get('lectura'))
+    if par is None:
+        return JsonResponse({'nivel': 'rojo', 'mensaje': 'Código no encontrado'})
+    item, motivo = _venta_del_par(par)
+    if item is None:
+        return JsonResponse({'nivel': 'rojo', 'codigo': par.codigo, 'mensaje': motivo})
+    pedido = item.pedido
+    return JsonResponse({
+        'nivel': 'verde', 'par': _par_json(par),
+        'venta': {'pedido_id': pedido.pk, 'fecha': pedido.fecha.isoformat(),
+                  'precio_pagado': _dos_decimales(item.precio_unitario),
+                  'tipo_venta': pedido.tipo_venta}})
+
+
+@staff_member_required
+@require_POST
+def cambio_nuevo(request):
+    """Par que se lleva: tiene que estar en stock. Sugiere el precio de lista de la venta."""
+    datos = _cuerpo(request)
+    if datos is None:
+        return _error('Solicitud inválida.')
+    par = _par_por_lectura(datos.get('lectura'))
+    if par is None:
+        return JsonResponse({'nivel': 'rojo', 'mensaje': 'Código no encontrado'})
+    if par.estado != Par.Estado.EN_STOCK:
+        return JsonResponse({
+            'nivel': 'rojo', 'codigo': par.codigo,
+            'mensaje': f'No se puede llevar: el par está en estado {par.get_estado_display()}'})
+    regresa = _par_por_lectura(datos.get('regresa'))
+    item = _venta_del_par(regresa)[0] if regresa else None
+    if item is None:
+        return _error('Escanea primero el par que regresa.')
+    sugerido = precio_lista_de(par).get(item.pedido.tipo_venta) or item.precio_unitario
+    return JsonResponse({'nivel': 'verde', 'par': _par_json(par),
+                         'precio_sugerido': _dos_decimales(sugerido)})
+
+
+@staff_member_required
+@require_POST
+def cambio_confirmar(request):
+    datos = _cuerpo(request)
+    if datos is None:
+        return _error_venta('Solicitud inválida.')
+    regresa = _par_por_lectura(datos.get('regresa'))
+    nuevo = _par_por_lectura(datos.get('nuevo'))
+    if regresa is None or nuevo is None:
+        return _error_venta('Escanea el par que regresa y el que se lleva.')
+    precio = _precio(datos.get('precio'))
+    if precio is None:
+        return _error_venta('Precio inválido.')
+    try:
+        res = cambios.cambiar_par(
+            regresa, nuevo, precio=precio, metodo_pago=datos.get('metodo_pago'),
+            usuario=request.user, danado=datos.get('danado') is True,
+            nota=str(datos.get('nota') or ''))
+    except ValueError as e:
+        return _error_venta(str(e))
+    return JsonResponse({'ok': True, 'pedido_id': res.pedido.pk,
+                         'diferencia': _dos_decimales(res.diferencia)})
 
 
 def _volver_al_pedido(request, pedido_pk):

@@ -37,6 +37,13 @@ class Pedido(models.Model):
         (BOT, 'Bot'),
     ]
 
+    MAYOREO = 'mayoreo'
+    MENUDEO = 'menudeo'
+    TIPO_VENTA_CHOICES = [
+        (MAYOREO, 'Mayoreo'),
+        (MENUDEO, 'Menudeo'),
+    ]
+
     cliente = models.ForeignKey(
         Cliente, on_delete=models.PROTECT, related_name='pedidos',
         null=True, blank=True,
@@ -55,6 +62,10 @@ class Pedido(models.Model):
     )
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default=PENDIENTE)
     origen = models.CharField(max_length=20, choices=ORIGEN_CHOICES, default=WHATSAPP)
+    # Lo elige el selector de la pantalla Vender del escáner. NULL = sin clasificar:
+    # las ventas de antes y las del bot, a las que no se les inventa una categoría.
+    tipo_venta = models.CharField(
+        max_length=10, choices=TIPO_VENTA_CHOICES, null=True, blank=True, default=None)
     # Identifica el CIERRE de venta, no el pedido: hoy es el id del mensaje de
     # WhatsApp del `/cerrar`, que es el mismo para toda instancia que lo recibe.
     # El UNIQUE es quien arbitra de verdad — un chequeo previo en la vista no

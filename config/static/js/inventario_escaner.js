@@ -1,4 +1,4 @@
-// Escáner de inventario (modos Recibir, Vender y Contar): pistola (Enter) o cámara (jsQR).
+// Escáner de inventario (modos Recibir, Vender, Contar y Cambio): pistola (Enter) o cámara (jsQR).
 (function () {
   const cfg = document.getElementById('esc-cfg').dataset;
   const input = document.getElementById('esc-input');
@@ -78,7 +78,10 @@
 
   // ── Modo Vender: carrito de pares escaneados ────────────────────────────────
   let modo = 'recibir';
-  const carrito = [];  // { codigo, nombre, costo, precios, precio (texto) }
+  // { codigo, nombre, precios, lista, precio (texto), auto }
+  // `lista`: precio de lista por tipo de venta ({mayoreo, menudeo}) según la calidad del par.
+  // `auto`: el precio lo puso la lista; si se escribe o se elige otro, deja de seguir al selector.
+  const carrito = [];
   const vd = {
     caja: document.getElementById('vd-carrito'),
     vacio: document.getElementById('vd-vacio'),
@@ -89,6 +92,24 @@
   };
   let cobrando = false;
   let ligando = false;
+
+  function tipoVenta() {
+    const r = document.querySelector('input[name="vd-tipo-venta"]:checked');
+    return r ? r.value : 'menudeo';
+  }
+
+  function precioDeLista(l) {
+    return (l.lista && l.lista[tipoVenta()]) || '';
+  }
+
+  // Cambiar Menudeo/Mayoreo actualiza solo los precios que puso la lista.
+  document.querySelectorAll('input[name="vd-tipo-venta"]').forEach(r => {
+    r.addEventListener('change', () => {
+      carrito.forEach(l => { if (l.auto) l.precio = precioDeLista(l); });
+      pintarCarrito();
+      input.focus();
+    });
+  });
 
   function precioValido(v) {
     return /^\d+(\.\d{1,2})?$/.test(String(v).trim());
@@ -150,7 +171,7 @@
       const fila = document.createElement('div');
       fila.className = 'border rounded p-2 mb-2';
       const tit = document.createElement('div');
-      tit.textContent = l.codigo + ' · ' + l.nombre + ' (costo $' + l.costo + ')';
+      tit.textContent = l.codigo + ' · ' + l.nombre;
       const campo = document.createElement('input');
       campo.type = 'text';
       campo.inputMode = 'decimal';
@@ -158,7 +179,7 @@
       campo.style.maxWidth = '120px';
       campo.placeholder = 'Precio';
       campo.value = l.precio;
-      campo.addEventListener('input', () => { l.precio = campo.value; actualizarTotal(); });
+      campo.addEventListener('input', () => { l.precio = campo.value; l.auto = false; actualizarTotal(); });
       const botones = document.createElement('div');
       botones.className = 'd-flex flex-wrap gap-1 my-1';
       l.precios.forEach(p => {
@@ -166,7 +187,9 @@
         b.type = 'button';
         b.className = 'btn-g';
         b.textContent = p.nombre + ' $' + p.precio;
-        b.addEventListener('click', () => { l.precio = p.precio; campo.value = p.precio; actualizarTotal(); });
+        b.addEventListener('click', () => {
+          l.precio = p.precio; l.auto = false; campo.value = p.precio; actualizarTotal();
+        });
         botones.append(b);
       });
       const quitar = document.createElement('button');
@@ -200,12 +223,15 @@
         if (carrito.some(l => l.codigo === d.par.codigo)) {
           avisar('amarillo', 'Ese par ya está en el carrito'); return;
         }
-        carrito.push({
+        const linea = {
           codigo: d.par.codigo,
           nombre: d.par.nombre + ' ' + d.par.color + ' ' + d.par.talla,
-          costo: d.par.costo, precios: d.precios, precio: '',
+          precios: d.precios, lista: d.precio_lista || {},
           itemsBot: d.items_bot || [],
-        });
+        };
+        linea.precio = precioDeLista(linea);
+        linea.auto = linea.precio !== '';
+        carrito.push(linea);
         pintarCarrito();
         avisar('verde', d.par.codigo + ' agregado');
       })
@@ -219,6 +245,7 @@
     const cuerpo = {
       lineas: carrito.map(l => ({ codigo: l.codigo, precio: l.precio.trim() })),
       metodo_pago: vd.metodo.value,
+      tipo_venta: tipoVenta(),
     };
     post(cfg.venderCerrar, cuerpo)
       .then(d => {
@@ -232,6 +259,9 @@
       .then(d => {
         if (d.ok) {
           carrito.length = 0;
+          // Cada venta es un cliente: la siguiente vuelve a empezar en Menudeo.
+          const men = document.querySelector('input[name="vd-tipo-venta"][value="menudeo"]');
+          if (men) men.checked = true;
           pintarCarrito();
           vd.msg.replaceChildren('Venta registrada: ',
             Object.assign(document.createElement('a'), {
@@ -247,11 +277,124 @@
       .finally(() => { cobrando = false; actualizarTotal(); });
   });
 
+  // ── Modo Cambio: regresa un par vendido y se lleva otro en la misma venta ────
+  // Diferencia = precio nuevo − lo pagado; si sale negativa no se devuelve nada.
+  const cb = {
+    paso: document.getElementById('cb-paso'),
+    regresa: document.getElementById('cb-regresa'),
+    nuevo: document.getElementById('cb-nuevo'),
+    form: document.getElementById('cb-form'),
+    precio: document.getElementById('cb-precio'),
+    dif: document.getElementById('cb-dif'),
+    difNota: document.getElementById('cb-dif-nota'),
+    metodoBox: document.getElementById('cb-metodo-box'),
+    metodo: document.getElementById('cb-metodo'),
+    danado: document.getElementById('cb-danado'),
+    nota: document.getElementById('cb-nota'),
+    confirmar: document.getElementById('cb-confirmar'),
+    reiniciar: document.getElementById('cb-reiniciar'),
+    msg: document.getElementById('cb-msg'),
+  };
+  let cambio = { regresa: null, pagado: 0, nuevo: null };
+  let confirmando = false;
+
+  function textoPar(p) { return p.codigo + ' · ' + p.nombre + ' ' + p.color + ' ' + p.talla; }
+
+  function pintarCambio() {
+    cb.regresa.textContent = cambio.regresa
+      ? textoPar(cambio.regresa.par) + ' · pagó $' + cambio.regresa.venta.precio_pagado +
+        ' (pedido #' + cambio.regresa.venta.pedido_id + ')'
+      : '—';
+    cb.nuevo.textContent = cambio.nuevo ? textoPar(cambio.nuevo) : '—';
+    cb.form.hidden = !(cambio.regresa && cambio.nuevo);
+    cb.paso.textContent = !cambio.regresa ? '1. Escanea el par que el cliente regresa.'
+      : !cambio.nuevo ? '2. Escanea el par que se lleva.'
+      : '3. Revisa el precio y confirma.';
+    actualizarDiferencia();
+  }
+
+  function actualizarDiferencia() {
+    const precio = precioValido(cb.precio.value) ? parseFloat(cb.precio.value) : NaN;
+    const resta = precio - cambio.pagado;
+    const dif = isNaN(resta) ? 0 : Math.max(0, resta);
+    cb.dif.textContent = dif.toFixed(2);
+    cb.metodoBox.hidden = !(dif > 0);
+    cb.difNota.textContent = resta < 0 ? 'Es más barato: no se devuelve dinero.' : '';
+    cb.confirmar.disabled = confirmando || isNaN(precio) || !cambio.nuevo;
+  }
+
+  function reiniciarCambio() {
+    cambio = { regresa: null, pagado: 0, nuevo: null };
+    cb.precio.value = '';
+    cb.danado.checked = false;
+    cb.nota.value = '';
+    pintarCambio();
+  }
+
+  function escanearCambio(lectura) {
+    if (cambio.regresa && cambio.nuevo) {
+      avisar('amarillo', 'Confirma este cambio o empieza de nuevo.');
+      return Promise.resolve();
+    }
+    if (!cambio.regresa) {
+      return post(cfg.cambioRegresa, { lectura: lectura })
+        .then(d => {
+          if (d.nivel !== 'verde') { avisar('rojo', d.mensaje || d.error || 'Error'); return; }
+          cambio.regresa = d;
+          cambio.pagado = parseFloat(d.venta.precio_pagado);
+          cb.msg.textContent = '';
+          pintarCambio();
+          avisar('verde', d.par.codigo + ': regresa');
+        })
+        .catch(() => avisar('rojo', 'Error de red'));
+    }
+    return post(cfg.cambioNuevo, { lectura: lectura, regresa: cambio.regresa.par.codigo })
+      .then(d => {
+        if (d.nivel !== 'verde') { avisar('rojo', d.mensaje || d.error || 'Error'); return; }
+        cambio.nuevo = d.par;
+        cb.precio.value = d.precio_sugerido;
+        pintarCambio();
+        avisar('verde', d.par.codigo + ': se lleva');
+      })
+      .catch(() => avisar('rojo', 'Error de red'));
+  }
+
+  cb.precio.addEventListener('input', actualizarDiferencia);
+  cb.reiniciar.addEventListener('click', () => { reiniciarCambio(); input.focus(); });
+  cb.confirmar.addEventListener('click', () => {
+    if (confirmando || !cambio.regresa || !cambio.nuevo) return;
+    confirmando = true;
+    cb.confirmar.disabled = true;  // protección contra doble envío
+    post(cfg.cambioConfirmar, {
+      regresa: cambio.regresa.par.codigo, nuevo: cambio.nuevo.codigo,
+      precio: cb.precio.value.trim(), metodo_pago: cb.metodo.value,
+      danado: cb.danado.checked, nota: cb.nota.value,
+    })
+      .then(d => {
+        if (d.ok) {
+          reiniciarCambio();
+          cb.msg.replaceChildren(
+            'Cambio registrado' + (parseFloat(d.diferencia) > 0 ? ' (cobrados $' + d.diferencia + ')' : '') + ': ',
+            Object.assign(document.createElement('a'), {
+              href: cfg.pedido.replace(/0\/$/, d.pedido_id + '/'),
+              textContent: 'pedido #' + d.pedido_id }));
+          avisar('verde', 'Cambio registrado');
+        } else {
+          cb.msg.textContent = d.error || 'No se pudo registrar el cambio';
+          avisar('rojo', d.error || 'Error');
+        }
+      })
+      .catch(() => avisar('rojo', 'Error de red'))
+      .finally(() => { confirmando = false; actualizarDiferencia(); });
+  });
+
   function cambiarModo(nuevo) {
     modo = nuevo;
     document.getElementById('tab-recibir').classList.toggle('active', nuevo === 'recibir');
     document.getElementById('tab-vender').classList.toggle('active', nuevo === 'vender');
     document.getElementById('tab-contar').classList.toggle('active', nuevo === 'contar');
+    document.getElementById('tab-cambio').classList.toggle('active', nuevo === 'cambio');
+    document.getElementById('esc-cambio').hidden = nuevo !== 'cambio';
     document.getElementById('esc-contar').hidden = nuevo !== 'contar';
     document.getElementById('esc-lote-box').hidden = nuevo !== 'recibir';
     document.getElementById('esc-recibir').hidden = nuevo !== 'recibir';
@@ -262,6 +405,7 @@
   document.getElementById('tab-recibir').addEventListener('click', () => cambiarModo('recibir'));
   document.getElementById('tab-vender').addEventListener('click', () => cambiarModo('vender'));
   document.getElementById('tab-contar').addEventListener('click', () => cambiarModo('contar'));
+  document.getElementById('tab-cambio').addEventListener('click', () => cambiarModo('cambio'));
 
   // ── Modo Contar: las lecturas van al conteo abierto (nunca cambian el estado del par) ──
   function escanearContar(lectura) {
@@ -297,6 +441,7 @@
     enCurso = true;
     const { lectura, modoLectura } = cola.shift();
     const accion = modoLectura === 'vender' ? escanearVender
+      : modoLectura === 'cambio' ? escanearCambio
       : modoLectura === 'contar' ? escanearContar : escanearRecibir;
     accion(lectura).finally(() => { enCurso = false; procesarCola(); });
   }

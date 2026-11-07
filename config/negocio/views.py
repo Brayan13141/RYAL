@@ -1146,3 +1146,77 @@ def contabilidad_excel(request):
     res = HttpResponse(generar_xlsx(desde, hasta, label), content_type=_XLSX)
     res['Content-Disposition'] = f'attachment; filename="ryal-contabilidad-{slug}.xlsx"'
     return res
+
+
+# ── Mayoreo contra menudeo (ventas del escáner) ───────────
+_TIPOS_REPORTE = [
+    (Pedido.MAYOREO, 'Mayoreo'),
+    (Pedido.MENUDEO, 'Menudeo'),
+    ('sin_clasificar', 'Sin clasificar'),
+]
+
+
+def _fecha_param(valor):
+    try:
+        return datetime.date.fromisoformat((valor or '').strip())
+    except ValueError:
+        return None
+
+
+def _vacio():
+    return {'pares': 0, 'ingreso': Decimal('0'), 'ganancia': Decimal('0')}
+
+
+def _por_tipo():
+    return {clave: _vacio() for clave, _ in _TIPOS_REPORTE}
+
+
+@staff_member_required
+def mayoreo_menudeo(request):
+    """Pares, ingreso y ganancia de mayoreo, menudeo y lo sin clasificar, por día y por mes.
+
+    Solo pedidos pagados, por la fecha del pedido (mismo criterio que el resumen).
+    Sin clasificar = ventas de antes del selector y las del bot.
+    """
+    hoy = timezone.localdate()
+    desde = _fecha_param(request.GET.get('desde')) or hoy.replace(day=1)
+    hasta = _fecha_param(request.GET.get('hasta')) or hoy
+    if desde > hasta:
+        desde, hasta = hasta, desde
+    pedidos = Pedido.objects.filter(
+        estado=Pedido.PAGADO, fecha__gte=desde, fecha__lte=hasta)
+
+    dias = {}
+
+    def celda(fecha, tipo_venta):
+        return dias.setdefault(fecha, _por_tipo())[tipo_venta or 'sin_clasificar']
+
+    # Dinero y pares en consultas separadas: unir los ítems al sumar el pedido
+    # repetiría su precio una vez por ítem.
+    for r in pedidos.values('fecha', 'tipo_venta').annotate(
+            ingreso=Sum(_VENDIDO_EXPR), ganancia=Sum(_GANANCIA_EXPR)):
+        c = celda(r['fecha'], r['tipo_venta'])
+        c['ingreso'] += r['ingreso'] or Decimal('0')
+        c['ganancia'] += r['ganancia'] or Decimal('0')
+    for r in (PedidoItem.objects.filter(pedido__in=pedidos)
+              .values('pedido__fecha', 'pedido__tipo_venta').annotate(n=Sum('cantidad'))):
+        celda(r['pedido__fecha'], r['pedido__tipo_venta'])['pares'] += r['n'] or 0
+
+    totales, meses = _por_tipo(), {}
+    for fecha, fila in dias.items():
+        mes = meses.setdefault((fecha.year, fecha.month), _por_tipo())
+        for clave, valores in fila.items():
+            for campo, v in valores.items():
+                totales[clave][campo] += v
+                mes[clave][campo] += v
+
+    por_dia = [{'fecha': f, **dias[f]} for f in sorted(dias, reverse=True)]
+    por_mes = [{'label': f'{_MESES_ES[m - 1]} {y}', **meses[(y, m)]}
+               for y, m in sorted(meses, reverse=True)]
+    return render(request, 'negocio/mayoreo_menudeo.html', {
+        'desde': desde, 'hasta': hasta,
+        'tarjetas': [(clave, label, totales[clave]) for clave, label in _TIPOS_REPORTE],
+        'totales': totales, 'por_dia': por_dia, 'por_mes': por_mes,
+        'hay_sin_clasificar': totales['sin_clasificar']['pares'] > 0
+        or totales['sin_clasificar']['ingreso'] != 0,
+    })

@@ -2,6 +2,45 @@
 {% load inventario_tags %}
 {% block title %}Catálogos de inventario{% endblock %}
 
+{% block inv_css %}
+<style>
+  .inv-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+  .inv-form-grid > .inv-switch, .inv-form-grid > fieldset, .inv-form-grid > .inv-alert { grid-column: 1 / -1; }
+  .inv-form-grid > .mb-3:first-child { grid-column: 1 / -1; }
+  .inv-switch { display: flex; align-items: center; gap: 10px; padding-left: 0; }
+  .inv-switch .form-check-input { float: none; margin: 0; width: 2.5em; height: 1.35em; cursor: pointer; }
+  .inv-switch .form-check-label { color: var(--inv-ink); font-size: 13.5px; cursor: pointer; }
+  .inv-switch .form-text { flex-basis: 100%; margin: 0; }
+  .inv-pick { display: flex; flex-wrap: wrap; gap: 6px; max-height: 260px; overflow-y: auto; padding: 2px; }
+  .inv-pick-op { position: relative; display: inline-flex; align-items: center; padding: 6px 12px; margin: 0;
+    border: 1px solid var(--inv-line-2); border-radius: 999px; font-size: 13px; color: var(--inv-mute);
+    cursor: pointer; user-select: none; transition: border-color .12s, color .12s, background .12s; }
+  .inv-pick-op:hover { border-color: #4a4a4a; color: var(--inv-ink); }
+  .inv-pick-op input { position: absolute; opacity: 0; pointer-events: none; }
+  .inv-pick-op:has(input:checked) { border-color: var(--inv-gold); color: var(--inv-gold); background: var(--inv-gold-soft); font-weight: 600; }
+  .inv-pick-op:has(input:focus-visible) { outline: 2px solid var(--inv-gold); outline-offset: 1px; }
+  .inv .input-group-text { background: #171717; border-color: var(--inv-line-2); color: var(--inv-mute); }
+  .inv-cat-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .inv-cat-editing { box-shadow: inset 0 0 0 1px rgba(212, 175, 55, .45); }
+  .inv-cat-editing .inv-panel-head { background: var(--inv-gold-soft); }
+  .inv-acc { display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
+  .inv-acc form { margin: 0; }
+  .inv-table tr.is-editing td { background: var(--inv-gold-soft); }
+  .inv-estado { border: 0; cursor: pointer; font: inherit; }
+  .inv-estado:hover { filter: brightness(1.25); }
+  .inv-uso { font-size: 12px; color: var(--inv-mute); white-space: nowrap; }
+  .inv-fila { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--inv-line); }
+  .inv-fila:last-child { border-bottom: 0; }
+  .inv-fila .inv-fila-nom { min-width: 170px; flex: 1 1 170px; }
+  .inv-fila .input-group { width: 170px; }
+  .inv-grupo-modelo td { background: #141414; font-weight: 600; color: var(--inv-ink); }
+  @media (max-width: 575.98px) {
+    .inv-form-grid { grid-template-columns: 1fr; }
+    .inv-fila .input-group { width: 100%; }
+  }
+</style>
+{% endblock %}
+
 {% block inv_content %}
 <div class="inv-head">
   <div>
@@ -19,21 +58,26 @@
 {% if activa == 'colores' %}
 <div class="row g-4">
   <div class="col-12 col-lg-5">
-    <div class="inv-panel mb-3">
-      <div class="inv-panel-head"><h2 class="inv-h3 m-0">Nuevo color</h2></div>
+    <div class="inv-panel mb-3{% if editando %} inv-cat-editing{% endif %}" id="form-color">
+      <div class="inv-panel-head inv-cat-head">
+        <h2 class="inv-h3 m-0">{% if editando %}Editar color{% else %}Nuevo color{% endif %}</h2>
+        {% if editando %}<a href="?tab=colores" class="inv-btn-ghost inv-btn-icon"><i class="bi bi-x-lg"></i> Cancelar</a>{% endif %}
+      </div>
       <div class="inv-panel-pad">
         <form method="post" action="?tab=colores">{% csrf_token %}<input type="hidden" name="accion" value="color">
+          {% if editando %}<input type="hidden" name="pk" value="{{ editando.pk }}">{% endif %}
           {% include "inventario/_campos.html" with form=forms.color %}
-          <button class="btn-g mt-2" type="submit"><i class="bi bi-plus-lg"></i> Guardar color</button>
+          <button class="btn-g mt-1" type="submit">{% if editando %}<i class="bi bi-check-lg"></i> Guardar cambios{% else %}<i class="bi bi-plus-lg"></i> Agregar color{% endif %}</button>
         </form>
       </div>
     </div>
-    <div class="inv-panel">
+    <div class="inv-panel" id="colores-modelo">
       <div class="inv-panel-head"><h2 class="inv-h3 m-0">Colores de un modelo</h2></div>
       <div class="inv-panel-pad">
+        <p class="small inv-muted">Elige el modelo y marca sus colores; los que desmarques se le quitan.</p>
         <form method="post" action="?tab=colores">{% csrf_token %}<input type="hidden" name="accion" value="colores_modelo">
           {% include "inventario/_campos.html" with form=forms.colores_modelo %}
-          <button class="btn-g mt-2" type="submit"><i class="bi bi-link-45deg"></i> Asignar colores</button>
+          <button class="btn-g mt-1" type="submit"><i class="bi bi-link-45deg"></i> Guardar colores del modelo</button>
         </form>
       </div>
     </div>
@@ -41,17 +85,31 @@
   <div class="col-12 col-lg-7">
     <div class="inv-table-wrap mb-4">
       <table class="inv-table">
-        <thead><tr><th>Color</th><th>Alias que reconoce el bot</th><th>Estado</th></tr></thead>
-        <tbody>{% for c in colores %}<tr><td>{{ c.nombre|capfirst }}</td><td class="inv-muted">{{ c.alias|default:"—" }}</td><td>{% if c.activo %}<span class="inv-chip inv-chip-ok">Activo</span>{% else %}<span class="inv-chip inv-chip-cerrado">Inactivo</span>{% endif %}</td></tr>
-        {% empty %}<tr><td colspan="3" class="inv-muted">Sin colores.</td></tr>{% endfor %}</tbody>
+        <thead><tr><th>Color</th><th>Alias que reconoce el bot</th><th>Uso</th><th>Estado</th><th class="num">Acciones</th></tr></thead>
+        <tbody>{% for c in colores %}<tr{% if editando.pk == c.pk %} class="is-editing"{% endif %}>
+          <td class="fw-semibold">{{ c.nombre|capfirst }}</td>
+          <td class="inv-muted">{{ c.alias|default:"—" }}</td>
+          <td><span class="inv-uso">{{ c.n_pares }} par{{ c.n_pares|pluralize:"es" }} · {{ c.n_modelos }} modelo{{ c.n_modelos|pluralize }}</span></td>
+          <td><form method="post" action="?tab=colores">{% csrf_token %}<input type="hidden" name="accion" value="color_estado"><input type="hidden" name="pk" value="{{ c.pk }}">
+            <button type="submit" class="inv-estado inv-chip {% if c.activo %}inv-chip-ok{% else %}inv-chip-cerrado{% endif %}" title="{% if c.activo %}Clic para desactivar{% else %}Clic para activar{% endif %}">{% if c.activo %}Activo{% else %}Inactivo{% endif %}</button></form></td>
+          <td><div class="inv-acc">
+            <a href="?tab=colores&amp;editar={{ c.pk }}#form-color" class="inv-btn-ghost inv-btn-icon" title="Editar" aria-label="Editar {{ c.nombre }}"><i class="bi bi-pencil"></i></a>
+            {% if c.n_pares %}<button type="button" class="inv-btn-ghost inv-btn-icon" disabled title="Lo usan {{ c.n_pares }} par{{ c.n_pares|pluralize:'es' }}: desactívalo en vez de borrarlo" aria-label="No se puede borrar"><i class="bi bi-trash"></i></button>
+            {% else %}<form method="post" action="?tab=colores" onsubmit="return confirm('¿Borrar el color «{{ c.nombre|escapejs }}»?{% if c.n_modelos %} Se quitará de {{ c.n_modelos }} modelo{{ c.n_modelos|pluralize }}.{% endif %}')">{% csrf_token %}<input type="hidden" name="accion" value="color_borrar"><input type="hidden" name="pk" value="{{ c.pk }}">
+              <button type="submit" class="inv-btn-danger inv-btn-icon" title="Borrar" aria-label="Borrar {{ c.nombre }}"><i class="bi bi-trash"></i></button></form>{% endif %}
+          </div></td></tr>
+        {% empty %}<tr><td colspan="5" class="inv-muted">Sin colores.</td></tr>{% endfor %}</tbody>
       </table>
     </div>
     <h2 class="inv-h3">Colores por modelo</h2>
     <div class="inv-panel inv-panel-pad">
       {% for t in modelos %}{% if t.colores.all %}
       <div class="py-2{% if not forloop.last %} border-bottom{% endif %}" style="border-color:var(--inv-line)!important">
-        <div class="fw-semibold mb-1">{{ t.nombre }}</div>
-        <div class="d-flex flex-wrap gap-1">{% for c in t.colores.all %}<span class="inv-chip inv-chip-cerrado">{{ c.nombre }}</span>{% endfor %}</div>
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <span class="fw-semibold">{{ t.nombre }}</span>
+          <a href="?tab=colores&amp;modelo={{ t.pk }}#colores-modelo" class="inv-btn-ghost inv-btn-icon" title="Editar colores de {{ t.nombre }}"><i class="bi bi-pencil"></i></a>
+        </div>
+        <div class="d-flex flex-wrap gap-1">{% for c in t.colores.all %}<span class="inv-chip {% if c.activo %}inv-chip-ok{% else %}inv-chip-cerrado{% endif %}">{{ c.nombre }}</span>{% endfor %}</div>
       </div>
       {% endif %}{% empty %}<p class="inv-muted mb-0">Ningún modelo tiene colores asignados.</p>{% endfor %}
     </div>
@@ -61,12 +119,16 @@
 {% elif activa == 'tallas' %}
 <div class="row g-4">
   <div class="col-12 col-lg-5">
-    <div class="inv-panel">
-      <div class="inv-panel-head"><h2 class="inv-h3 m-0">Nueva talla</h2></div>
+    <div class="inv-panel{% if editando %} inv-cat-editing{% endif %}" id="form-talla">
+      <div class="inv-panel-head inv-cat-head">
+        <h2 class="inv-h3 m-0">{% if editando %}Editar talla {{ editando }}{% else %}Nueva talla{% endif %}</h2>
+        {% if editando %}<a href="?tab=tallas" class="inv-btn-ghost inv-btn-icon"><i class="bi bi-x-lg"></i> Cancelar</a>{% endif %}
+      </div>
       <div class="inv-panel-pad">
         <form method="post" action="?tab=tallas">{% csrf_token %}<input type="hidden" name="accion" value="talla">
-          {% include "inventario/_campos.html" with form=forms.talla %}
-          <button class="btn-g mt-2" type="submit"><i class="bi bi-plus-lg"></i> Guardar talla</button>
+          {% if editando %}<input type="hidden" name="pk" value="{{ editando.pk }}">{% endif %}
+          <div class="inv-form-grid">{% include "inventario/_campos.html" with form=forms.talla %}</div>
+          <button class="btn-g mt-1" type="submit">{% if editando %}<i class="bi bi-check-lg"></i> Guardar cambios{% else %}<i class="bi bi-plus-lg"></i> Agregar talla{% endif %}</button>
         </form>
       </div>
     </div>
@@ -74,39 +136,116 @@
   <div class="col-12 col-lg-7">
     <div class="inv-table-wrap">
       <table class="inv-table">
-        <thead><tr><th>MX</th><th class="ctr">EU</th><th class="ctr">US H</th><th class="ctr">US M</th><th class="ctr">CN mm</th><th class="ctr">Orden</th><th>Estado</th></tr></thead>
-        <tbody>{% for t in tallas %}<tr><td><span class="inv-code">{{ t.mx_cm|floatformat:"-1" }}</span></td><td class="ctr">{{ t.eu|default_if_none:"—" }}</td><td class="ctr">{{ t.us_hombre|default_if_none:"—" }}</td><td class="ctr">{{ t.us_mujer|default_if_none:"—" }}</td><td class="ctr">{{ t.cn_mm|default_if_none:"—" }}</td><td class="ctr inv-muted">{{ t.orden }}</td><td>{% if t.activa %}<span class="inv-chip inv-chip-ok">Activa</span>{% else %}<span class="inv-chip inv-chip-cerrado">Inactiva</span>{% endif %}</td></tr>
-        {% empty %}<tr><td colspan="7" class="inv-muted">Sin tallas.</td></tr>{% endfor %}</tbody>
+        <thead><tr><th>MX</th><th class="ctr">EU</th><th class="ctr">US H</th><th class="ctr">US M</th><th class="ctr">CN mm</th><th class="ctr">Orden</th><th>Estado</th><th class="num">Acciones</th></tr></thead>
+        <tbody>{% for t in tallas %}<tr{% if editando.pk == t.pk %} class="is-editing"{% endif %}>
+          <td><span class="inv-code">{{ t.mx_cm|floatformat:"-1" }}</span></td>
+          <td class="ctr">{{ t.eu|default_if_none:"—" }}</td><td class="ctr">{{ t.us_hombre|default_if_none:"—" }}</td>
+          <td class="ctr">{{ t.us_mujer|default_if_none:"—" }}</td><td class="ctr">{{ t.cn_mm|default_if_none:"—" }}</td>
+          <td class="ctr inv-muted">{{ t.orden }}</td>
+          <td><form method="post" action="?tab=tallas">{% csrf_token %}<input type="hidden" name="accion" value="talla_estado"><input type="hidden" name="pk" value="{{ t.pk }}">
+            <button type="submit" class="inv-estado inv-chip {% if t.activa %}inv-chip-ok{% else %}inv-chip-cerrado{% endif %}" title="{% if t.activa %}Clic para desactivar{% else %}Clic para activar{% endif %}">{% if t.activa %}Activa{% else %}Inactiva{% endif %}</button></form></td>
+          <td><div class="inv-acc">
+            <a href="?tab=tallas&amp;editar={{ t.pk }}#form-talla" class="inv-btn-ghost inv-btn-icon" title="Editar" aria-label="Editar talla {{ t }}"><i class="bi bi-pencil"></i></a>
+            {% if t.n_pares %}<button type="button" class="inv-btn-ghost inv-btn-icon" disabled title="La usan {{ t.n_pares }} par{{ t.n_pares|pluralize:'es' }}: desactívala en vez de borrarla" aria-label="No se puede borrar"><i class="bi bi-trash"></i></button>
+            {% else %}<form method="post" action="?tab=tallas" onsubmit="return confirm('¿Borrar la talla {{ t.mx_cm|floatformat:"-1" }} MX?')">{% csrf_token %}<input type="hidden" name="accion" value="talla_borrar"><input type="hidden" name="pk" value="{{ t.pk }}">
+              <button type="submit" class="inv-btn-danger inv-btn-icon" title="Borrar" aria-label="Borrar talla {{ t }}"><i class="bi bi-trash"></i></button></form>{% endif %}
+          </div></td></tr>
+        {% empty %}<tr><td colspan="8" class="inv-muted">Sin tallas.</td></tr>{% endfor %}</tbody>
       </table>
     </div>
+    <p class="small inv-muted mt-2">Una talla que ya tiene pares no se puede borrar: desactívala y deja de salir en altas.</p>
   </div>
 </div>
 
 {% elif activa == 'fletes' %}
-<div class="inv-panel" style="max-width:560px">
-  <div class="inv-panel-head"><h2 class="inv-h3 m-0">Flete por par</h2></div>
-  <div class="inv-panel-pad">
-    <p class="small inv-muted">Se suma al precio del proveedor para calcular el costo. Cambiar la tarifa no vuelve a costear los lotes ya creados.</p>
-    {% for t, f in tarifas %}
-    <form method="post" action="?tab=fletes" class="d-flex gap-2 align-items-center py-2">{% csrf_token %}
-      <input type="hidden" name="accion" value="tarifa"><input type="hidden" name="tarifa_id" value="{{ t.pk }}">
-      <span class="inv-via" style="min-width:110px"><i class="bi {{ t.via|via_icono }}"></i>{{ t.get_via_display }}</span>
-      {{ f.monto_por_par }}
-      <button class="btn-g" type="submit">Guardar</button>
-    </form>
-    {% endfor %}
+<div class="row g-4">
+  <div class="col-12 col-lg-7">
+    <div class="inv-panel">
+      <div class="inv-panel-head"><h2 class="inv-h3 m-0">Flete por par</h2></div>
+      <div class="inv-panel-pad">
+        <p class="small inv-muted">Se suma al precio del proveedor para calcular el costo. Cambiar la tarifa no vuelve a costear los lotes ya creados.</p>
+        {% for t, f in tarifas %}
+        <div class="inv-fila">
+          <span class="inv-fila-nom"><span class="inv-via"><i class="bi {{ t.via|via_icono }}"></i>{{ t.get_via_display }}</span></span>
+          <form method="post" action="?tab=fletes" class="d-flex gap-2 align-items-center">{% csrf_token %}
+            <input type="hidden" name="accion" value="tarifa"><input type="hidden" name="tarifa_id" value="{{ t.pk }}">
+            <div class="input-group"><span class="input-group-text">$</span>{{ f.monto_por_par }}</div>
+            <button class="btn-g" type="submit">Guardar</button>
+          </form>
+          <form method="post" action="?tab=fletes" onsubmit="return confirm('¿Borrar la tarifa {{ t.get_via_display|escapejs }}? Sin tarifa ya no se pueden crear lotes de esa vía hasta darla de alta otra vez.')">{% csrf_token %}
+            <input type="hidden" name="accion" value="tarifa_borrar"><input type="hidden" name="pk" value="{{ t.pk }}">
+            <button type="submit" class="inv-btn-danger inv-btn-icon" title="Borrar" aria-label="Borrar tarifa {{ t.get_via_display }}"><i class="bi bi-trash"></i></button>
+          </form>
+        </div>
+        {% empty %}<p class="inv-muted mb-0">No hay tarifas: no se pueden crear lotes hasta dar una de alta.</p>{% endfor %}
+      </div>
+    </div>
   </div>
+  {% if hay_vias_libres %}
+  <div class="col-12 col-lg-5">
+    <div class="inv-panel">
+      <div class="inv-panel-head"><h2 class="inv-h3 m-0">Nueva tarifa</h2></div>
+      <div class="inv-panel-pad">
+        <form method="post" action="?tab=fletes">{% csrf_token %}<input type="hidden" name="accion" value="tarifa_nueva">
+          {% include "inventario/_campos.html" with form=forms.tarifa_nueva %}
+          <button class="btn-g mt-1" type="submit"><i class="bi bi-plus-lg"></i> Agregar tarifa</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 </div>
 
 {% elif activa == 'precios' %}
-<div class="row g-4">
+<div class="row g-4 mb-4">
+  <div class="col-12 col-lg-7">
+    <div class="inv-panel">
+      <div class="inv-panel-head"><h2 class="inv-h3 m-0">Lista de precios</h2></div>
+      <div class="inv-panel-pad">
+        <p class="small inv-muted">Iguales para todos los modelos. Al vender con el escáner, cada par se llena con el precio de su calidad según elijas Menudeo o Mayoreo; se puede cambiar a mano en la venta.</p>
+        {% for p, f in lista %}
+        <div class="inv-fila">
+          <span class="inv-fila-nom">{{ p.get_calidad_display }} · <b>{{ p.get_tipo_venta_display }}</b></span>
+          <form method="post" action="?tab=precios" class="d-flex gap-2 align-items-center">{% csrf_token %}
+            <input type="hidden" name="accion" value="precio_lista"><input type="hidden" name="precio_lista_id" value="{{ p.pk }}">
+            <div class="input-group"><span class="input-group-text">$</span>{{ f.precio }}</div>
+            <button class="btn-g" type="submit">Guardar</button>
+          </form>
+          <form method="post" action="?tab=precios" onsubmit="return confirm('¿Borrar el precio {{ p.get_calidad_display|escapejs }} {{ p.get_tipo_venta_display|escapejs }}? El escáner dejará de llenarlo solo.')">{% csrf_token %}
+            <input type="hidden" name="accion" value="precio_lista_borrar"><input type="hidden" name="pk" value="{{ p.pk }}">
+            <button type="submit" class="inv-btn-danger inv-btn-icon" title="Borrar" aria-label="Borrar precio de lista"><i class="bi bi-trash"></i></button>
+          </form>
+        </div>
+        {% empty %}<p class="inv-muted mb-0">La lista está vacía: el escáner no llenará precios solo.</p>{% endfor %}
+      </div>
+    </div>
+  </div>
+  {% if hay_lista_libre %}
   <div class="col-12 col-lg-5">
     <div class="inv-panel">
-      <div class="inv-panel-head"><h2 class="inv-h3 m-0">Nuevo precio de venta</h2></div>
+      <div class="inv-panel-head"><h2 class="inv-h3 m-0">Nuevo precio de lista</h2></div>
+      <div class="inv-panel-pad">
+        <form method="post" action="?tab=precios">{% csrf_token %}<input type="hidden" name="accion" value="precio_lista_nueva">
+          {% include "inventario/_campos.html" with form=forms.precio_lista_nueva %}
+          <button class="btn-g mt-1" type="submit"><i class="bi bi-plus-lg"></i> Agregar a la lista</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+<div class="row g-4">
+  <div class="col-12 col-lg-5">
+    <div class="inv-panel{% if editando %} inv-cat-editing{% endif %}" id="form-precio">
+      <div class="inv-panel-head inv-cat-head">
+        <h2 class="inv-h3 m-0">{% if editando %}Editar precio de {{ editando.tipo.nombre }}{% else %}Precio extra de un modelo{% endif %}</h2>
+        {% if editando %}<a href="?tab=precios" class="inv-btn-ghost inv-btn-icon"><i class="bi bi-x-lg"></i> Cancelar</a>{% endif %}
+      </div>
       <div class="inv-panel-pad">
         <form method="post" action="?tab=precios">{% csrf_token %}<input type="hidden" name="accion" value="precio">
+          {% if editando %}<input type="hidden" name="pk" value="{{ editando.pk }}">{% endif %}
           {% include "inventario/_campos.html" with form=forms.precio %}
-          <button class="btn-g mt-2" type="submit"><i class="bi bi-plus-lg"></i> Guardar precio</button>
+          <button class="btn-g mt-1" type="submit">{% if editando %}<i class="bi bi-check-lg"></i> Guardar cambios{% else %}<i class="bi bi-plus-lg"></i> Agregar precio{% endif %}</button>
         </form>
       </div>
     </div>
@@ -114,12 +253,36 @@
   <div class="col-12 col-lg-7">
     <div class="inv-table-wrap">
       <table class="inv-table">
-        <thead><tr><th>Modelo</th><th>Precio</th><th class="num">Monto</th></tr></thead>
-        <tbody>{% for t in modelos %}{% for p in t.precios_venta.all %}<tr><td>{{ t.nombre }}</td><td>{{ p.nombre }}</td><td class="num fw-semibold">${{ p.precio }}</td></tr>{% endfor %}{% endfor %}</tbody>
+        <thead><tr><th>Precio</th><th class="ctr">Orden</th><th class="num">Monto</th><th class="num">Acciones</th></tr></thead>
+        <tbody>{% for t in modelos_con_precio %}
+          <tr class="inv-grupo-modelo"><td colspan="4">{{ t.nombre }}</td></tr>
+          {% for p in t.precios_venta.all %}<tr{% if editando.pk == p.pk %} class="is-editing"{% endif %}>
+            <td>{{ p.nombre }}</td><td class="ctr inv-muted">{{ p.orden }}</td><td class="num fw-semibold">${{ p.precio }}</td>
+            <td><div class="inv-acc">
+              <a href="?tab=precios&amp;editar={{ p.pk }}#form-precio" class="inv-btn-ghost inv-btn-icon" title="Editar" aria-label="Editar {{ p.nombre }}"><i class="bi bi-pencil"></i></a>
+              <form method="post" action="?tab=precios" onsubmit="return confirm('¿Borrar el precio «{{ p.nombre|escapejs }}» de {{ t.nombre|escapejs }}?')">{% csrf_token %}<input type="hidden" name="accion" value="precio_borrar"><input type="hidden" name="pk" value="{{ p.pk }}">
+                <button type="submit" class="inv-btn-danger inv-btn-icon" title="Borrar" aria-label="Borrar {{ p.nombre }}"><i class="bi bi-trash"></i></button></form>
+            </div></td></tr>{% endfor %}
+        {% empty %}<tr><td colspan="4" class="inv-muted">Ningún modelo tiene precios extra.</td></tr>{% endfor %}</tbody>
       </table>
     </div>
     <p class="small inv-muted mt-2">El escáner ofrece estos precios al vender; también se puede escribir otro a mano.</p>
   </div>
 </div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if activa == 'colores' %}
+<script>
+  // Al cambiar de modelo, recarga con sus colores ya marcados (si no, guardar le quitaría los que tiene).
+  (function () {
+    var sel = document.querySelector('#colores-modelo select[name="tipo"]');
+    if (!sel) return;
+    sel.addEventListener('change', function () {
+      if (sel.value) window.location = '?tab=colores&modelo=' + encodeURIComponent(sel.value) + '#colores-modelo';
+    });
+  })();
+</script>
 {% endif %}
 {% endblock %}

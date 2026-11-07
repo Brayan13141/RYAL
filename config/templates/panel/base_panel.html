@@ -1236,6 +1236,11 @@
               <i class="bi bi-trophy"></i>
               <span class="nav-label">Más vendidos</span>
             </a>
+            <a href="{% url 'negocio:mayoreo_menudeo' %}" title="Mayoreo y menudeo"
+              class="{% if request.resolver_match.url_name == 'mayoreo_menudeo' %}on{% endif %}">
+              <i class="bi bi-boxes"></i>
+              <span class="nav-label">Mayoreo y menudeo</span>
+            </a>
             <a href="{% url 'negocio:clientes_list' %}" title="Clientes"
               class="{% if request.resolver_match.url_name in 'clientes_list cliente_detail cliente_create cliente_edit' %}on{% endif %}">
               <i class="bi bi-people"></i>

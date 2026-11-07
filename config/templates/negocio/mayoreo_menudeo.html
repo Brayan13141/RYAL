@@ -1,0 +1,73 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Mayoreo y menudeo — RYAL{% endblock %}
+{% block page_title %}Mayoreo y menudeo{% endblock %}
+{% block content %}
+<h1 style="font-size:20px;font-weight:700;color:#ddd;margin-bottom:6px;">Mayoreo y menudeo</h1>
+<p style="color:#777;font-size:13px;margin-bottom:16px;">Ventas pagadas del {{ desde|date:"j M Y" }} al {{ hasta|date:"j M Y" }}. Cada venta se clasifica con el selector de la pantalla Vender del escáner.</p>
+
+<form method="get" class="fbar" style="margin-bottom:18px;">
+  <input type="date" name="desde" value="{{ desde|date:'Y-m-d' }}" style="max-width:160px;" aria-label="Desde">
+  <input type="date" name="hasta" value="{{ hasta|date:'Y-m-d' }}" style="max-width:160px;" aria-label="Hasta">
+  <button type="submit" class="btn-g btn-sm"><i class="bi bi-search"></i> Filtrar</button>
+  {% if request.GET.desde or request.GET.hasta %}
+  <a href="{% url 'negocio:mayoreo_menudeo' %}" class="btn-o btn-sm"><i class="bi bi-x"></i> Mes en curso</a>
+  {% endif %}
+</form>
+
+<div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:18px;">
+  {% for clave, label, t in tarjetas %}
+  {% if clave != 'sin_clasificar' or hay_sin_clasificar %}
+  <div class="p-card p-card-body" style="flex:1;min-width:220px;">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:{% if clave == 'mayoreo' %}#D4AF37{% elif clave == 'menudeo' %}#60a5fa{% else %}#666{% endif %};margin-bottom:8px;">{{ label }}</div>
+    <div style="display:flex;gap:22px;flex-wrap:wrap;">
+      <div><div style="font-size:24px;font-weight:700;color:#ddd;">{{ t.pares }}</div><div style="font-size:12px;color:#777;">pares</div></div>
+      <div><div style="font-size:24px;font-weight:700;color:#ddd;">${{ t.ingreso|floatformat:2 }}</div><div style="font-size:12px;color:#777;">ingreso</div></div>
+      <div><div style="font-size:24px;font-weight:700;color:#4ade80;">${{ t.ganancia|floatformat:2 }}</div><div style="font-size:12px;color:#777;">ganancia</div></div>
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+
+{% if por_mes|length > 1 %}
+<h2 style="font-size:15px;font-weight:700;color:#bbb;margin:6px 0 10px;">Por mes</h2>
+<div class="p-card" style="margin-bottom:18px;">
+  <div style="overflow-x:auto;">
+    <table class="p-table">
+      <thead><tr><th>Mes</th><th>Mayoreo · pares</th><th>Mayoreo · ganancia</th><th>Menudeo · pares</th><th>Menudeo · ganancia</th>{% if hay_sin_clasificar %}<th>Sin clasificar · ganancia</th>{% endif %}</tr></thead>
+      <tbody>
+        {% for m in por_mes %}
+        <tr>
+          <td>{{ m.label }}</td>
+          <td>{{ m.mayoreo.pares }}</td><td style="color:#4ade80;">${{ m.mayoreo.ganancia|floatformat:2 }}</td>
+          <td>{{ m.menudeo.pares }}</td><td style="color:#4ade80;">${{ m.menudeo.ganancia|floatformat:2 }}</td>
+          {% if hay_sin_clasificar %}<td style="color:#888;">${{ m.sin_clasificar.ganancia|floatformat:2 }}</td>{% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<h2 style="font-size:15px;font-weight:700;color:#bbb;margin:6px 0 10px;">Por día</h2>
+<div class="p-card">
+  <div style="overflow-x:auto;">
+    <table class="p-table">
+      <thead><tr><th>Fecha</th><th>Mayoreo · pares</th><th>Mayoreo · ingreso</th><th>Mayoreo · ganancia</th><th>Menudeo · pares</th><th>Menudeo · ingreso</th><th>Menudeo · ganancia</th>{% if hay_sin_clasificar %}<th>Sin clasificar · ganancia</th>{% endif %}</tr></thead>
+      <tbody>
+        {% for d in por_dia %}
+        <tr>
+          <td style="color:#888;">{{ d.fecha|date:"D j M" }}</td>
+          <td>{{ d.mayoreo.pares }}</td><td>${{ d.mayoreo.ingreso|floatformat:2 }}</td><td style="color:#4ade80;">${{ d.mayoreo.ganancia|floatformat:2 }}</td>
+          <td>{{ d.menudeo.pares }}</td><td>${{ d.menudeo.ingreso|floatformat:2 }}</td><td style="color:#4ade80;">${{ d.menudeo.ganancia|floatformat:2 }}</td>
+          {% if hay_sin_clasificar %}<td style="color:#888;">${{ d.sin_clasificar.ganancia|floatformat:2 }}</td>{% endif %}
+        </tr>
+        {% empty %}
+        <tr><td colspan="8" style="text-align:center;color:#555;padding:32px;">No hay ventas pagadas en estas fechas</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

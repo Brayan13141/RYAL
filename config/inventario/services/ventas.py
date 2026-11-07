@@ -13,6 +13,7 @@ from negocio.models import Cliente, Pago, Pedido, PedidoItem
 from negocio.services import MOSTRADOR_TELEFONO, cargar_aliases, resolver_tipo
 
 _METODOS_VALIDOS = {m[0] for m in Pago.METODO_CHOICES}
+_TIPOS_VENTA = {t[0] for t in Pedido.TIPO_VENTA_CHOICES}
 
 
 def _descripcion(n_articulos, partes):
@@ -20,16 +21,18 @@ def _descripcion(n_articulos, partes):
     return f'{n_articulos} art.: ' + ', '.join(partes)
 
 
-def vender_pares(lineas, *, metodo_pago, usuario):
+def vender_pares(lineas, *, metodo_pago, usuario, tipo_venta=None):
     """Venta de mostrador con pares escaneados: Pedido PAGADO + un ítem por par + Pago.
 
-    `lineas`: lista de (Par, precio). Todo o nada: si algo falla, `ValueError`
-    y no se crea ni se mueve nada.
+    `lineas`: lista de (Par, precio). `tipo_venta`: mayoreo, menudeo o None (sin
+    clasificar). Todo o nada: si algo falla, `ValueError` y no se crea ni se mueve nada.
     """
     if not lineas:
         raise ValueError('La venta no tiene pares.')
     if metodo_pago not in _METODOS_VALIDOS:
         raise ValueError(f'Método de pago inválido: {metodo_pago!r}')
+    if tipo_venta is not None and tipo_venta not in _TIPOS_VENTA:
+        raise ValueError(f'Tipo de venta inválido: {tipo_venta!r}')
     vistos = set()
     for par, precio in lineas:
         if par.pk in vistos:
@@ -53,7 +56,7 @@ def vender_pares(lineas, *, metodo_pago, usuario):
         pedido = Pedido.objects.create(
             cliente=cliente, descripcion='', costo_producto=Decimal('0'),
             precio_venta=Decimal('0'), envio=Decimal('0'),
-            estado=Pedido.PAGADO, origen=Pedido.TIENDA)
+            estado=Pedido.PAGADO, origen=Pedido.TIENDA, tipo_venta=tipo_venta)
 
         total_precio = Decimal('0')
         total_costo = Decimal('0')

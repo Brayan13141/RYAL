@@ -137,7 +137,7 @@ class I3VentaNuevaVsBotTests(EscanerBase):
 
     def cerrar(self, **extra):
         datos = {'lineas': [{'codigo': self.p1.codigo, 'precio': '900'}],
-                 'metodo_pago': 'efectivo'}
+                 'metodo_pago': 'efectivo', 'tipo_venta': 'menudeo'}
         datos.update(extra)
         return self.post_json('inventario:vender_cerrar', datos)
 

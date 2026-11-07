@@ -6,6 +6,8 @@ from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
 
+from negocio.models import Pedido
+
 VIA_CHOICES = [('aereo', 'Aéreo'), ('maritimo', 'Marítimo'), ('nacional', 'Nacional')]
 VIAS = dict(VIA_CHOICES)
 
@@ -243,6 +245,39 @@ class PrecioVenta(models.Model):
 
     def __str__(self):
         return f'{self.nombre}: {self.precio}'
+
+
+CALIDAD_CHOICES = [('importado', 'Importado'), ('nacional', 'Nacional')]
+# Aéreo y marítimo son el mismo producto importado: solo cambia cómo llegó.
+CALIDAD_DE_VIA = {'aereo': 'importado', 'maritimo': 'importado', 'nacional': 'nacional'}
+
+
+class PrecioLista(models.Model):
+    """Precio de venta por calidad y tipo de venta, igual para todos los modelos.
+
+    El escáner llena con él cada par al vender; el precio escrito a mano gana.
+    """
+    calidad = models.CharField(max_length=10, choices=CALIDAD_CHOICES)
+    tipo_venta = models.CharField(max_length=10, choices=Pedido.TIPO_VENTA_CHOICES)
+    precio = models.DecimalField(max_digits=8, decimal_places=2)
+
+    class Meta:
+        ordering = ['calidad', 'tipo_venta']
+        constraints = [models.UniqueConstraint(
+            fields=['calidad', 'tipo_venta'], name='precio_lista_unico')]
+        verbose_name = 'precio de lista'
+        verbose_name_plural = 'lista de precios'
+
+    def __str__(self):
+        return f'{self.get_calidad_display()} {self.get_tipo_venta_display()}: {self.precio}'
+
+
+def precio_lista_de(par):
+    """{'mayoreo': Decimal, 'menudeo': Decimal} según la calidad del par (lo que haya en la lista)."""
+    calidad = CALIDAD_DE_VIA.get(par.tipo.via or par.lote.via)
+    if calidad is None:
+        return {}
+    return {p.tipo_venta: p.precio for p in PrecioLista.objects.filter(calidad=calidad)}
 
 
 class Conteo(models.Model):

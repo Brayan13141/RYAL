@@ -161,6 +161,12 @@ HELP_REGISTRY = {
         'Abre un tipo para ver los textos exactos con que se tecleó y su tendencia contra el periodo anterior.',
         'Si hay ventas sin tipo, asígnales una keyword o un alias en Tipos para que cuenten aquí.',
     ],
+    'negocio:mayoreo_menudeo': [
+        'Pares, ingreso y ganancia de mayoreo contra menudeo, con totales del periodo, por mes y por día.',
+        'Cada venta se clasifica con el selector Menudeo / Mayoreo de la pantalla Vender del escáner. '
+        'Las ventas del bot y las de antes del selector salen como «Sin clasificar».',
+        'Solo cuenta pedidos pagados, por la fecha del pedido. Sin fechas muestra el mes en curso.',
+    ],
     'negocio:contabilidad': [
         'Ingresos, egresos y diferencia mes por mes.',
         '«Descargar Excel» exporta el periodo para el contador.',

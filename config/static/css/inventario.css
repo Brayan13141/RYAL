@@ -178,6 +178,12 @@
 .inv-seg .is-active, .inv-seg .active { color: var(--inv-ink); background: #262626; box-shadow: inset 0 0 0 1px #3a3a3a; }
 .inv-seg .n { font-family: var(--inv-display); font-weight: 700; font-size: 16px; line-height: 1; color: var(--inv-ink); }
 .inv-seg .is-active .n { color: var(--inv-gold); }
+/* Selector de radios (Menudeo / Mayoreo): mismo aspecto que las pestañas. */
+.inv-seg label { display: inline-flex; align-items: center; padding: 7px 14px; border-radius: 7px; margin: 0;
+  font-size: 13px; color: var(--inv-mute); cursor: pointer; }
+.inv-seg label input { position: absolute; opacity: 0; pointer-events: none; }
+.inv-seg label:has(input:checked) { color: var(--inv-gold); background: #262626; box-shadow: inset 0 0 0 1px #3a3a3a; font-weight: 600; }
+.inv-seg label:has(input:focus-visible) { outline: 2px solid var(--inv-gold); outline-offset: 1px; }
 
 /* ── Formularios ──────────────────────────────────────────────── */
 .inv .form-control, .inv .form-select {

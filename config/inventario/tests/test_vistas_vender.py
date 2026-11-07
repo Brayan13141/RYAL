@@ -17,9 +17,9 @@ class VenderBase(EscanerBase):
         for p in (self.p1, self.p2):
             p.transicionar('en_stock', usuario=self.user, origen='escaner')
 
-    def cerrar(self, lineas, metodo='efectivo'):
-        return self.post_json(
-            'inventario:vender_cerrar', {'lineas': lineas, 'metodo_pago': metodo})
+    def cerrar(self, lineas, metodo='efectivo', tipo_venta='menudeo'):
+        return self.post_json('inventario:vender_cerrar', {
+            'lineas': lineas, 'metodo_pago': metodo, 'tipo_venta': tipo_venta})
 
 
 class VenderInfoTests(VenderBase):
@@ -30,7 +30,7 @@ class VenderInfoTests(VenderBase):
         self.assertEqual(d['nivel'], 'verde')
         self.assertEqual(d['par']['codigo'], self.p1.codigo)
         self.assertEqual(d['par']['talla'], '26')
-        self.assertEqual(d['par']['costo'], '640.00')
+        self.assertNotIn('costo', d['par'])  # el cliente puede ver la pantalla
         self.assertEqual([x['nombre'] for x in d['precios']], ['Normal', 'Mayoreo'])
         self.assertEqual(d['precios'][0]['precio'], '900.00')
 
