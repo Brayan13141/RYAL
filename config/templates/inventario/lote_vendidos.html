@@ -1,0 +1,84 @@
+{% extends "inventario/_base.html" %}
+{% block title %}Pares vendidos · Lote #{{ lote.pk }}{% endblock %}
+
+{% block inv_content %}
+{% with v=vendidos o=vendidos.opciones %}
+<div class="inv-head">
+  <div>
+    <a href="{% url 'inventario:lote_detalle' lote.pk %}" class="small inv-muted text-decoration-none"><i class="bi bi-arrow-left"></i> Lote #{{ lote.pk }}{% if lote.referencia %} · {{ lote.referencia }}{% endif %}</a>
+    <h1 class="inv-title mt-1">Pares vendidos</h1>
+    <div class="inv-meta"><span>Cada par al precio real de su venta (escáner o bot). Las ventas canceladas no aparecen: esos pares volvieron a stock.</span></div>
+  </div>
+</div>
+
+<form method="get" class="inv-panel inv-panel-pad mb-3 row g-2 align-items-end">
+  <div class="col-12 col-md-4">
+    <label class="form-label small mb-1" for="f-modelo">Modelo</label>
+    <select class="form-select" id="f-modelo" name="modelo">
+      <option value="">Todos</option>
+      {% for pk, nombre in o.modelos %}<option value="{{ pk }}"{% if pk == f.tipo_id %} selected{% endif %}>{{ nombre }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-6 col-md-2">
+    <label class="form-label small mb-1" for="f-color">Color</label>
+    <select class="form-select" id="f-color" name="color">
+      <option value="">Todos</option>
+      {% for pk, nombre in o.colores %}<option value="{{ pk }}"{% if pk == f.color_id %} selected{% endif %}>{{ nombre|capfirst }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-6 col-md-2">
+    <label class="form-label small mb-1" for="f-talla">Talla</label>
+    <select class="form-select" id="f-talla" name="talla">
+      <option value="">Todas</option>
+      {% for pk, t in o.tallas %}<option value="{{ pk }}"{% if pk == f.talla_id %} selected{% endif %}>{{ t }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-6 col-md-2">
+    <label class="form-label small mb-1" for="f-desde">Vendido desde</label>
+    <input type="date" class="form-control" id="f-desde" name="desde" value="{{ f.desde|date:'Y-m-d' }}">
+  </div>
+  <div class="col-6 col-md-2">
+    <label class="form-label small mb-1" for="f-hasta">Hasta</label>
+    <input type="date" class="form-control" id="f-hasta" name="hasta" value="{{ f.hasta|date:'Y-m-d' }}">
+  </div>
+  <div class="col-12 d-flex flex-wrap gap-2">
+    <button type="submit" class="btn-g"><i class="bi bi-funnel"></i> Filtrar</button>
+    {% if hay_filtros %}<a href="{% url 'inventario:lote_vendidos' lote.pk %}" class="inv-btn-ghost"><i class="bi bi-x-lg"></i> Quitar filtros</a>{% endif %}
+  </div>
+</form>
+
+<div class="inv-stats mb-3">
+  <div class="inv-stat inv-c-vendido"><div class="inv-stat-n">{{ v.n }}</div><div class="inv-stat-l">Par{{ v.n|pluralize:"es" }}{% if hay_filtros %} con estos filtros{% endif %}</div></div>
+  <div class="inv-stat"><div class="inv-stat-n">${{ v.cobrado|floatformat:"2g" }}</div><div class="inv-stat-l">Cobrado</div></div>
+  <div class="inv-stat"><div class="inv-stat-n">${{ v.costo|floatformat:"2g" }}</div><div class="inv-stat-l">Costo de estos pares</div></div>
+  <div class="inv-stat {% if v.margen < 0 %}inv-c-baja{% else %}inv-c-stock{% endif %}"><div class="inv-stat-n">${{ v.margen|floatformat:"2g" }}</div><div class="inv-stat-l">Margen</div></div>
+</div>
+{% if v.sin_precio %}
+<p class="small text-warning"><i class="bi bi-exclamation-triangle"></i> {{ v.sin_precio }} par{{ v.sin_precio|pluralize:"es" }} sin precio: no está{{ v.sin_precio|pluralize:"n" }} ligado{{ v.sin_precio|pluralize }} a ninguna venta y cuenta{{ v.sin_precio|pluralize:"n" }} $0.</p>
+{% endif %}
+
+{% if v.filas %}
+<div class="inv-panel table-responsive">
+  <table class="table table-sm table-dark table-hover align-middle mb-0">
+    <thead><tr><th>Código</th><th>Modelo</th><th>Color</th><th>Talla</th><th>Vendido</th><th class="text-end">Precio</th><th class="text-end">Costo</th><th>Pedido</th></tr></thead>
+    <tbody>
+      {% for r in v.filas %}
+      <tr>
+        <td><a href="{% url 'inventario:par_ficha' r.par.codigo %}" class="inv-code">{{ r.par.codigo }}</a></td>
+        <td>{{ r.modelo }}{% if r.via %} <span class="inv-muted small">· {{ r.via }}</span>{% endif %}</td>
+        <td>{{ r.par.color.nombre|capfirst }}</td>
+        <td><span class="inv-code">{{ r.talla }}</span></td>
+        <td class="text-nowrap">{{ r.fecha|date:"d/m/Y H:i" }}</td>
+        <td class="text-end">{% if r.precio is None %}<span class="text-warning">sin precio</span>{% else %}${{ r.precio|floatformat:"2g" }}{% endif %}</td>
+        <td class="text-end inv-muted">${{ r.par.costo|floatformat:"2g" }}</td>
+        <td>{% if r.pedido_id %}<a href="{% url 'negocio:pedido_detail' r.pedido_id %}">#{{ r.pedido_id }}</a>{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="inv-muted">{% if hay_filtros %}Ningún par vendido con esos filtros.{% else %}Aún no se vende ningún par de este lote.{% endif %}</p>
+{% endif %}
+{% endwith %}
+{% endblock %}

@@ -12,6 +12,7 @@ urlpatterns = [
     path('tipos/<int:pk>/colores/', lotes.tipo_colores, name='tipo_colores'),
     path('lotes/', lotes.lotes, name='lotes'),
     path('lotes/<int:pk>/', lotes.lote_detalle, name='lote_detalle'),
+    path('lotes/<int:pk>/vendidos/', lotes.lote_vendidos, name='lote_vendidos'),
     path('lotes/<int:pk>/cerrar/', lotes.lote_cerrar, name='lote_cerrar'),
     path('lotes/<int:pk>/editar/', lote_editar.lote_editar, name='lote_editar'),
     path('repetidos/', lotes.repetidos, name='repetidos'),

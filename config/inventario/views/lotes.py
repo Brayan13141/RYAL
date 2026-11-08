@@ -11,13 +11,14 @@ from django.http import Http404, JsonResponse
 from django.utils.html import format_html
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_POST
 
 from catalog.models import TipoArticulo
 from inventario import etiquetas
 from inventario.models import (
     VIAS, Color, LecturaRepetida, Lote, MovimientoPar, Par, TallaCalzado, fmt_talla)
-from inventario.services.dinero_lote import dinero_del_lote
+from inventario.services.dinero_lote import dinero_del_lote, vendidos_del_lote
 from inventario.services.lotes import cerrar_lote, crear_lote, leer_flete, tarifas_por_via
 from inventario.services.tallas import CORREGIBLES, corregir_talla
 from inventario.services.tipos import costo_sugerido, crear_variante, tarifas_decimal
@@ -370,3 +371,32 @@ def lote_cerrar(request, pk):
     plural = 's' if n != 1 else ''
     messages.success(request, f'Lote cerrado: {n} par{"es" if n != 1 else ""} marcado{plural} como faltante.')
     return redirect('inventario:lote_detalle', pk=lote.pk)
+
+def _id_o_none(v):
+    """Id positivo del GET, o None si viene vacío o no es un número (un filtro roto se ignora)."""
+    v = (v or '').strip()
+    return int(v) if v.isdigit() and len(v) <= 9 and int(v) > 0 else None
+
+
+def _fecha_o_none(v):
+    try:
+        return parse_date((v or '').strip())
+    except ValueError:  # formato de fecha válido pero día imposible (2026-02-31)
+        return None
+
+
+@staff_member_required
+def lote_vendidos(request, pk):
+    """Los pares vendidos de un lote, uno por uno, con filtros y los totales de lo filtrado."""
+    lote = get_object_or_404(Lote, pk=pk)
+    filtros = {
+        'tipo_id': _id_o_none(request.GET.get('modelo')),
+        'color_id': _id_o_none(request.GET.get('color')),
+        'talla_id': _id_o_none(request.GET.get('talla')),
+        'desde': _fecha_o_none(request.GET.get('desde')),
+        'hasta': _fecha_o_none(request.GET.get('hasta')),
+    }
+    return render(request, 'inventario/lote_vendidos.html', {
+        'lote': lote, 'vendidos': vendidos_del_lote(lote, **filtros), 'f': filtros,
+        'hay_filtros': any(v is not None for v in filtros.values()),
+    })

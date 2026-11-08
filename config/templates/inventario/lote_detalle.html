@@ -72,35 +72,8 @@
   <p class="small text-warning mt-3 mb-0"><i class="bi bi-exclamation-triangle"></i> {{ dinero.sin_precio }} par{{ dinero.sin_precio|pluralize:"es" }} vendido{{ dinero.sin_precio|pluralize }} sin precio: no está{{ dinero.sin_precio|pluralize:"n" }} ligado{{ dinero.sin_precio|pluralize }} a ninguna venta y cuenta{{ dinero.sin_precio|pluralize:"n" }} $0 en lo cobrado.</p>
   {% endif %}
 
-  {% if dinero.grupos %}
-  <details class="mt-3">
-    <summary class="small">Ver los {{ dinero.vendidos }} pares vendidos, uno por uno</summary>
-    {% for g in dinero.grupos %}
-    <div class="mt-3">
-      <div class="d-flex flex-wrap justify-content-between align-items-baseline gap-2">
-        <span class="inv-group-name">{{ g.modelo }}{% if g.via %} · {{ g.via }}{% endif %}</span>
-        <span class="small inv-muted">{{ g.n }} par{{ g.n|pluralize:"es" }} · cobrado ${{ g.cobrado|floatformat:"2g" }} · costo ${{ g.costo|floatformat:"2g" }}</span>
-      </div>
-      <div class="table-responsive">
-        <table class="table table-sm table-dark align-middle mb-0 small">
-          <thead><tr><th>Código</th><th>Color</th><th>Talla</th><th>Vendido</th><th class="text-end">Precio</th><th>Pedido</th></tr></thead>
-          <tbody>
-            {% for f in g.pares %}
-            <tr>
-              <td><a href="{% url 'inventario:par_ficha' f.par.codigo %}" class="inv-code">{{ f.par.codigo }}</a></td>
-              <td>{{ f.par.color.nombre|capfirst }}</td>
-              <td><span class="inv-code">{{ f.talla }}</span></td>
-              <td class="text-nowrap">{{ f.fecha|date:"d/m/Y H:i" }}</td>
-              <td class="text-end">{% if f.precio is None %}<span class="text-warning">sin precio</span>{% else %}${{ f.precio|floatformat:"2g" }}{% endif %}</td>
-              <td>{% if f.pedido_id %}<a href="{% url 'negocio:pedido_detail' f.pedido_id %}">#{{ f.pedido_id }}</a>{% else %}—{% endif %}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-    {% endfor %}
-  </details>
+  {% if dinero.vendidos %}
+  <a href="{% url 'inventario:lote_vendidos' lote.pk %}" class="inv-btn-ghost mt-3"><i class="bi bi-list-ul"></i> Ver pares vendidos ({{ dinero.vendidos }})</a>
   {% else %}
   <p class="small inv-muted mt-3 mb-0">Aún no se vende ningún par de este lote.</p>
   {% endif %}
