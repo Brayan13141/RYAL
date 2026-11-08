@@ -11,7 +11,7 @@ from django.core.management import call_command
 
 from negocio.models import Cliente, Pedido, Pago, Gasto, PedidoItem
 from catalog.models import Category, Product, TipoArticulo, CodigoDescuento, AliasTexto
-from negocio.services import crear_venta_tienda, VentaInvalida, crear_pedido_tienda_bot, VentaSinTipo
+from negocio.services import crear_pedido_tienda_bot, VentaSinTipo
 
 
 class ClienteModelTest(TestCase):
@@ -418,284 +418,9 @@ class PedidoItemTest(TestCase):
         self.assertEqual(item.nombre_snapshot, 'Gorra NY')   # snapshot intacto
 
 
-class CrearVentaTiendaTest(TestCase):
-    def setUp(self):
-        self.cat = Category.objects.create(name='Gorras', profit_margin=Decimal('100'))
-        self.p1 = Product.objects.create(
-            sku='CAP-001', name='Gorra NY', category=self.cat, base_price=Decimal('150'),
-        )
-        self.p2 = Product.objects.create(
-            sku='CAP-002', name='Gorra LA', category=self.cat, base_price=Decimal('100'),
-        )
-        self.inactivo = Product.objects.create(
-            sku='OLD-001', name='Viejo', category=self.cat,
-            base_price=Decimal('50'), is_active=False,
-        )
-
-    def test_crea_pedido_pagado_con_items_y_pago(self):
-        lineas = [
-            {'sku': 'CAP-001', 'cantidad': 2, 'precio_unitario': '250'},
-            {'sku': 'CAP-002', 'cantidad': 1, 'precio_unitario': '200'},
-        ]
-        pedido = crear_venta_tienda(lineas=lineas, cliente=None, metodo_pago='efectivo')
-        self.assertEqual(pedido.origen, 'tienda')
-        self.assertEqual(pedido.estado, Pedido.PAGADO)
-        self.assertIsNone(pedido.cliente)
-        self.assertEqual(pedido.items.count(), 2)
-        self.assertEqual(pedido.precio_venta, Decimal('700'))
-        self.assertEqual(pedido.costo_producto, Decimal('400'))
-        self.assertEqual(pedido.ganancia, Decimal('300'))
-        self.assertEqual(pedido.balance_pendiente, Decimal('0'))
-        pago = pedido.pagos.get()
-        self.assertEqual(pago.monto, Decimal('700'))
-        self.assertEqual(pago.metodo_pago, 'efectivo')
-
-    def test_costo_se_toma_del_servidor_no_del_cliente(self):
-        lineas = [{'sku': 'CAP-001', 'cantidad': 1, 'precio_unitario': '250',
-                   'costo_unitario': '0'}]
-        pedido = crear_venta_tienda(lineas=lineas, cliente=None, metodo_pago='efectivo')
-        self.assertEqual(pedido.items.get().costo_unitario, Decimal('150'))
-
-    def test_costo_respeta_base_price_override_de_subcategoria(self):
-        """Con base_price_override en la subcategoría, ese ES el costo real del
-        proveedor — el base_price individual del producto queda desactualizado."""
-        sub = Category.objects.create(
-            name='Gorras Premium', parent=self.cat,
-            base_price_override=Decimal('220'),
-        )
-        Product.objects.create(
-            sku='CAP-PRM-1', name='Gorra Premium', category=sub,
-            base_price=Decimal('150'),   # viejo — el override manda
-        )
-        lineas = [{'sku': 'CAP-PRM-1', 'cantidad': 1, 'precio_unitario': '400'}]
-        pedido = crear_venta_tienda(lineas=lineas, cliente=None, metodo_pago='efectivo')
-        self.assertEqual(pedido.items.get().costo_unitario, Decimal('220'))
-        self.assertEqual(pedido.costo_producto, Decimal('220'))
-
-    def test_descripcion_autogenerada(self):
-        lineas = [{'sku': 'CAP-001', 'cantidad': 2, 'precio_unitario': '250'}]
-        pedido = crear_venta_tienda(lineas=lineas, cliente=None, metodo_pago='efectivo')
-        self.assertIn('Gorra NY', pedido.descripcion)
-        self.assertIn('2', pedido.descripcion)
-
-    def test_sku_inexistente_rechaza_y_no_crea_nada(self):
-        lineas = [{'sku': 'NOPE', 'cantidad': 1, 'precio_unitario': '100'}]
-        with self.assertRaises(VentaInvalida):
-            crear_venta_tienda(lineas=lineas, cliente=None, metodo_pago='efectivo')
-        self.assertEqual(Pedido.objects.count(), 0)
-
-    def test_producto_inactivo_rechaza(self):
-        lineas = [{'sku': 'OLD-001', 'cantidad': 1, 'precio_unitario': '100'}]
-        with self.assertRaises(VentaInvalida):
-            crear_venta_tienda(lineas=lineas, cliente=None, metodo_pago='efectivo')
-        self.assertEqual(Pedido.objects.count(), 0)
-
-    def test_cantidad_invalida_rechaza(self):
-        for bad in [0, -1, 'x']:
-            with self.assertRaises(VentaInvalida):
-                crear_venta_tienda(
-                    lineas=[{'sku': 'CAP-001', 'cantidad': bad, 'precio_unitario': '100'}],
-                    cliente=None, metodo_pago='efectivo',
-                )
-        self.assertEqual(Pedido.objects.count(), 0)
-
-    def test_precio_negativo_rechaza(self):
-        with self.assertRaises(VentaInvalida):
-            crear_venta_tienda(
-                lineas=[{'sku': 'CAP-001', 'cantidad': 1, 'precio_unitario': '-5'}],
-                cliente=None, metodo_pago='efectivo',
-            )
-
-    def test_lineas_vacias_rechaza(self):
-        with self.assertRaises(VentaInvalida):
-            crear_venta_tienda(lineas=[], cliente=None, metodo_pago='efectivo')
-
-    def test_metodo_pago_invalido_rechaza(self):
-        with self.assertRaises(VentaInvalida):
-            crear_venta_tienda(
-                lineas=[{'sku': 'CAP-001', 'cantidad': 1, 'precio_unitario': '100'}],
-                cliente=None, metodo_pago='bitcoin',
-            )
-
-    def test_segunda_linea_invalida_revierte_todo(self):
-        # línea 1 válida, línea 2 con SKU inexistente → rollback total (atomicidad real)
-        lineas = [
-            {'sku': 'CAP-001', 'cantidad': 1, 'precio_unitario': '250'},
-            {'sku': 'NOPE', 'cantidad': 1, 'precio_unitario': '100'},
-        ]
-        with self.assertRaises(VentaInvalida):
-            crear_venta_tienda(lineas=lineas, cliente=None, metodo_pago='efectivo')
-        self.assertEqual(Pedido.objects.count(), 0)
-        self.assertEqual(PedidoItem.objects.count(), 0)
-
-    def test_cliente_se_asocia_al_pedido(self):
-        cliente = Cliente.objects.create(nombre='Ana', telefono='5557778888')
-        pedido = crear_venta_tienda(
-            lineas=[{'sku': 'CAP-001', 'cantidad': 1, 'precio_unitario': '250'}],
-            cliente=cliente, metodo_pago='efectivo',
-        )
-        self.assertEqual(pedido.cliente, cliente)
-
-
-class PosPantallaTest(TestCase):
-    def setUp(self):
-        self.staff = User.objects.create_user('pos_ui', password='pass', is_staff=True)
-        self.cat = Category.objects.create(name='Gorras', profit_margin=Decimal('100'))
-
-    def test_pantalla_requiere_staff(self):
-        resp = self.client.get('/panel/negocio/pos/')
-        self.assertIn(resp.status_code, (302, 403))
-
-    def test_pantalla_renderiza_para_staff(self):
-        self.client.login(username='pos_ui', password='pass')
-        resp = self.client.get('/panel/negocio/pos/')
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'Venta rápida')
-        self.assertContains(resp, 'Gorras')  # categoría disponible para el filtro
-
 
 import json
 
-
-class PosProductosEndpointTest(TestCase):
-    def setUp(self):
-        self.staff = User.objects.create_user('pos_staff', password='pass', is_staff=True)
-        self.cat_a = Category.objects.create(name='Gorras', profit_margin=Decimal('100'))
-        self.cat_b = Category.objects.create(name='Tenis', profit_margin=Decimal('100'))
-        Product.objects.create(sku='CAP-001', name='Gorra NY', category=self.cat_a,
-                               base_price=Decimal('150'))
-        Product.objects.create(sku='CAP-002', name='Gorra LA', category=self.cat_a,
-                               base_price=Decimal('150'))
-        Product.objects.create(sku='SNK-001', name='Air Max', category=self.cat_b,
-                               base_price=Decimal('500'))
-        Product.objects.create(sku='OLD-001', name='Inactivo', category=self.cat_a,
-                               base_price=Decimal('10'), is_active=False)
-
-    def test_requiere_staff(self):
-        resp = self.client.get('/panel/negocio/pos/productos/')
-        self.assertIn(resp.status_code, (302, 403))
-
-    def test_lista_solo_activos(self):
-        self.client.login(username='pos_staff', password='pass')
-        resp = self.client.get('/panel/negocio/pos/productos/')
-        data = json.loads(resp.content)
-        skus = {p['sku'] for p in data['productos']}
-        self.assertNotIn('OLD-001', skus)
-        self.assertEqual(len(skus), 3)
-
-    def test_busqueda_por_nombre(self):
-        self.client.login(username='pos_staff', password='pass')
-        resp = self.client.get('/panel/negocio/pos/productos/?q=air')
-        data = json.loads(resp.content)
-        self.assertEqual([p['sku'] for p in data['productos']], ['SNK-001'])
-
-    def test_busqueda_por_sku(self):
-        self.client.login(username='pos_staff', password='pass')
-        resp = self.client.get('/panel/negocio/pos/productos/?q=CAP-001')
-        data = json.loads(resp.content)
-        self.assertEqual([p['sku'] for p in data['productos']], ['CAP-001'])
-
-    def test_filtro_por_categoria(self):
-        self.client.login(username='pos_staff', password='pass')
-        resp = self.client.get(f'/panel/negocio/pos/productos/?categoria={self.cat_b.pk}')
-        data = json.loads(resp.content)
-        self.assertEqual([p['sku'] for p in data['productos']], ['SNK-001'])
-
-    def test_cada_producto_trae_precio_y_nombre(self):
-        self.client.login(username='pos_staff', password='pass')
-        resp = self.client.get('/panel/negocio/pos/productos/?q=CAP-001')
-        prod = json.loads(resp.content)['productos'][0]
-        self.assertEqual(prod['nombre'], 'Gorra NY')
-        # final_price = base 150 + envío 0 + margen 100 = 250
-        self.assertEqual(prod['precio'], '250.00')
-        self.assertIn('imagen_url', prod)
-        self.assertIn('categoria_id', prod)
-
-    def test_sin_filtro_ordena_mas_vendidos_primero(self):
-        # Vende SNK-001 una vez → debe quedar primero en la vista por defecto
-        pedido = Pedido.objects.create(
-            descripcion='x', costo_producto=Decimal('0'), precio_venta=Decimal('0'),
-            origen='tienda', estado=Pedido.PAGADO,
-        )
-        snk = Product.objects.get(sku='SNK-001')
-        PedidoItem.objects.create(
-            pedido=pedido, product=snk, sku_snapshot='SNK-001',
-            nombre_snapshot='Air Max', cantidad=1,
-            costo_unitario=Decimal('500'), precio_unitario=Decimal('900'),
-        )
-        self.client.login(username='pos_staff', password='pass')
-        resp = self.client.get('/panel/negocio/pos/productos/')
-        skus = [p['sku'] for p in json.loads(resp.content)['productos']]
-        self.assertEqual(skus[0], 'SNK-001')  # el más vendido primero
-
-
-class PosCobrarEndpointTest(TestCase):
-    def setUp(self):
-        self.staff = User.objects.create_user('cobra_staff', password='pass', is_staff=True)
-        self.cat = Category.objects.create(name='Gorras', profit_margin=Decimal('100'))
-        Product.objects.create(sku='CAP-001', name='Gorra NY', category=self.cat,
-                               base_price=Decimal('150'))
-        self.cliente = Cliente.objects.create(nombre='Ana', telefono='5552223333')
-
-    def _post(self, payload):
-        return self.client.post(
-            '/panel/negocio/pos/cobrar/',
-            data=json.dumps(payload), content_type='application/json',
-        )
-
-    def test_requiere_staff(self):
-        resp = self._post({'lineas': [], 'metodo_pago': 'efectivo'})
-        self.assertIn(resp.status_code, (302, 403))
-
-    def test_cobro_valido_crea_venta(self):
-        self.client.login(username='cobra_staff', password='pass')
-        resp = self._post({
-            'lineas': [{'sku': 'CAP-001', 'cantidad': 2, 'precio_unitario': '250'}],
-            'cliente_id': None, 'metodo_pago': 'efectivo',
-        })
-        self.assertEqual(resp.status_code, 200)
-        data = json.loads(resp.content)
-        self.assertTrue(data['ok'])
-        pedido = Pedido.objects.get(pk=data['pedido_id'])
-        self.assertEqual(pedido.estado, Pedido.PAGADO)
-        self.assertEqual(pedido.precio_venta, Decimal('500'))
-
-    def test_cobro_con_cliente(self):
-        self.client.login(username='cobra_staff', password='pass')
-        resp = self._post({
-            'lineas': [{'sku': 'CAP-001', 'cantidad': 1, 'precio_unitario': '250'}],
-            'cliente_id': self.cliente.pk, 'metodo_pago': 'tarjeta',
-        })
-        data = json.loads(resp.content)
-        pedido = Pedido.objects.get(pk=data['pedido_id'])
-        self.assertEqual(pedido.cliente_id, self.cliente.pk)
-        self.assertEqual(pedido.pagos.get().metodo_pago, 'tarjeta')
-
-    def test_payload_invalido_no_crea_nada(self):
-        self.client.login(username='cobra_staff', password='pass')
-        resp = self._post({
-            'lineas': [{'sku': 'NOPE', 'cantidad': 1, 'precio_unitario': '100'}],
-            'metodo_pago': 'efectivo',
-        })
-        self.assertEqual(resp.status_code, 400)
-        self.assertEqual(Pedido.objects.count(), 0)
-
-    def test_json_malformado_da_400(self):
-        self.client.login(username='cobra_staff', password='pass')
-        resp = self.client.post(
-            '/panel/negocio/pos/cobrar/', data='no-es-json',
-            content_type='application/json',
-        )
-        self.assertEqual(resp.status_code, 400)
-
-    def test_cliente_inexistente_da_400(self):
-        self.client.login(username='cobra_staff', password='pass')
-        resp = self._post({
-            'lineas': [{'sku': 'CAP-001', 'cantidad': 1, 'precio_unitario': '250'}],
-            'cliente_id': 999999, 'metodo_pago': 'efectivo',
-        })
-        self.assertEqual(resp.status_code, 400)
-        self.assertEqual(Pedido.objects.count(), 0)
 
 
 class PedidosNullClienteTest(TestCase):
@@ -799,32 +524,6 @@ class PrintUtilsTest(TestCase):
         img_entries = [v for v in result.values() if v.get('type') == 1]
         self.assertEqual(len(img_entries), 0)
 
-    def test_build_receipt_json_claves_string_numericas(self):
-        from negocio.print_utils import _build_receipt_json
-        result = _build_receipt_json(self.pedido)
-        self.assertIsInstance(result, dict)
-        for k in result:
-            self.assertTrue(k.isdigit(), f"Clave no numérica: {k}")
-
-    def test_build_receipt_json_contiene_item(self):
-        from negocio.print_utils import _build_receipt_json
-        result = _build_receipt_json(self.pedido)
-        textos = [v.get('content', '') for v in result.values() if v.get('type') == 0]
-        self.assertTrue(any('Gorra NY Azul' in t for t in textos))
-        self.assertTrue(any('x2' in t for t in textos))
-
-    def test_build_receipt_json_contiene_total(self):
-        from negocio.print_utils import _build_receipt_json
-        result = _build_receipt_json(self.pedido)
-        textos = [v.get('content', '') for v in result.values() if v.get('type') == 0]
-        self.assertTrue(any('400.00' in t for t in textos))
-
-    def test_build_receipt_json_contiene_metodo_pago(self):
-        from negocio.print_utils import _build_receipt_json
-        result = _build_receipt_json(self.pedido)
-        textos = [v.get('content', '') for v in result.values() if v.get('type') == 0]
-        self.assertTrue(any('Efectivo' in t for t in textos))
-
 
 class PrintEndpointsTest(TestCase):
     def setUp(self):
@@ -862,9 +561,6 @@ class PrintEndpointsTest(TestCase):
             metodo_pago=Pago.EFECTIVO,
         )
 
-    def _receipt_token(self, value):
-        from django.core.signing import Signer
-        return Signer(salt='negocio-receipt').sign(str(value))
 
     def _label_token(self, value):
         from django.core.signing import Signer
@@ -872,37 +568,6 @@ class PrintEndpointsTest(TestCase):
 
     # ── receipt_print_json ──
 
-    def test_receipt_token_valido_devuelve_200(self):
-        token = self._receipt_token(self.pedido.pk)
-        url = f'/panel/negocio/api/receipt/{self.pedido.pk}/?token={token}'
-        resp = self.client.get(url)
-        self.assertEqual(resp.status_code, 200)
-        data = resp.json()
-        self.assertIn('0', data)
-
-    def test_receipt_token_invalido_devuelve_403(self):
-        url = f'/panel/negocio/api/receipt/{self.pedido.pk}/?token=tampered:abc'
-        resp = self.client.get(url)
-        self.assertEqual(resp.status_code, 403)
-
-    def test_receipt_sin_token_devuelve_403(self):
-        url = f'/panel/negocio/api/receipt/{self.pedido.pk}/'
-        resp = self.client.get(url)
-        self.assertEqual(resp.status_code, 403)
-
-    def test_receipt_pedido_inexistente_devuelve_404(self):
-        token = self._receipt_token(99999)
-        url = f'/panel/negocio/api/receipt/99999/?token={token}'
-        resp = self.client.get(url)
-        self.assertEqual(resp.status_code, 404)
-
-    def test_receipt_json_contiene_items_y_total(self):
-        token = self._receipt_token(self.pedido.pk)
-        url = f'/panel/negocio/api/receipt/{self.pedido.pk}/?token={token}'
-        data = self.client.get(url).json()
-        textos = [v.get('content', '') for v in data.values() if v.get('type') == 0]
-        self.assertTrue(any('Nike Air Max' in t for t in textos))
-        self.assertTrue(any('450.00' in t for t in textos))
 
     # ── label_print_json ──
 
@@ -938,20 +603,6 @@ class PrintEndpointsTest(TestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 404)
 
-    def test_receipt_token_de_otro_pedido_devuelve_403(self):
-        otro_pedido = Pedido.objects.create(
-            cliente=self.cliente,
-            descripcion='Otro',
-            costo_producto=Decimal('200'),
-            precio_venta=Decimal('300'),
-            estado=Pedido.PAGADO,
-            origen=Pedido.TIENDA,
-        )
-        # token válido para otro_pedido, usado en URL de self.pedido
-        token = self._receipt_token(otro_pedido.pk)
-        url = f'/panel/negocio/api/receipt/{self.pedido.pk}/?token={token}'
-        resp = self.client.get(url)
-        self.assertEqual(resp.status_code, 403)
 
     def test_label_token_de_otro_sku_devuelve_403(self):
         from catalog.models import Category, Product
@@ -969,70 +620,6 @@ class PrintEndpointsTest(TestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 403)
 
-
-class PosCobrarBprintTest(TestCase):
-    def setUp(self):
-        self.staff = User.objects.create_user('staff3', password='pass', is_staff=True)
-        cat = Category.objects.create(name='Sudaderas', slug='sudaderas-bprint')
-        self.product = Product.objects.create(
-            name='Sudadera G5',
-            sku='SD-G5-001',
-            category=cat,
-            base_price=Decimal('200'),
-            is_active=True,
-        )
-        self.client.force_login(self.staff)
-
-    def test_pos_cobrar_exitoso_incluye_bprint_url(self):
-        payload = {
-            'lineas': [{'sku': 'SD-G5-001', 'cantidad': 1, 'precio_unitario': '300'}],
-            'cliente_id': None,
-            'metodo_pago': 'efectivo',
-        }
-        resp = self.client.post(
-            '/panel/negocio/pos/cobrar/',
-            data=json.dumps(payload),
-            content_type='application/json',
-        )
-        self.assertEqual(resp.status_code, 200)
-        data = resp.json()
-        self.assertTrue(data['ok'])
-        self.assertIn('bprint_url', data)
-        self.assertTrue(data['bprint_url'].startswith('bprint://'))
-        self.assertIn('/negocio/api/receipt/', data['bprint_url'])
-        self.assertIn('token=', data['bprint_url'])
-
-
-class PosProductosLabelUrlTest(TestCase):
-    def setUp(self):
-        self.staff = User.objects.create_user('staff4', password='pass', is_staff=True)
-        cat = Category.objects.create(name='Gorras2', slug='gorras2-label')
-        Product.objects.create(
-            name='Gorra Chicago',
-            sku='GR-CH-001',
-            category=cat,
-            base_price=Decimal('120'),
-            is_active=True,
-        )
-        self.client.force_login(self.staff)
-
-    def test_pos_productos_incluye_label_bprint_url(self):
-        resp = self.client.get('/panel/negocio/pos/productos/')
-        self.assertEqual(resp.status_code, 200)
-        data = resp.json()
-        self.assertTrue(len(data['productos']) >= 1)
-        from urllib.parse import urlparse, parse_qs
-        from django.core.signing import Signer
-        for p in data['productos']:
-            self.assertIn('label_bprint_url', p)
-            self.assertTrue(p['label_bprint_url'].startswith('bprint://'))
-            self.assertIn('/negocio/api/label/', p['label_bprint_url'])
-            self.assertIn('token=', p['label_bprint_url'])
-            # Verifica que el token firma el SKU correcto
-            inner_url = p['label_bprint_url'].split('bprint://', 1)[1]
-            parsed = urlparse(inner_url)
-            token = parse_qs(parsed.query)['token'][0]
-            self.assertEqual(Signer(salt='negocio-label').unsign(token), p['sku'])
 
 
 class CrearPedidoBotTest(TestCase):
@@ -3892,15 +3479,6 @@ class FechaLocalNoUTCTests(TestCase):
             res = self.client.get('/panel/negocio/')
         self.assertEqual(res.context['mes'], '2020-01')
 
-    def test_venta_tienda_graba_pago_con_fecha_local(self):
-        cat = Category.objects.create(name='Gorras', profit_margin=Decimal('100'))
-        Product.objects.create(sku='CAP-FL', name='Gorra', category=cat, base_price=Decimal('100'))
-        pedido = crear_venta_tienda(
-            lineas=[{'sku': 'CAP-FL', 'cantidad': 1, 'precio_unitario': '200'}],
-            cliente=None, metodo_pago='efectivo',
-        )
-        self.assertEqual(pedido.fecha, self.HOY_LOCAL)
-        self.assertEqual(pedido.pagos.get().fecha, self.HOY_LOCAL)
 
     def test_pedido_tienda_bot_graba_pago_con_fecha_local(self):
         TipoArticulo.objects.create(nombre='Tenis', keywords='tenis', costo=Decimal('0'))

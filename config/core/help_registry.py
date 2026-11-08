@@ -231,13 +231,7 @@ HELP_REGISTRY = {
         'El saldo inicial (el efectivo que había antes de usar el sistema) es simplemente el primer ajuste.',
     ],
 
-    # ── NEGOCIO · VENTA RÁPIDA E IMPRESIÓN ──────────────────────────────────
-    'negocio:pos': [
-        'Venta rápida de mostrador: busca por nombre o SKU, o escanea el código, y agrega al carrito.',
-        'El precio de cada artículo se puede cambiar. «Aplicar a categoría» pone el mismo precio a '
-        'todos los del carrito de esa categoría.',
-        '«Cobrar» registra la venta y su pago. Después puedes imprimir el ticket en la térmica.',
-    ],
+    # ── NEGOCIO · IMPRESIÓN ─────────────────────────────────────────────────
     'negocio:etiquetas_list': [
         'Imprime etiquetas de productos. Busca, marca los que necesitas y pulsa «Imprimir seleccionados».',
         'La impresión va a la impresora de etiquetas conectada por USB.',

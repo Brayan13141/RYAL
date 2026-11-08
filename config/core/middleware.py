@@ -89,9 +89,9 @@ class ContentSecurityPolicyMiddleware:
         "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
         "magnetometer=(), microphone=(), payment=(), usb=()"
     )
-    # Excepción: las pantallas que leen QR con la cámara. Con `camera=()` el
+    # Excepción: la pantalla que lee QR con la cámara. Con `camera=()` el
     # navegador niega getUserMedia sin mostrar siquiera el aviso de permiso.
-    _RUTAS_CON_CAMARA = ('/panel/inventario/escanear/', '/panel/negocio/pos/')
+    _RUTAS_CON_CAMARA = ('/panel/inventario/escanear/',)
 
     def __init__(self, get_response):
         self.get_response = get_response

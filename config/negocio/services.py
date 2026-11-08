@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 from django.db import transaction
 from django.db.models import F
 
-from catalog.models import Product, TipoArticulo
+from catalog.models import TipoArticulo
 from .models import Pedido, PedidoItem, Pago, Cliente
 
 
@@ -233,69 +233,6 @@ def crear_pedido_tienda_bot(*, items, envio=Decimal('0'), idem_key=None):
     pedido.sin_stock = sin_stock
     return pedido
 
-
-@transaction.atomic
-def crear_venta_tienda(*, lineas, cliente=None, metodo_pago='efectivo'):
-    """Crea una venta de tienda física: Pedido PAGADO + PedidoItem + Pago completo.
-
-    `lineas`: lista de dicts {sku, cantidad, precio_unitario}. El precio es editable
-    (override del cajero); el COSTO se toma siempre de Product.effective_base_price en el
-    servidor (nunca se confía al cliente) para preservar la integridad de la ganancia.
-    Lanza VentaInvalida si algo no valida; la transacción atómica garantiza que no se
-    cree nada parcial.
-    """
-    if not lineas:
-        raise VentaInvalida('La venta no tiene líneas.')
-    if metodo_pago not in _METODOS_VALIDOS:
-        raise VentaInvalida(f'Método de pago inválido: {metodo_pago!r}')
-
-    pedido = Pedido.objects.create(
-        cliente=cliente,
-        descripcion='',
-        costo_producto=Decimal('0'),
-        precio_venta=Decimal('0'),
-        envio=Decimal('0'),
-        estado=Pedido.PAGADO,
-        origen=Pedido.TIENDA,
-    )
-
-    total_precio = Decimal('0')
-    total_costo = Decimal('0')
-    partes_desc = []
-
-    for linea in lineas:
-        sku = (linea.get('sku') or '').strip()
-        if not sku:
-            raise VentaInvalida('Línea sin SKU.')
-        try:
-            product = Product.objects.get(sku=sku, is_active=True)
-        except Product.DoesNotExist:
-            raise VentaInvalida(f'Producto no encontrado o inactivo: {sku}')
-
-        cantidad = _parse_cantidad(linea.get('cantidad'))
-        precio_unitario = _parse_precio(linea.get('precio_unitario'))
-        costo_unitario = product.effective_base_price  # SIEMPRE del servidor (respeta override de subcategoría)
-
-        PedidoItem.objects.create(
-            pedido=pedido, product=product,
-            sku_snapshot=product.sku, nombre_snapshot=product.name,
-            cantidad=cantidad,
-            costo_unitario=costo_unitario, precio_unitario=precio_unitario,
-        )
-        total_precio += precio_unitario * cantidad
-        total_costo += costo_unitario * cantidad
-        partes_desc.append(f'{product.name} ×{cantidad}')
-
-    pedido.precio_venta = total_precio
-    pedido.costo_producto = total_costo
-    pedido.descripcion = f'{len(lineas)} art.: ' + ', '.join(partes_desc)
-    pedido.save(update_fields=['precio_venta', 'costo_producto', 'descripcion'])
-
-    Pago.objects.create(
-        pedido=pedido, fecha=timezone.localdate(),
-        monto=total_precio, metodo_pago=metodo_pago,
-    )
-    return pedido
 
 
 @transaction.atomic
