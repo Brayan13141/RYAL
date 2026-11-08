@@ -9,11 +9,13 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.html import format_html
 
+from catalog.models import TipoArticulo
 from inventario.models import VIAS, Lote, TallaCalzado, fmt_talla
 from inventario.services.editar_lote import editar_lote, filas_editables, version_lote
 from inventario.views.lotes import _entero, _error, _lineas_desde_json, _modelos
 
 _CLAVE = re.compile(r'(\d+)_(\d+)_(\d+)')
+_GRUPO = re.compile(r'(\d+)_(\d+)')
 
 
 def _cantidades(crudas):
@@ -29,6 +31,19 @@ def _cantidades(crudas):
             salida[tuple(map(int, m.groups()))] = _entero(valor)
         except (ValueError, TypeError):
             raise ValueError('Las cantidades deben ser enteros de 0 o más.')
+    return salida
+
+
+def _colores(crudos):
+    """{"tipo_color": color_nuevo} del JSON -> {(tipo, color): color_nuevo}; ValueError si no cuadra."""
+    if not isinstance(crudos, dict):
+        raise ValueError('Solicitud inválida.')
+    salida = {}
+    for clave, valor in crudos.items():
+        m = _GRUPO.fullmatch(str(clave))
+        if not m or not isinstance(valor, int) or isinstance(valor, bool):
+            raise ValueError('Solicitud inválida.')
+        salida[tuple(map(int, m.groups()))] = valor
     return salida
 
 
@@ -49,6 +64,7 @@ def _grupos(lote):
         grupos.setdefault((r['tipo_id'], r['color_id']), {
             'tipo_id': r['tipo_id'], 'tipo': r['tipo__nombre'], 'color': r['color__nombre'],
             'por_talla': {}})
+    tipos = TipoArticulo.objects.in_bulk({tipo_id for tipo_id, _ in grupos})
     salida = []
     for (tipo_id, color_id), g in sorted(grupos.items(),
                                          key=lambda kv: (kv[1]['tipo'], kv[1]['color'])):
@@ -61,6 +77,13 @@ def _grupos(lote):
                   for f in por_talla.values()]  # tallas inactivas con pares
         g['filas'] = filas
         g['total'] = sum(f['activos'] for f in filas)
+        g['color_id'] = color_id
+        # Colores a los que se puede pasar el grupo: los activos del modelo, más el actual.
+        g['colores'] = [{'id': c.pk, 'nombre': c.nombre}
+                        for c in tipos[tipo_id].colores_efectivos().order_by('nombre')
+                        if c.activo or c.pk == color_id]
+        if not any(c['id'] == color_id for c in g['colores']):
+            g['colores'].insert(0, {'id': color_id, 'nombre': g['color']})
         salida.append(g)
     return salida
 
@@ -84,7 +107,7 @@ def _plural(n, singular, plural):
 
 
 def _mensaje(request, lote, res):
-    if not res.creados and not res.anulados:
+    if not res.creados and not res.anulados and not res.recoloreados:
         messages.info(request, 'Sin cambios en el lote.')
         return
     if res.creados:
@@ -93,6 +116,12 @@ def _mensaje(request, lote, res):
         messages.success(request, format_html(
             '{}: <a href="{}" target="_blank">imprime sus etiquetas</a>.',
             _plural(len(res.creados), 'par agregado', 'pares agregados'), url))
+    if res.recoloreados:
+        codigos = ','.join(p.codigo for p in res.recoloreados)
+        url = reverse('inventario:etiquetas_lote', args=[lote.pk]) + f'?codigos={codigos}'
+        messages.success(request, format_html(
+            '{}: <a href="{}" target="_blank">reimprime sus etiquetas</a> y cámbialas en la caja.',
+            _plural(len(res.recoloreados), 'par cambió de color', 'pares cambiaron de color'), url))
     if res.anulados:
         messages.warning(request, '{}: si ya estaban pegadas, retíralas de la caja. '
                          'Si alguien las escanea, el escáner avisa que están anuladas.'.format(
@@ -118,10 +147,11 @@ def lote_editar(request, pk):
         crudas = datos.get('lineas') or []
         try:
             cantidades = _cantidades(datos.get('cantidades') or {})
+            colores = _colores(datos.get('colores') or {})
             # Atómico: si la edición falla, tampoco quedan las variantes creadas al vuelo.
             with transaction.atomic():
                 lineas = _lineas_desde_json({'lineas': crudas}, lote.via) if crudas else []
-                res = editar_lote(lote, cantidades=cantidades, lineas=lineas,
+                res = editar_lote(lote, cantidades=cantidades, lineas=lineas, colores=colores,
                                   usuario=request.user, version=version)
         except ValueError as e:
             return _error(str(e))

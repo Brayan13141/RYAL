@@ -6,7 +6,7 @@
   <div>
     <a href="{% url 'inventario:lote_detalle' lote.pk %}" class="small inv-muted text-decoration-none"><i class="bi bi-arrow-left"></i> Lote #{{ lote.pk }}</a>
     <h1 class="inv-title mt-1">Editar lote #{{ lote.pk }}{% if lote.referencia %} <small>{{ lote.referencia }}</small>{% endif %}</h1>
-    <p class="inv-sub">Cambia cuántos pares tiene cada talla o agrega modelos que llegaron. Si bajas una cantidad, se anulan las etiquetas más recientes que no se han escaneado; no se puede bajar de lo ya escaneado.</p>
+    <p class="inv-sub">Cambia cuántos pares tiene cada talla, el color de un modelo o agrega modelos que llegaron. Si bajas una cantidad, se anulan las etiquetas más recientes que no se han escaneado; no se puede bajar de lo ya escaneado.</p>
   </div>
 </div>
 
@@ -36,6 +36,14 @@
     <strong>{{ g.tipo }} · {{ g.color }}</strong>
     <span class="inv-line-total"><b class="js-grupo-total">{{ g.total }}</b> pares</span>
   </div>
+  <div class="inv-grupo-color">
+    <label class="small inv-muted" for="color-{{ g.tipo_id }}-{{ g.color_id }}">Color</label>
+    <select id="color-{{ g.tipo_id }}-{{ g.color_id }}" class="form-select form-select-sm s-color-grupo"
+            data-grupo="{{ g.tipo_id }}_{{ g.color_id }}" data-original="{{ g.color_id }}">
+      {% for c in g.colores %}<option value="{{ c.id }}"{% if c.id == g.color_id %} selected{% endif %}>{{ c.nombre }}</option>{% endfor %}
+    </select>
+    <span class="small text-warning js-aviso-color" hidden>Cambian de color todos sus pares (menos vendidos y bajas); reimprime sus etiquetas.</span>
+  </div>
   <div class="inv-line-body">
     <div class="inv-sizes">
       {% for f in g.filas %}
@@ -57,7 +65,7 @@
 <p id="grupos-vacio" class="inv-muted text-center py-4" hidden><i class="bi bi-search"></i> Ningún modelo con ese filtro.</p>
 
 <div class="inv-sticky">
-  <span class="inv-sticky-count"><b id="ed-mas">0</b>pares nuevos · <b id="ed-menos">0</b>etiquetas a anular</span>
+  <span class="inv-sticky-count"><b id="ed-mas">0</b>pares nuevos · <b id="ed-menos">0</b>etiquetas a anular · <b id="ed-color">0</b>cambios de color</span>
   <button type="button" id="btn-guardar" class="btn-g"><i class="bi bi-check-lg"></i> Guardar cambios</button>
 </div>
 
@@ -159,8 +167,15 @@
       $('.js-linea-total', l).textContent = n;
       mas += n;
     });
+    var color = 0;
+    document.querySelectorAll('.s-color-grupo').forEach(function (s) {
+      var cambia = s.value !== s.dataset.original;
+      if (cambia) color++;
+      s.closest('.js-grupo').querySelector('.js-aviso-color').hidden = !cambia;
+    });
     $('#ed-mas').textContent = mas;
     $('#ed-menos').textContent = menos;
+    $('#ed-color').textContent = color;
   }
   function agregarLinea() {
     var n = document.importNode($('#tpl-linea').content, true), linea = $('.linea', n);
@@ -204,6 +219,7 @@
     if (msg) window.scrollTo(0, 0);
   }
   document.querySelectorAll('.i-cant').forEach(function (i) { i.addEventListener('input', totales); });
+  document.querySelectorAll('.s-color-grupo').forEach(function (s) { s.addEventListener('change', totales); });
   $('#btn-linea').addEventListener('click', agregarLinea);
   $('#btn-guardar').addEventListener('click', function () {
     var btn = this;
@@ -226,6 +242,10 @@
       lineas.push({tipo_id: tipoDe(l), color_id: $('.s-color', l).value || null,
                    cantidades: cant, precio_proveedor: precio ? (precio.value.trim() || null) : null});
     });
+    var colores = {};
+    document.querySelectorAll('.s-color-grupo').forEach(function (s) {
+      if (s.value !== s.dataset.original) colores[s.dataset.grupo] = parseInt(s.value, 10);
+    });
     var menos = parseInt($('#ed-menos').textContent, 10);
     if (menos && !confirm('Se anularán ' + menos + ' etiqueta(s) sin escanear. Si ya estaban pegadas, habrá que retirarlas. ¿Continuar?')) return;
     btn.disabled = true;
@@ -233,7 +253,7 @@
     fetch(window.location.href, {
       method: 'POST', credentials: 'same-origin',
       headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
-      body: JSON.stringify({version: VERSION, cantidades: cantidades, lineas: lineas})
+      body: JSON.stringify({version: VERSION, cantidades: cantidades, lineas: lineas, colores: colores})
     }).then(function (r) { return r.json(); }).then(function (d) {
       if (d.ok) window.location.href = d.url;
       else { error(d.error || 'No se pudo guardar.'); btn.disabled = false; }
@@ -247,6 +267,8 @@
 {% include "inventario/_filtros_css.html" %}
 <style>
   .grupo .inv-panel-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .inv-grupo-color { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 16px 0; }
+  .inv-grupo-color .form-select { width: auto; min-width: 160px; }
   /* Tallas que el modelo aún no tiene: atenuadas hasta que se les pone cantidad. */
   .inv-size.is-vacia label { opacity: .45; }
   .inv-size.is-vacia .i-cant:not(:focus) { opacity: .55; }

@@ -8,7 +8,8 @@ from django.urls import reverse
 from catalog.models import TipoArticulo
 from inventario.models import (
     Color, MovimientoPar, Par, TallaCalzado, TransicionInvalida)
-from inventario.services.editar_lote import editar_lote, filas_editables, version_lote
+from inventario.services.editar_lote import (
+    editar_lote, filas_editables, version_lote)
 from inventario.services.escaneo import recibir
 from inventario.services.lotes import cerrar_lote, crear_lote
 from inventario.services.tipos import crear_variante
@@ -391,3 +392,140 @@ class VistaTallasYFiltrosTests(EditarBase):
     def test_agregar_modelo_va_antes_de_la_cuadricula(self):
         html = self.client.get(self.url).content.decode()
         self.assertLess(html.index('id="btn-linea"'), html.index('class="inv-panel inv-line mb-3 grupo'))
+
+
+class CambiarColorTests(EditarBase):
+    """Cambiar el color de un modelo·color entero desde Editar lote."""
+
+    def setUp(self):
+        super().setUp()
+        self.gris = Color.objects.create(nombre='gris')
+        self.base.colores.add(self.gris)
+
+    def recolorear(self, nuevo, cantidades=None, color=None, version=None):
+        return editar_lote(self.lote, cantidades=cantidades or {}, lineas=[],
+                           colores={(self.var_a.pk, (color or self.negro).pk): nuevo.pk},
+                           usuario=self.user, version=version)
+
+    def test_cambia_el_color_de_todo_el_grupo(self):
+        res = self.recolorear(self.gris)
+        self.assertEqual(len(res.recoloreados), 3)
+        self.assertEqual(self.lote.pares.filter(color=self.gris).count(), 3)
+        self.assertFalse(self.lote.pares.filter(color=self.negro).exists())
+
+    def test_deja_la_correccion_en_el_historial(self):
+        self.recolorear(self.gris)
+        notas = list(MovimientoPar.objects.filter(par__lote=self.lote, origen='edicion')
+                     .values_list('nota', flat=True))
+        self.assertEqual(notas, ['Color corregido: negro → gris'] * 3)
+
+    def test_no_mueve_costo_talla_ni_codigo(self):
+        antes = {p.pk: (p.codigo, p.talla_id, p.precio_proveedor, p.estado)
+                 for p in self.lote.pares.all()}
+        self.recolorear(self.gris)
+        despues = {p.pk: (p.codigo, p.talla_id, p.precio_proveedor, p.estado)
+                   for p in self.lote.pares.all()}
+        self.assertEqual(antes, despues)
+
+    def test_con_cantidad_y_color_a_la_vez(self):
+        # El caso real: 25 de una talla que debian ser 1, y ademas otro color.
+        res = self.recolorear(self.gris, cantidades={self.clave(): 1})
+        self.assertEqual(len(res.anulados), 2)
+        self.assertEqual(len(res.recoloreados), 1)
+        vigentes = self.lote.pares.exclude(estado=Par.Estado.ANULADO)
+        self.assertEqual(list(vigentes.values_list('color__nombre', flat=True)), ['gris'])
+        # Las etiquetas anuladas conservan su color: el escaner las sigue reconociendo.
+        self.assertEqual(self.lote.pares.filter(estado=Par.Estado.ANULADO,
+                                                color=self.negro).count(), 2)
+
+    def test_tambien_cambia_pares_escaneados(self):
+        par = self.lote.pares.order_by('pk').first()
+        recibir(par.codigo, lote=self.lote, usuario=self.user)
+        res = self.recolorear(self.gris)
+        self.assertEqual(len(res.recoloreados), 3)
+
+    def test_no_toca_vendidos_ni_bajas(self):
+        par = self.lote.pares.order_by('pk').first()
+        recibir(par.codigo, lote=self.lote, usuario=self.user)
+        par.refresh_from_db()
+        par.transicionar('baja', usuario=self.user, origen='manual', nota='roto', motivo='danado')
+        res = self.recolorear(self.gris)
+        self.assertEqual(len(res.recoloreados), 2)
+        par.refresh_from_db()
+        self.assertEqual(par.color, self.negro)
+
+    def test_se_junta_con_un_grupo_que_ya_tenia_ese_color(self):
+        self.editar(lineas=[{'tipo': self.var_a, 'color': self.blanco, 'talla': self.t26,
+                             'cantidad': 2, 'precio_proveedor': Decimal('360')}])
+        self.recolorear(self.blanco)
+        self.assertEqual(self.lote.pares.filter(color=self.blanco).count(), 5)
+        filas = filas_editables(self.lote)
+        self.assertEqual([(f['color'], f['activos']) for f in filas], [('blanco', 5)])
+
+    def test_color_que_no_es_del_modelo_se_rechaza(self):
+        rojo = Color.objects.create(nombre='rojo')
+        with self.assertRaisesMessage(ValueError, 'rojo'):
+            self.recolorear(rojo)
+        self.assertEqual(self.lote.pares.filter(color=self.negro).count(), 3)
+
+    def test_color_inactivo_se_rechaza(self):
+        self.gris.activo = False
+        self.gris.save()
+        with self.assertRaises(ValueError):
+            self.recolorear(self.gris)
+
+    def test_grupo_que_no_es_del_lote_se_rechaza(self):
+        with self.assertRaises(ValueError):
+            self.recolorear(self.gris, color=self.blanco)
+
+    def test_mismo_color_no_hace_nada(self):
+        res = self.recolorear(self.negro)
+        self.assertEqual(res.recoloreados, [])
+
+    def test_todo_o_nada(self):
+        rojo = Color.objects.create(nombre='rojo')
+        with self.assertRaises(ValueError):
+            self.recolorear(rojo, cantidades={self.clave(): 1})
+        self.assertEqual(self.activos(), 3)
+
+    def test_cambia_la_version(self):
+        v = version_lote(self.lote)
+        self.recolorear(self.gris, version=v)
+        self.assertNotEqual(version_lote(self.lote), v)
+
+
+class VistaCambiarColorTests(EditarBase):
+    def setUp(self):
+        super().setUp()
+        self.gris = Color.objects.create(nombre='gris')
+        self.base.colores.add(self.gris)
+        self.client.force_login(self.user)
+        self.url = reverse('inventario:lote_editar', args=[self.lote.pk])
+
+    def test_cada_grupo_trae_un_selector_con_los_colores_del_modelo(self):
+        r = self.client.get(self.url)
+        g = r.context['grupos'][0]
+        self.assertEqual(g['color_id'], self.negro.pk)
+        self.assertEqual({c['nombre'] for c in g['colores']}, {'negro', 'blanco', 'gris'})
+        self.assertContains(r, f'data-grupo="{self.var_a.pk}_{self.negro.pk}"')
+        self.assertContains(r, 'class="form-select form-select-sm s-color-grupo"')
+
+    def test_post_cambia_el_color_y_ofrece_reimprimir(self):
+        r = self.client.post(self.url, json.dumps({
+            'version': version_lote(self.lote),
+            'colores': {f'{self.var_a.pk}_{self.negro.pk}': self.gris.pk}}),
+            content_type='application/json')
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(self.lote.pares.filter(color=self.gris).count(), 3)
+        detalle = self.client.get(r.json()['url'])
+        textos = [str(m) for m in detalle.context['messages']]
+        self.assertTrue(any('3 pares cambiaron de color' in t and '?codigos=' in t
+                            for t in textos), textos)
+
+    def test_post_colores_mal_formados(self):
+        for colores in (['x'], {'1_2_3': 4}, {f'{self.var_a.pk}_{self.negro.pk}': 'gris'}):
+            r = self.client.post(self.url, json.dumps({
+                'version': version_lote(self.lote), 'colores': colores}),
+                content_type='application/json')
+            self.assertEqual(r.status_code, 400, colores)
+        self.assertEqual(self.lote.pares.filter(color=self.negro).count(), 3)

@@ -1,13 +1,14 @@
-"""Editar un lote abierto: cambiar cuántos pares tiene cada renglón (tipo × color × talla)
-y sumarle combinaciones nuevas. Lo que sobra se anula, nunca se borra: la etiqueta pudo
+"""Editar un lote abierto: cambiar cuántos pares tiene cada renglón (tipo × color × talla),
+cambiarle el color a un modelo·color y sumarle combinaciones nuevas. Lo que sobra se anula, nunca se borra: la etiqueta pudo
 haberse impreso y el escáner debe reconocerla."""
 from dataclasses import dataclass, field
 
 from django.db import transaction
 from django.db.models import Count, Max, Q
 
+from catalog.models import TipoArticulo
 from inventario.models import (
-    Lote, MovimientoPar, Par, TallaCalzado, TransicionInvalida, fmt_talla)
+    Color, Lote, MovimientoPar, Par, TallaCalzado, TransicionInvalida, fmt_talla)
 from inventario.services.lotes import _validar_linea, crear_pares
 
 MAX_POR_RENGLON = 500
@@ -16,12 +17,15 @@ _CAMBIO = ('El lote cambió mientras lo editabas (alguien escaneó o lo editó).
 
 # Estados que ya no se pueden anular: el par se escaneó (o se vendió / dio de baja).
 _FIJOS = Q(estado__in=[Par.Estado.EN_STOCK, Par.Estado.VENDIDO, Par.Estado.BAJA])
+# Un par vendido ya está en un pedido con su color; uno de baja ya no está en la tienda.
+_RECOLOREABLES = (Par.Estado.POR_RECIBIR, Par.Estado.EN_STOCK)
 
 
 @dataclass
 class Resultado:
     creados: list = field(default_factory=list)
     anulados: list = field(default_factory=list)
+    recoloreados: list = field(default_factory=list)
 
 
 def version_lote(lote):
@@ -70,12 +74,52 @@ def _talla_nueva(lote, clave, valor):
     return (muestra, talla, n) if n else None
 
 
-def editar_lote(lote, *, cantidades, lineas, usuario, version):
+def _colores_nuevos(lote, colores):
+    """{(tipo_id, color_id): color_id nuevo} -> {(tipo_id, color_id): (Color viejo, Color nuevo)}.
+
+    Omite los que no cambian; ValueError si el grupo no es del lote o el color no es del
+    modelo (o está inactivo)."""
+    salida = {}
+    for (tipo_id, color_id), nuevo_id in colores.items():
+        if nuevo_id == color_id:
+            continue
+        if not lote.pares.filter(tipo_id=tipo_id, color_id=color_id).exists():
+            raise ValueError('Uno de los modelos no está en el lote. Recarga la página.')
+        tipo = TipoArticulo.objects.get(pk=tipo_id)
+        viejo = Color.objects.get(pk=color_id)
+        nuevo = Color.objects.filter(pk=nuevo_id).first()
+        if nuevo is None or not nuevo.activo:
+            raise ValueError(f'{tipo.nombre} {viejo.nombre}: ese color no está activo en Catálogos.')
+        if not tipo.colores_efectivos().filter(pk=nuevo.pk).exists():
+            raise ValueError(f'{tipo.nombre}: el color {nuevo.nombre} no está asignado al modelo. '
+                             'Asígnalo en Catálogos.')
+        salida[(tipo_id, color_id)] = (viejo, nuevo)
+    return salida
+
+
+def _recolorear(lote, clave, viejo, nuevo, usuario):
+    """Pasa al color nuevo los pares por recibir o en stock del modelo·color. Las etiquetas
+    anuladas conservan el suyo: el escáner las sigue reconociendo como anuladas."""
+    pares = list(Par.objects.select_for_update(of=('self',))
+                 .filter(lote=lote, tipo_id=clave[0], color_id=clave[1],
+                         estado__in=_RECOLOREABLES).order_by('pk'))
+    for par in pares:
+        par.color = nuevo
+        par.save(update_fields=['color'])
+        MovimientoPar.objects.create(
+            par=par, de_estado=par.estado, a_estado=par.estado, usuario=usuario,
+            origen='edicion', nota=f'Color corregido: {viejo.nombre} → {nuevo.nombre}')
+    return pares
+
+
+def editar_lote(lote, *, cantidades, lineas, usuario, version, colores=None):
     """Aplica la edición completa o nada.
 
     `cantidades`: {(tipo_id, color_id, talla_id): cuántos debe tener el renglón}.
     `lineas`: combinaciones a sumar, con el formato de `crear_lote` (ya en la variante de
     la vía del lote). Si caen en un renglón existente, se suman a él.
+    `colores`: {(tipo_id, color_id): color_id nuevo}; se aplica después de las cantidades
+    (que van con el color de antes) a todo lo que quede de ese modelo·color.
     `version`: la de `version_lote` al abrir la pantalla; None no la revisa."""
     with transaction.atomic():
         # Candado del lote: dos ediciones a la vez se serializan.
@@ -102,6 +146,8 @@ def editar_lote(lote, *, cantidades, lineas, usuario, version):
                     f'{nombre}: no puede quedar en {n}, ya hay {fila["minimo"]} '
                     f'escaneados (o vendidos / dados de baja).')
             objetivo[clave] = n
+
+        recolores = _colores_nuevos(lote, colores or {})
 
         origen = 'inicial' if lote.origen == 'inicial' else 'manual'
         nuevas = {}  # clave -> [tipo, color, talla, cantidad, precio]
@@ -141,4 +187,6 @@ def editar_lote(lote, *, cantidades, lineas, usuario, version):
         for tipo, color, talla, cantidad, precio in nuevas.values():
             res.creados += crear_pares(lote, tipo, color, talla, cantidad, precio,
                                        usuario=usuario)
+        for clave, (viejo, nuevo) in recolores.items():
+            res.recoloreados += _recolorear(lote, clave, viejo, nuevo, usuario)
     return res
