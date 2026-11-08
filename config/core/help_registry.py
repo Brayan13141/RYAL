@@ -48,6 +48,22 @@ HELP_REGISTRY = {
         'Registra cada pago con su método; «Liquidar» registra el saldo restante de una vez. '
         'Al cambiar el estado puedes poner la URL de rastreo (17track) y enviar el ticket.',
     ],
+    'panel:ventas_web': [
+        'Lo que se ha vendido en la tienda web, producto por producto: unidades, ingreso, costo y '
+        'ganancia. Los pedidos cancelados no cuentan.',
+        'Filtra por rango de fechas y pulsa el título de una columna para ordenar por ella.',
+        'Pulsa un producto para ver los pedidos donde se vendió.',
+    ],
+    'panel:ventas_web_producto': [
+        'Historial de un producto: cada renglón vendido en la tienda web, con su pedido, cantidad, '
+        'ingreso, costo y ganancia.',
+        'Pulsa el código del pedido para abrir su detalle.',
+    ],
+    'panel:ventas_web_borrado': [
+        'Historial de un producto que ya se borró del catálogo, agrupado por su SKU. Las cifras salen '
+        'de lo que quedó grabado en cada pedido.',
+        'Pulsa el código del pedido para abrir su detalle.',
+    ],
     'panel:supplier_order_detail': [
         'Arma el pedido en la página del proveedor (modaverse) a partir de los productos de este pedido.',
         '«Ejecutar en servidor» lo hace automático y muestra el avance en el log. Si un ítem falla, '

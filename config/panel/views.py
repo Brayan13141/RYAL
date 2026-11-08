@@ -1,4 +1,5 @@
 import csv
+import datetime
 import json
 import os
 import subprocess
@@ -28,6 +29,7 @@ from orders.models import InvalidTransition, Order, OrderItem, OrderPayment, Sup
 from orders.supplier_items import crear_supplier_item
 from orders.notifications import notify_status_change_async
 from orders.forms import OrderPaymentForm
+from panel import ventas_web as ventas_web_mod
 from panel.whatsapp import WHATSAPP_INSTANCES, get_instance, read_qr_state
 
 _LOGIN = '/accounts/login/'
@@ -444,6 +446,76 @@ def _pedidos_nuevos_qs():
 def pedidos_nuevos_count(request):
     count = _pedidos_nuevos_qs().count()
     return JsonResponse({'count': count})
+
+
+def _fecha_o_none(valor):
+    """Fecha ISO (AAAA-MM-DD) del querystring; vacía o inválida → None."""
+    try:
+        return datetime.date.fromisoformat((valor or '').strip())
+    except ValueError:
+        return None
+
+
+@_staff
+def ventas_web(request):
+    desde = _fecha_o_none(request.GET.get('desde'))
+    hasta = _fecha_o_none(request.GET.get('hasta'))
+    orden = request.GET.get('orden', 'ganancia')
+    if orden not in ventas_web_mod.ORDENES:
+        orden = 'ganancia'
+    filas = ventas_web_mod.ventas_web_por_producto(desde, hasta, orden)
+    totales = {
+        'unidades': sum(f['unidades'] for f in filas),
+        'ingreso': sum((f['ingreso'] for f in filas), Decimal('0')),
+        'costo': sum((f['costo'] for f in filas), Decimal('0')),
+        'ganancia': sum((f['ganancia'] for f in filas), Decimal('0')),
+    }
+    return render(request, 'panel/ventas_web.html', {
+        'filas': filas,
+        'totales': totales,
+        'orden': orden,
+        'desde': desde.isoformat() if desde else '',
+        'hasta': hasta.isoformat() if hasta else '',
+    })
+
+
+def _totales_historial(historial):
+    return {
+        'unidades': sum(l['unidades'] for l in historial),
+        'ingreso': sum((l['ingreso'] for l in historial), Decimal('0')),
+        'costo': sum((l['costo'] for l in historial), Decimal('0')),
+        'ganancia': sum((l['ganancia'] for l in historial), Decimal('0')),
+    }
+
+
+@_staff
+def ventas_web_producto(request, pk):
+    producto = get_object_or_404(Product, pk=pk)
+    historial = ventas_web_mod.historial_producto_web(product_pk=producto.pk)
+    return render(request, 'panel/ventas_web_producto.html', {
+        'producto': producto,
+        'nombre': producto.name,
+        'sku': producto.sku,
+        'historial': historial,
+        'totales': _totales_historial(historial),
+    })
+
+
+@_staff
+def ventas_web_borrado(request):
+    # El SKU puede traer "/" u otros caracteres, por eso va en el querystring.
+    sku = request.GET.get('sku') or ''
+    if not sku.strip():
+        raise Http404
+    historial = ventas_web_mod.historial_producto_web(sku=sku)
+    nombre = historial[0]['nombre'] if historial else sku
+    return render(request, 'panel/ventas_web_producto.html', {
+        'producto': None,
+        'nombre': nombre,
+        'sku': sku,
+        'historial': historial,
+        'totales': _totales_historial(historial),
+    })
 
 
 @_staff

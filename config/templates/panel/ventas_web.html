@@ -1,0 +1,76 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}Ventas por producto — Panel RYAL{% endblock %}
+{% block page_title %}Ventas por producto{% endblock %}
+
+{% block content %}
+
+<form method="get" class="fbar" style="margin-bottom:18px;">
+  <input type="hidden" name="orden" value="{{ orden }}">
+  <input type="date" name="desde" value="{{ desde }}" style="max-width:150px;">
+  <input type="date" name="hasta" value="{{ hasta }}" style="max-width:150px;">
+  <button type="submit" class="btn-g btn-sm"><i class="bi bi-search"></i> Filtrar</button>
+  {% if desde or hasta %}
+  <a href="{% url 'panel:ventas_web' %}?orden={{ orden }}" class="btn-o btn-sm"><i class="bi bi-x"></i> Limpiar</a>
+  {% endif %}
+  <span style="margin-left:auto;font-size:12px;color:#555;">
+    {{ filas|length }} producto{{ filas|length|pluralize }}
+  </span>
+</form>
+
+<div class="p-card">
+  <div style="overflow-x:auto;">
+    <table class="p-table">
+      <thead>
+        <tr>
+          <th><a href="?orden=nombre&desde={{ desde }}&hasta={{ hasta }}"{% if orden == 'nombre' %} style="color:var(--pl);"{% endif %}>Producto</a></th>
+          <th>SKU</th>
+          <th style="text-align:right;"><a href="?orden=unidades&desde={{ desde }}&hasta={{ hasta }}"{% if orden == 'unidades' %} style="color:var(--pl);"{% endif %}>Unidades</a></th>
+          <th style="text-align:right;"><a href="?orden=ingreso&desde={{ desde }}&hasta={{ hasta }}"{% if orden == 'ingreso' %} style="color:var(--pl);"{% endif %}>Ingreso</a></th>
+          <th style="text-align:right;">Costo</th>
+          <th style="text-align:right;"><a href="?orden=ganancia&desde={{ desde }}&hasta={{ hasta }}"{% if orden == 'ganancia' %} style="color:var(--pl);"{% endif %}>Ganancia</a></th>
+          <th><a href="?orden=ultima_venta&desde={{ desde }}&hasta={{ hasta }}"{% if orden == 'ultima_venta' %} style="color:var(--pl);"{% endif %}>Última venta</a></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if filas %}
+        <tr class="fila-totales" style="font-weight:700;">
+          <td colspan="2">Total</td>
+          <td style="text-align:right;">{{ totales.unidades }}</td>
+          <td style="text-align:right;">${{ totales.ingreso|floatformat:2 }}</td>
+          <td style="text-align:right;">${{ totales.costo|floatformat:2 }}</td>
+          <td style="text-align:right;">${{ totales.ganancia|floatformat:2 }}</td>
+          <td></td>
+        </tr>
+        {% endif %}
+        {% for f in filas %}
+        <tr>
+          <td style="font-weight:500;">
+            {% if f.borrado %}
+            <a href="{% url 'panel:ventas_web_borrado' %}?sku={{ f.sku|urlencode:'' }}">{{ f.nombre }}</a>
+            <span style="color:#555;font-size:11px;">(borrado)</span>
+            {% else %}
+            <a href="{% url 'panel:ventas_web_producto' f.product_pk %}">{{ f.nombre }}</a>
+            {% endif %}
+          </td>
+          <td style="color:#555;">{{ f.sku }}</td>
+          <td style="text-align:right;">{{ f.unidades }}</td>
+          <td style="text-align:right;">${{ f.ingreso|floatformat:2 }}</td>
+          <td style="text-align:right;">${{ f.costo|floatformat:2 }}</td>
+          <td style="text-align:right;font-weight:600;color:#ddd;">${{ f.ganancia|floatformat:2 }}</td>
+          <td style="color:#555;white-space:nowrap;">{{ f.ultima_venta|date:"d/m/y" }}</td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7" style="text-align:center;color:#444;padding:32px;">No hay ventas en este periodo.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<p style="margin-top:14px;font-size:12px;color:#555;">
+  Las cifras son a precio de renglón con el descuento del pedido repartido. Si un pedido no tiene costo registrado se usa el costo actual del producto, por eso puede diferir unos pesos del Resumen global.
+</p>
+
+{% endblock %}
