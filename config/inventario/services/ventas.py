@@ -21,11 +21,25 @@ def _descripcion(n_articulos, partes):
     return f'{n_articulos} art.: ' + ', '.join(partes)
 
 
-def vender_pares(lineas, *, metodo_pago, usuario, tipo_venta=None):
+def sin_recibir(par):
+    """True si el par llegó físicamente pero su llegada no se escaneó: por recibir, o
+    faltante al cerrar el lote. Se puede vender confirmando que se registre la llegada."""
+    return (par.estado == Par.Estado.POR_RECIBIR
+            or (par.estado == Par.Estado.BAJA and par.motivo_baja == 'faltante'))
+
+
+def mensaje_sin_recibir(par):
+    return (f'El par {par.codigo} (lote #{par.lote_id}) no se ha registrado su llegada: '
+            'escanéalo primero en Recibir o confirma que se registre al venderlo.')
+
+
+def vender_pares(lineas, *, metodo_pago, usuario, tipo_venta=None, recibir=frozenset()):
     """Venta de mostrador con pares escaneados: Pedido PAGADO + un ítem por par + Pago.
 
     `lineas`: lista de (Par, precio). `tipo_venta`: mayoreo, menudeo o None (sin
-    clasificar). Todo o nada: si algo falla, `ValueError` y no se crea ni se mueve nada.
+    clasificar). `recibir`: pks de pares sin recibir que el vendedor confirmó; a esos se
+    les registra la llegada justo antes de la venta. Todo o nada: si algo falla,
+    `ValueError` y no se crea ni se mueve nada.
     """
     if not lineas:
         raise ValueError('La venta no tiene pares.')
@@ -48,7 +62,10 @@ def vender_pares(lineas, *, metodo_pago, usuario, tipo_venta=None):
             .select_related('tipo', 'color', 'talla').filter(pk__in=vistos).order_by('pk')}
         for par, _ in lineas:
             actual = bloqueados.get(par.pk)
-            if actual is None or actual.estado != Par.Estado.EN_STOCK:
+            if actual is not None and sin_recibir(actual):
+                if actual.pk not in recibir:
+                    raise ValueError(mensaje_sin_recibir(actual))
+            elif actual is None or actual.estado != Par.Estado.EN_STOCK:
                 raise ValueError(f'El par {par.codigo} no está en stock.')
 
         cliente, _creado = Cliente.objects.get_or_create(
@@ -67,6 +84,9 @@ def vender_pares(lineas, *, metodo_pago, usuario, tipo_venta=None):
             item = PedidoItem.objects.create(
                 pedido=pedido, sku_snapshot=p.codigo, nombre_snapshot=nombre,
                 cantidad=1, costo_unitario=p.costo, precio_unitario=precio)
+            if sin_recibir(p):
+                par.transicionar('en_stock', usuario=usuario, origen='escaner',
+                                 nota='Recibido al venderlo: no se había escaneado su llegada')
             par.transicionar('vendido', usuario=usuario, origen='escaner', pedido_item=item)
             total_precio += precio
             total_costo += p.costo
@@ -89,12 +109,19 @@ def asignado_por_bot(par):
     return mov is not None and mov.origen == 'bot'
 
 
-def ligar_a_item(par, item, *, usuario):
+def _recibir_si_falta(par, usuario):
+    if sin_recibir(par):
+        par.transicionar('en_stock', usuario=usuario, origen='escaner',
+                         nota='Recibido al venderlo: no se había escaneado su llegada')
+
+
+def ligar_a_item(par, item, *, usuario, recibir=False):
     """Liga un par escaneado a un ítem de una venta del bot (no toca costo ni pagos).
 
     Con lugar libre, solo lo liga. Con el ítem lleno, intercambia con el par
     asignado por el bot más reciente (que vuelve a stock) si es la misma variante.
-    Una venta cancelada no recibe pares.
+    Una venta cancelada no recibe pares. Un par sin recibir solo se liga con
+    `recibir=True` (el vendedor confirmó que llegó): se registra su llegada y su venta.
     """
     with transaction.atomic():
         # Orden de candados: Pedido -> ítem -> pares (igual que cancelar/quitar).
@@ -118,11 +145,15 @@ def ligar_a_item(par, item, *, usuario):
 
         if pedido.estado == Pedido.CANCELADO:
             return _rojo('Esa venta está cancelada', par)
-        if par.estado != Par.Estado.EN_STOCK:
+        if sin_recibir(par):
+            if not recibir:
+                return _rojo(mensaje_sin_recibir(par), par)
+        elif par.estado != Par.Estado.EN_STOCK:
             return _rojo(
                 f'No se puede vender: el par está en estado {par.get_estado_display()}', par)
 
         if item.cantidad > len(ligados):
+            _recibir_si_falta(par, usuario)
             par.transicionar('vendido', usuario=usuario, origen='escaner', pedido_item=item)
             return Resultado('verde', 'Par ligado a la venta', par, None)
 
@@ -136,6 +167,7 @@ def ligar_a_item(par, item, *, usuario):
         candidato.transicionar(
             'en_stock', usuario=usuario, origen='deshacer',
             nota=f'Intercambio por escaneo de {par.codigo}')
+        _recibir_si_falta(par, usuario)
         par.transicionar('vendido', usuario=usuario, origen='escaner', pedido_item=item)
         return Resultado('verde', f'Intercambiado por {candidato.codigo}', par, None)
 

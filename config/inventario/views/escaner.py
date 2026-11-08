@@ -141,7 +141,8 @@ def vender_info(request):
            .filter(codigo=codigo).first()) if codigo else None
     if par is None:
         return JsonResponse({'nivel': 'rojo', 'mensaje': 'Código no encontrado'})
-    if par.estado != Par.Estado.EN_STOCK:
+    falta_llegada = ventas.sin_recibir(par)
+    if par.estado != Par.Estado.EN_STOCK and not falta_llegada:
         if _vendido_por_bot_con_hermano(par):
             return JsonResponse({
                 'nivel': 'amarillo', 'codigo': par.codigo,
@@ -153,8 +154,15 @@ def vender_info(request):
             'nivel': 'rojo', 'codigo': par.codigo,
             'mensaje': f'No se puede vender: el par está en estado {par.get_estado_display()}'})
     base = par.tipo.modelo_base
+    extra = {}
+    if falta_llegada:
+        # Se puede vender, pero el vendedor confirma que el par sí llegó.
+        extra = {'sin_recibir': True, 'mensaje': (
+            f'Este par no se ha registrado como recibido (lote #{par.lote_id}). '
+            '¿Llegó y lo vas a vender? Se registra su llegada y su venta al cobrar.')}
     return JsonResponse({
-        'nivel': 'verde',
+        'nivel': 'amarillo' if falta_llegada else 'verde',
+        **extra,
         'par': {
             'codigo': par.codigo, 'nombre': base.nombre, 'color': par.color.nombre,
             # Sin costo: el cliente puede ver esta pantalla. El costo vive en la ficha del par.
@@ -186,7 +194,10 @@ def vender_ligar(request):
     item = next((i for i, _ in ventas.items_bot_pendientes(par) if i.pk == item_id), None)
     if item is None:
         return _error('Esa venta del bot no corresponde a este par.')
-    return _respuesta(ventas.ligar_a_item(par, item, usuario=request.user))
+    recibir = datos.get('recibir', False)
+    if not isinstance(recibir, bool):
+        return _error('Solicitud inválida.')
+    return _respuesta(ventas.ligar_a_item(par, item, usuario=request.user, recibir=recibir))
 
 
 def _error_venta(mensaje):
@@ -222,7 +233,7 @@ def vender_cerrar(request):
     if not isinstance(tipo_venta, str) or tipo_venta not in {
             t[0] for t in Pedido.TIPO_VENTA_CHOICES}:
         return _error_venta('Elige si la venta es de menudeo o de mayoreo.')
-    lineas, vistos = [], set()
+    lineas, vistos, recibir = [], set(), set()
     for cruda in crudas:
         if not isinstance(cruda, dict):
             return _error_venta('Solicitud inválida.')
@@ -236,6 +247,11 @@ def vender_cerrar(request):
         par = Par.objects.select_related('tipo', 'color', 'talla').filter(codigo=codigo).first()
         if par is None:
             return _error_venta(f'El par {codigo} no existe.')
+        marca = cruda.get('recibir', False)
+        if not isinstance(marca, bool):
+            return _error_venta('Solicitud inválida.')
+        if marca:
+            recibir.add(par.pk)
         lineas.append((par, precio))
     if datos.get('confirmar_venta_nueva') is not True:
         # Si el bot ya registró esa venta, escanear y cobrar de nuevo sería cobrarla dos veces.
@@ -248,7 +264,8 @@ def vender_cerrar(request):
                               '¿Es una venta distinta?')}, status=409)
     try:
         pedido = ventas.vender_pares(
-            lineas, metodo_pago=metodo, usuario=request.user, tipo_venta=tipo_venta)
+            lineas, metodo_pago=metodo, usuario=request.user, tipo_venta=tipo_venta,
+            recibir=recibir)
     except ValueError as e:
         return _error_venta(str(e))
     return JsonResponse({'ok': True, 'pedido_id': pedido.pk})

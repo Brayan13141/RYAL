@@ -147,7 +147,7 @@
     if (cobrando || ligando) return;
     ligando = true;
     caja.querySelectorAll('button').forEach(b => { b.disabled = true; });
-    post(cfg.venderLigar, { codigo: l.codigo, item_id: it.id })
+    post(cfg.venderLigar, { codigo: l.codigo, item_id: it.id, recibir: !!l.recibir })
       .then(d => {
         if (d.nivel === 'verde') {
           const i = carrito.indexOf(l);
@@ -172,6 +172,12 @@
       fila.className = 'border rounded p-2 mb-2';
       const tit = document.createElement('div');
       tit.textContent = l.codigo + ' · ' + l.nombre;
+      if (l.recibir) {
+        const marca = document.createElement('div');
+        marca.className = 'small text-warning';
+        marca.textContent = 'Sin llegada escaneada: se registra al cobrar';
+        tit.append(marca);
+      }
       const campo = document.createElement('input');
       campo.type = 'text';
       campo.inputMode = 'decimal';
@@ -214,12 +220,16 @@
   function escanearVender(lectura) {
     return post(cfg.venderInfo, { lectura: lectura })
       .then(d => {
-        if (d.nivel === 'amarillo') {  // vendido por el bot: no entra al carrito
+        // Llegó pero no se escaneó su llegada: solo entra si el vendedor lo confirma.
+        if (d.sin_recibir && !confirm(d.mensaje)) {
+          avisar('amarillo', 'No agregado: primero escanéalo en Recibir'); return;
+        }
+        if (d.nivel === 'amarillo' && !d.sin_recibir) {  // vendido por el bot: no entra al carrito
           const n = (d.items_bot && d.items_bot[0]) ? ' (pedido #' + d.items_bot[0].pedido_id + ')' : '';
           avisar('amarillo', (d.mensaje || '') + n);
           return;
         }
-        if (d.nivel !== 'verde') { avisar('rojo', d.mensaje || d.error || 'Error'); return; }
+        if (d.nivel !== 'verde' && !d.sin_recibir) { avisar('rojo', d.mensaje || d.error || 'Error'); return; }
         if (carrito.some(l => l.codigo === d.par.codigo)) {
           avisar('amarillo', 'Ese par ya está en el carrito'); return;
         }
@@ -228,12 +238,13 @@
           nombre: d.par.nombre + ' ' + d.par.color + ' ' + d.par.talla,
           precios: d.precios, lista: d.precio_lista || {},
           itemsBot: d.items_bot || [],
+          recibir: !!d.sin_recibir,
         };
         linea.precio = precioDeLista(linea);
         linea.auto = linea.precio !== '';
         carrito.push(linea);
         pintarCarrito();
-        avisar('verde', d.par.codigo + ' agregado');
+        avisar('verde', d.par.codigo + ' agregado' + (linea.recibir ? ' (se registra su llegada al cobrar)' : ''));
       })
       .catch(() => avisar('rojo', 'Error de red'));
   }
@@ -243,7 +254,7 @@
     cobrando = true;
     vd.cobrar.disabled = true;  // protección contra doble envío
     const cuerpo = {
-      lineas: carrito.map(l => ({ codigo: l.codigo, precio: l.precio.trim() })),
+      lineas: carrito.map(l => ({ codigo: l.codigo, precio: l.precio.trim(), recibir: !!l.recibir })),
       metodo_pago: vd.metodo.value,
       tipo_venta: tipoVenta(),
     };
