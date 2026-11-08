@@ -55,6 +55,57 @@
   {% endif %}
 </div>
 
+{# Dinero del lote: lo cobrado de cada par vendido contra lo que costó el lote. #}
+<section class="inv-panel inv-panel-pad mb-4" aria-labelledby="dinero-h">
+  <h2 class="inv-h2 mb-1" id="dinero-h"><i class="bi bi-cash-stack"></i> Dinero del lote</h2>
+  <p class="inv-sub mt-0 mb-3">Cobrado es lo que debería haber en caja por los pares vendidos de este lote, al precio real de su venta. El costo es el de todos sus pares (proveedor + flete), incluidas las bajas.</p>
+  <div class="inv-stats">
+    <div class="inv-stat inv-c-vendido"><div class="inv-stat-n">${{ dinero.cobrado|floatformat:"2g" }}</div><div class="inv-stat-l">Cobrado · {{ dinero.vendidos }} par{{ dinero.vendidos|pluralize:"es" }}</div></div>
+    <div class="inv-stat"><div class="inv-stat-n">${{ dinero.costo|floatformat:"2g" }}</div><div class="inv-stat-l">Costo del lote</div></div>
+    {% if dinero.falta > 0 %}
+    <div class="inv-stat inv-c-baja"><div class="inv-stat-n">${{ dinero.falta|floatformat:"2g" }}</div><div class="inv-stat-l">Falta por recuperar</div></div>
+    {% else %}
+    <div class="inv-stat inv-c-stock"><div class="inv-stat-n">${{ dinero.ganancia|floatformat:"2g" }}</div><div class="inv-stat-l">Ganancia</div></div>
+    {% endif %}
+  </div>
+  {% if dinero.sin_precio %}
+  <p class="small text-warning mt-3 mb-0"><i class="bi bi-exclamation-triangle"></i> {{ dinero.sin_precio }} par{{ dinero.sin_precio|pluralize:"es" }} vendido{{ dinero.sin_precio|pluralize }} sin precio: no está{{ dinero.sin_precio|pluralize:"n" }} ligado{{ dinero.sin_precio|pluralize }} a ninguna venta y cuenta{{ dinero.sin_precio|pluralize:"n" }} $0 en lo cobrado.</p>
+  {% endif %}
+
+  {% if dinero.grupos %}
+  <details class="mt-3">
+    <summary class="small">Ver los {{ dinero.vendidos }} pares vendidos, uno por uno</summary>
+    {% for g in dinero.grupos %}
+    <div class="mt-3">
+      <div class="d-flex flex-wrap justify-content-between align-items-baseline gap-2">
+        <span class="inv-group-name">{{ g.modelo }}{% if g.via %} · {{ g.via }}{% endif %}</span>
+        <span class="small inv-muted">{{ g.n }} par{{ g.n|pluralize:"es" }} · cobrado ${{ g.cobrado|floatformat:"2g" }} · costo ${{ g.costo|floatformat:"2g" }}</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm table-dark align-middle mb-0 small">
+          <thead><tr><th>Código</th><th>Color</th><th>Talla</th><th>Vendido</th><th class="text-end">Precio</th><th>Pedido</th></tr></thead>
+          <tbody>
+            {% for f in g.pares %}
+            <tr>
+              <td><a href="{% url 'inventario:par_ficha' f.par.codigo %}" class="inv-code">{{ f.par.codigo }}</a></td>
+              <td>{{ f.par.color.nombre|capfirst }}</td>
+              <td><span class="inv-code">{{ f.talla }}</span></td>
+              <td class="text-nowrap">{{ f.fecha|date:"d/m/Y H:i" }}</td>
+              <td class="text-end">{% if f.precio is None %}<span class="text-warning">sin precio</span>{% else %}${{ f.precio|floatformat:"2g" }}{% endif %}</td>
+              <td>{% if f.pedido_id %}<a href="{% url 'negocio:pedido_detail' f.pedido_id %}">#{{ f.pedido_id }}</a>{% else %}—{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endfor %}
+  </details>
+  {% else %}
+  <p class="small inv-muted mt-3 mb-0">Aún no se vende ningún par de este lote.</p>
+  {% endif %}
+</section>
+
 <div class="inv-section-head">
   <h2 class="inv-h2">Etiquetas</h2>
   <div class="inv-actions">

@@ -17,6 +17,7 @@ from catalog.models import TipoArticulo
 from inventario import etiquetas
 from inventario.models import (
     VIAS, Color, LecturaRepetida, Lote, MovimientoPar, Par, TallaCalzado, fmt_talla)
+from inventario.services.dinero_lote import dinero_del_lote
 from inventario.services.lotes import cerrar_lote, crear_lote, leer_flete, tarifas_por_via
 from inventario.services.tallas import CORREGIBLES, corregir_talla
 from inventario.services.tipos import costo_sugerido, crear_variante, tarifas_decimal
@@ -270,6 +271,7 @@ def lote_detalle(request, pk):
     return render(request, 'inventario/lote_detalle.html', {
         'lote': lote, 'conteo': conteo, 'filas': filas, 'total': total, 'recibidos': recibidos,
         'modelos': modelos, 'no_escaneados': _no_escaneados(lote),
+        'dinero': dinero_del_lote(lote),
         'max_lista': MAX_LISTA_NO_ESCANEADOS,
         'n_anulados': lote.pares.filter(estado=Par.Estado.ANULADO).count(),
         'n_repetidos': lote.lecturas_repetidas.values('par').distinct().count(),
