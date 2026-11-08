@@ -34,8 +34,8 @@
 
 <div class="inv-panel inv-panel-pad mb-4">
   <div class="d-flex flex-wrap justify-content-between align-items-baseline gap-2 mb-2">
-    <span><span class="inv-stat-n">{{ conteo.en_stock }}</span> <span class="inv-muted">de {{ total }} recibidos</span></span>
-    <span class="inv-muted small">{% widthratio conteo.en_stock total 100 %}% del lote</span>
+    <span><span class="inv-stat-n">{{ recibidos }}</span> <span class="inv-muted">de {{ total }} recibidos</span>{% if conteo.vendido %} <span class="inv-muted small">· {{ conteo.vendido }} vendido{{ conteo.vendido|pluralize }}, {{ conteo.en_stock }} en stock</span>{% endif %}</span>
+    <span class="inv-muted small">{% widthratio recibidos total 100 %}% del lote</span>
   </div>
   <div class="inv-progress inv-progress-lg mb-3">
     <span class="p-stock" style="width:{% widthratio conteo.en_stock total 100 %}%"></span>
@@ -124,7 +124,7 @@
              aria-label="Seleccionar todo {{ m.tipo }}" title="Todo el modelo">
       <div class="flex-grow-1 min-w-0">
         <div class="inv-group-name">{{ m.tipo }}</div>
-        <div class="small inv-muted">{{ m.recibidos }} de {{ m.esperados }} recibidos{% if m.pendientes %} · <span class="inv-pend-txt">{{ m.pendientes }} sin escanear</span>{% endif %}
+        <div class="small inv-muted">{{ m.recibidos }} de {{ m.esperados }} recibidos{% if m.vendidos %} · {{ m.vendidos }} vendido{{ m.vendidos|pluralize }}{% endif %}{% if m.pendientes %} · <span class="inv-pend-txt">{{ m.pendientes }} sin escanear</span>{% endif %}
           <span class="js-grupo-n" data-grupo="{{ m.tipo_id }}"></span></div>
       </div>
       {% if not m.pendientes %}<span class="inv-chip inv-chip-ok"><i class="bi bi-check2"></i></span>{% endif %}
@@ -149,7 +149,7 @@
         <span class="text-truncate">{{ f.color|capfirst }}</span>
         <span><span class="inv-code">{{ f.talla }}</span>
           <a href="{{ f.url_tallas }}" class="ms-1 inv-muted" title="Corregir talla" aria-label="Corregir talla de {{ f.tipo }} {{ f.color }} {{ f.talla }}"><i class="bi bi-pencil-square"></i></a></span>
-        <span class="num">{% if f.recibidos == f.esperados %}<span class="inv-chip inv-chip-ok">{{ f.recibidos }}/{{ f.esperados }}</span>{% else %}{{ f.recibidos }}/{{ f.esperados }}{% if f.pendientes %} <span class="inv-pend-txt small">· {{ f.pendientes }}</span>{% endif %}{% endif %}</span>
+        <span class="num">{% if f.recibidos == f.esperados %}<span class="inv-chip inv-chip-ok">{{ f.recibidos }}/{{ f.esperados }}</span>{% if f.vendidos %} <span class="inv-muted small" title="Vendidos">· {{ f.vendidos }}v</span>{% endif %}{% else %}{{ f.recibidos }}/{{ f.esperados }}{% if f.pendientes %} <span class="inv-pend-txt small">· {{ f.pendientes }}</span>{% endif %}{% endif %}</span>
         <span class="num">
           <input type="number" name="{{ f.campo }}" min="0" max="{{ f.esperados }}" step="1" inputmode="numeric" placeholder=" "
                  class="form-control form-control-sm d-inline-block inv-qty js-qty"

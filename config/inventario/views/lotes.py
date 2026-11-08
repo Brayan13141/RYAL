@@ -194,11 +194,20 @@ def tipo_colores(request, pk):
     return JsonResponse({'colores': [{'id': c.pk, 'nombre': c.nombre} for c in colores]})
 
 
+# Un par cuenta como recibido si llegó: está en stock, se vendió o se dio de baja después
+# de llegar (dañado / perdido). El faltante del cierre de lote nunca llegó.
+RECIBIDO = (Q(estado__in=[Par.Estado.EN_STOCK, Par.Estado.VENDIDO])
+            | (Q(estado=Par.Estado.BAJA) & ~Q(motivo_baja='faltante')))
+_RECIBIDO_EN_LOTE = (Q(pares__estado__in=[Par.Estado.EN_STOCK, Par.Estado.VENDIDO])
+                     | (Q(pares__estado=Par.Estado.BAJA) & ~Q(pares__motivo_baja='faltante')))
+
+
 @staff_member_required
 def lotes(request):
     qs = Lote.objects.annotate(
         total=Count('pares', filter=~Q(pares__estado=Par.Estado.ANULADO)),
-        recibidos=Count('pares', filter=Q(pares__estado=Par.Estado.EN_STOCK)))
+        recibidos=Count('pares', filter=_RECIBIDO_EN_LOTE),
+        vendidos=Count('pares', filter=Q(pares__estado=Par.Estado.VENDIDO)))
     return render(request, 'inventario/lotes_lista.html', {'lotes': qs[:200]})
 
 
@@ -212,9 +221,9 @@ def _modelos_del_lote(filas):
     for f in filas:
         m = modelos.setdefault(f['tipo_id'], {
             'tipo_id': f['tipo_id'], 'tipo': f['tipo'], 'filas': [],
-            'esperados': 0, 'recibidos': 0, 'pendientes': 0})
+            'esperados': 0, 'recibidos': 0, 'vendidos': 0, 'pendientes': 0})
         m['filas'].append(f)
-        for k in ('esperados', 'recibidos', 'pendientes'):
+        for k in ('esperados', 'recibidos', 'vendidos', 'pendientes'):
             m[k] += f[k]
     return list(modelos.values())
 
@@ -240,7 +249,7 @@ def lote_detalle(request, pk):
     filas = [{
         'tipo': r['tipo__nombre'], 'color': r['color__nombre'],
         'talla': fmt_talla(r['talla__mx_cm']), 'esperados': r['esperados'],
-        'recibidos': r['recibidos'], 'pendientes': r['pendientes'],
+        'recibidos': r['recibidos'], 'vendidos': r['vendidos'], 'pendientes': r['pendientes'],
         'url_tallas': reverse('inventario:lote_tallas',
                               args=[lote.pk, r['tipo_id'], r['color_id'], r['talla_id']]),
         # Campo de "cuántas imprimir" de este grupo (lo lee views/etiquetas.py).
@@ -249,15 +258,17 @@ def lote_detalle(request, pk):
     } for r in vigentes.values('tipo_id', 'color_id', 'talla_id',
                                  'tipo__nombre', 'color__nombre', 'talla__mx_cm')
         .annotate(esperados=Count('pk'),
-                  recibidos=Count('pk', filter=Q(estado=Par.Estado.EN_STOCK)),
+                  recibidos=Count('pk', filter=RECIBIDO),
+                  vendidos=Count('pk', filter=Q(estado=Par.Estado.VENDIDO)),
                   pendientes=Count('pk', filter=Q(estado=Par.Estado.POR_RECIBIR)))
         .order_by('tipo__nombre', 'color__nombre', 'talla__orden')]
     total = sum(conteo.values())
+    recibidos = sum(f['recibidos'] for f in filas)
     modelos = _modelos_del_lote(filas)
     for m in modelos:  # botón "Imprimir sin escanear" de la card, en PDFs de MAX_POR_PDF
         m['partes_pend'] = etiquetas.partes(m['pendientes'])
     return render(request, 'inventario/lote_detalle.html', {
-        'lote': lote, 'conteo': conteo, 'filas': filas, 'total': total,
+        'lote': lote, 'conteo': conteo, 'filas': filas, 'total': total, 'recibidos': recibidos,
         'modelos': modelos, 'no_escaneados': _no_escaneados(lote),
         'max_lista': MAX_LISTA_NO_ESCANEADOS,
         'n_anulados': lote.pares.filter(estado=Par.Estado.ANULADO).count(),
