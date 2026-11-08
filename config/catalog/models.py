@@ -683,6 +683,9 @@ class TipoArticulo(models.Model):
     usa_tallas = models.BooleanField(default=False)
     colores = models.ManyToManyField('inventario.Color', blank=True)
     prefijo = models.CharField(max_length=5, unique=True, null=True, blank=True)
+    # Gorras y similares: se venden por cantidad (un número por tipo), sin pares
+    # ni tallas. Ver inventario.MovimientoCantidad.
+    stock_por_cantidad = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['nombre']
@@ -717,8 +720,30 @@ class TipoArticulo(models.Model):
                                     f'"{otro.nombre}" — dos tipos no pueden compartir '
                                     'la misma keyword exacta (usa una más específica).',
                     })
+        # Antes de _clean_variante: si no, su error genérico tapa el de esta regla.
+        self._clean_stock_por_cantidad()
         self._clean_variante()
         self._clean_prefijo()
+
+    def _clean_stock_por_cantidad(self):
+        from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
+        mensaje = 'Un tipo con stock por cantidad no puede tener vía, tallas ni variantes.'
+        # Y viceversa: un tipo activo tampoco puede ser el modelo base de una variante.
+        if self.padre_id and self.padre.stock_por_cantidad:
+            raise ValidationError({'padre': mensaje})
+        if not self.stock_por_cantidad:
+            return
+        errores = {}
+        if self.padre_id:
+            errores['padre'] = mensaje
+        if self.via:
+            errores['via'] = mensaje
+        if self.usa_tallas:
+            errores['usa_tallas'] = mensaje
+        if self.pk and TipoArticulo.objects.filter(padre_id=self.pk).exists():
+            errores[NON_FIELD_ERRORS] = mensaje
+        if errores:
+            raise ValidationError(errores)
 
     def _clean_variante(self):
         from django.core.exceptions import ValidationError

@@ -4,7 +4,9 @@ from urllib.parse import quote
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.signing import Signer, BadSignature
 import datetime
+from django.db import transaction
 from django.db.models import Q, Sum
+from inventario.services.cantidad import sincronizar_salida
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404, redirect
 from django.views.decorators.http import require_POST
@@ -193,7 +195,9 @@ def pedido_item_edit(request, pk):
     item = get_object_or_404(PedidoItem.objects.select_related('pedido'), pk=pk)
     form = PedidoItemForm(request.POST or None, instance=item)
     if form.is_valid():
-        form.save()
+        with transaction.atomic():
+            form.save()
+            sincronizar_salida(item)
         _sync_totales_pedido(item.pedido)
         _sync_estado_pedido(item.pedido)
         return redirect('negocio:pedido_detail', pk=item.pedido_id)
@@ -676,7 +680,11 @@ def tipo_delete(request, pk):
         try:
             tipo.delete()
         except ProtectedError:
-            messages.error(request, 'No se puede borrar: tiene variantes o pares.')
+            if tipo.movimientos_cantidad.exists():
+                messages.error(
+                    request, 'No se puede borrar: tiene movimientos de stock por cantidad.')
+            else:
+                messages.error(request, 'No se puede borrar: tiene variantes o pares.')
             return redirect('negocio:tipos_list')
         return redirect('negocio:tipos_list')
     return render(request, 'negocio/tipo_articulo_form.html', {

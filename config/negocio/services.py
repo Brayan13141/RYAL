@@ -206,6 +206,8 @@ def crear_pedido_tienda_bot(*, items, envio=Decimal('0'), idem_key=None):
             costo_unitario=costo_u,
             precio_unitario=precio_u,
         )
+        from inventario.services.cantidad import registrar_salida
+        registrar_salida(item, tipo)
         if pares:
             asignar_pares(item, tipo, color, talla, qty, pares=pares)
         if color is not None and len(pares) < qty:

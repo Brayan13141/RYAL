@@ -1,0 +1,40 @@
+{% extends "inventario/_base.html" %}
+{% block title %}Historial de {{ tipo.nombre }}{% endblock %}
+
+{% block inv_content %}
+<div class="inv-head">
+  <div>
+    <h1 class="inv-title">{{ tipo.nombre }}</h1>
+    <p class="inv-sub">Stock actual: <b>{{ stock }}</b> unidad{{ stock|pluralize:"es" }}. Cada ajuste manual fija el total; las ventas restan desde el último ajuste.</p>
+  </div>
+  <a href="{% url 'inventario:stock' %}" class="btn-g"><i class="bi bi-arrow-left"></i> Volver al stock</a>
+</div>
+
+{% if not movimientos %}
+<div class="inv-empty"><i class="bi bi-clock-history"></i><p>Sin movimientos todavía.</p></div>
+{% else %}
+<div class="inv-table-wrap">
+  <table class="inv-table">
+    <thead><tr><th>Fecha</th><th>Movimiento</th><th>Detalle</th><th>Por</th></tr></thead>
+    <tbody>
+      {% for m in movimientos %}
+      <tr>
+        <td>{{ m.creado_at|date:"d/m/Y H:i" }}</td>
+        {% if m.clase == AJUSTE %}
+        <td><span class="inv-chip inv-chip-abierto">Ajuste</span> {{ m.cantidad_anterior }} → {{ m.cantidad_nueva }}</td>
+        <td>{{ m.motivo }}</td>
+        {% elif m.pedido_item and m.pedido_item.pedido.estado == CANCELADO %}
+        <td><span class="inv-chip inv-chip-cerrado">Venta</span> <span class="inv-chip inv-chip-baja">cancelada</span> <s>−{{ m.unidades }}</s></td>
+        <td><s><a href="{% url 'negocio:pedido_detail' m.pedido_item.pedido_id %}">Pedido #{{ m.pedido_item.pedido_id }}</a></s> · no descuenta</td>
+        {% else %}
+        <td><span class="inv-chip inv-chip-cerrado">Venta</span> −{{ m.unidades }}</td>
+        <td>{% if m.pedido_item %}<a href="{% url 'negocio:pedido_detail' m.pedido_item.pedido_id %}">Pedido #{{ m.pedido_item.pedido_id }}</a>{% else %}—{% endif %}</td>
+        {% endif %}
+        <td>{{ m.usuario|default:"—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

@@ -8,6 +8,7 @@ from django.utils import timezone
 from catalog.models import TipoArticulo
 from inventario.models import MovimientoPar, Par, fmt_talla
 from inventario.services.bot import parsear_venta_tenis
+from inventario.services.cantidad import codigo_etiqueta, registrar_salida
 from inventario.services.escaneo import Resultado, _rojo
 from negocio.models import Cliente, Pago, Pedido, PedidoItem
 from negocio.services import MOSTRADOR_TELEFONO, cargar_aliases, resolver_tipo
@@ -33,16 +34,19 @@ def mensaje_sin_recibir(par):
             'escanéalo primero en Recibir o confirma que se registre al venderlo.')
 
 
-def vender_pares(lineas, *, metodo_pago, usuario, tipo_venta=None, recibir=frozenset()):
+def vender_pares(lineas, *, metodo_pago, usuario, tipo_venta=None, recibir=frozenset(),
+                 cantidades=()):
     """Venta de mostrador con pares escaneados: Pedido PAGADO + un ítem por par + Pago.
 
     `lineas`: lista de (Par, precio). `tipo_venta`: mayoreo, menudeo o None (sin
     clasificar). `recibir`: pks de pares sin recibir que el vendedor confirmó; a esos se
-    les registra la llegada justo antes de la venta. Todo o nada: si algo falla,
+    les registra la llegada justo antes de la venta. `cantidades`: lista de
+    (TipoArticulo, precio), una por gorra escaneada (puede repetirse el tipo); cada una
+    es un ítem de 1 unidad y registra su salida de stock. Todo o nada: si algo falla,
     `ValueError` y no se crea ni se mueve nada.
     """
-    if not lineas:
-        raise ValueError('La venta no tiene pares.')
+    if not lineas and not cantidades:
+        raise ValueError('La venta no tiene artículos.')
     if metodo_pago not in _METODOS_VALIDOS:
         raise ValueError(f'Método de pago inválido: {metodo_pago!r}')
     if tipo_venta is not None and tipo_venta not in _TIPOS_VENTA:
@@ -54,6 +58,9 @@ def vender_pares(lineas, *, metodo_pago, usuario, tipo_venta=None, recibir=froze
         vistos.add(par.pk)
         if not isinstance(precio, Decimal) or not precio.is_finite() or precio < 0:
             raise ValueError(f'Precio inválido para {par.codigo}.')
+    for tipo, precio in cantidades:
+        if not isinstance(precio, Decimal) or not precio.is_finite() or precio < 0:
+            raise ValueError(f'Precio inválido para {tipo.nombre}.')
 
     with transaction.atomic():
         # Candado en orden de pk: dos ventas cruzadas no se bloquean entre sí.
@@ -92,9 +99,19 @@ def vender_pares(lineas, *, metodo_pago, usuario, tipo_venta=None, recibir=froze
             total_costo += p.costo
             partes.append(f'{nombre} ×1')
 
+        for tipo, precio in cantidades:
+            item = PedidoItem.objects.create(
+                pedido=pedido, sku_snapshot=codigo_etiqueta(tipo),
+                nombre_snapshot=tipo.nombre, cantidad=1,
+                costo_unitario=tipo.costo, precio_unitario=precio)
+            registrar_salida(item, tipo, usuario=usuario)
+            total_precio += precio
+            total_costo += tipo.costo
+            partes.append(f'{tipo.nombre} ×1')
+
         pedido.precio_venta = total_precio
         pedido.costo_producto = total_costo
-        pedido.descripcion = _descripcion(len(lineas), partes)
+        pedido.descripcion = _descripcion(len(lineas) + len(cantidades), partes)
         pedido.save(update_fields=['precio_venta', 'costo_producto', 'descripcion'])
         Pago.objects.create(
             pedido=pedido, fecha=timezone.localdate(),

@@ -6,6 +6,7 @@ from django.shortcuts import render
 
 from catalog.models import TipoArticulo
 from inventario.models import VIAS, Par, TallaCalzado, fmt_talla
+from inventario.services.cantidad import stock_actual
 from inventario.services.stock import alertas, matriz_stock
 from inventario.services.tipos import LETRA_VIA
 
@@ -103,11 +104,18 @@ def stock(request):
     bases = TipoArticulo.objects.filter(padre__isnull=True, variantes__isnull=False).distinct()
     if base_id is not None and not bases.filter(pk=base_id).exists():
         base_id = None
+    cantidades = [{'tipo': t, 'stock': stock_actual(t)}
+                  for t in TipoArticulo.objects.filter(stock_por_cantidad=True).order_by('nombre')]
+    activables = (TipoArticulo.objects
+                  .filter(padre__isnull=True, variantes__isnull=True, usa_tallas=False,
+                          stock_por_cantidad=False)
+                  .exclude(pk__in=Par.objects.values('tipo'))
+                  .order_by('nombre'))
     tablas, tallas = _tablas(matriz_stock(base_id=base_id, via=via, estado=estado))
     return render(request, 'inventario/stock.html', {
         'pestanas': _pestanas(base_id, via),
         'tablas': tablas, 'tallas': tallas, 'chips_via': _chips_via(estado, via),
-        'alertas': alertas(),
+        'alertas': alertas(), 'cantidades': cantidades, 'activables': activables,
         'bases': bases, 'base_id': base_id, 'via': via, 'vias': VIAS,
         'estado': estado, 'estados': ESTADOS, 'estado_label': dict(ESTADOS)[estado].lower(),
     })

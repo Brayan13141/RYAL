@@ -15,6 +15,8 @@ from django.utils.safestring import mark_safe
 from inventario import etiquetas
 from inventario.models import Conteo, Lote, Par, fmt_talla, precio_lista_de
 from inventario.services import cambios, conteos, escaneo, ventas
+from inventario.services.cantidad import (
+    VENTANA_BOT_MINUTOS, codigo_etiqueta, tipo_de_codigo, venta_bot_reciente)
 from inventario.validacion import cabe_en
 from negocio.models import Pago, Pedido, PedidoItem
 
@@ -137,6 +139,16 @@ def vender_info(request):
     if datos is None:
         return _error('Solicitud inválida.')
     codigo = escaneo.extraer_codigo(str(datos.get('lectura') or ''))
+    tipo = tipo_de_codigo(codigo)
+    if tipo is not None:
+        # Gorra: una etiqueta por tipo, se vende por unidad. Sin costo (lo ve el cliente).
+        return JsonResponse({
+            'nivel': 'verde', 'cantidad': True,
+            'par': {'codigo': codigo_etiqueta(tipo), 'nombre': tipo.nombre,
+                    'color': '', 'talla': ''},
+            'precios': [{'nombre': pv.nombre, 'precio': _dos_decimales(pv.precio)}
+                        for pv in tipo.precios_venta.order_by('orden', 'pk')],
+            'precio_lista': {}})
     par = (Par.objects.select_related('tipo__padre', 'color', 'talla')
            .filter(codigo=codigo).first()) if codigo else None
     if par is None:
@@ -233,11 +245,19 @@ def vender_cerrar(request):
     if not isinstance(tipo_venta, str) or tipo_venta not in {
             t[0] for t in Pedido.TIPO_VENTA_CHOICES}:
         return _error_venta('Elige si la venta es de menudeo o de mayoreo.')
-    lineas, vistos, recibir = [], set(), set()
+    lineas, vistos, recibir, cantidades = [], set(), set(), []
     for cruda in crudas:
         if not isinstance(cruda, dict):
             return _error_venta('Solicitud inválida.')
         codigo = escaneo.extraer_codigo(str(cruda.get('codigo') or ''))
+        tipo = tipo_de_codigo(codigo)
+        if tipo is not None:
+            # Gorra: la misma etiqueta puede repetirse, una línea por unidad.
+            precio = _precio(cruda.get('precio'))
+            if precio is None:
+                return _error_venta(f'Precio inválido para {tipo.nombre}.')
+            cantidades.append((tipo, precio))
+            continue
         if codigo in vistos:
             return _error_venta(f'El par {codigo} está repetido.')
         vistos.add(codigo)
@@ -262,10 +282,17 @@ def vender_cerrar(request):
                     'error': (f'El bot ya registró una venta de {par.tipo.nombre} '
                               f'{par.color.nombre} {fmt_talla(par.talla.mx_cm)}. '
                               '¿Es una venta distinta?')}, status=409)
+        for tipo in {t.pk: t for t, _p in cantidades}.values():
+            if venta_bot_reciente(tipo):
+                return JsonResponse({
+                    'ok': False, 'requiere_confirmacion': True,
+                    'error': (f'El bot registró una venta de {tipo.nombre} hace menos de '
+                              f'{VENTANA_BOT_MINUTOS} minutos. ¿Es una venta distinta?')},
+                    status=409)
     try:
         pedido = ventas.vender_pares(
             lineas, metodo_pago=metodo, usuario=request.user, tipo_venta=tipo_venta,
-            recibir=recibir)
+            recibir=recibir, cantidades=cantidades)
     except ValueError as e:
         return _error_venta(str(e))
     return JsonResponse({'ok': True, 'pedido_id': pedido.pk})

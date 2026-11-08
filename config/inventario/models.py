@@ -328,3 +328,32 @@ class LecturaRepetida(models.Model):
 
     class Meta:
         ordering = ['creado_at', 'pk']
+
+
+class MovimientoCantidad(models.Model):
+    """Bitácora del stock por cantidad de un TipoArticulo (gorras): ajustes
+    manuales (anterior → nuevo) y salidas por venta (unidades). La venta se
+    ata a su PedidoItem y se borra con él."""
+
+    class Clase(models.TextChoices):
+        AJUSTE = 'ajuste', 'Ajuste'
+        VENTA = 'venta', 'Venta'
+
+    tipo = models.ForeignKey(
+        'catalog.TipoArticulo', on_delete=models.PROTECT,
+        related_name='movimientos_cantidad')
+    clase = models.CharField(max_length=10, choices=Clase.choices)
+    cantidad_anterior = models.IntegerField(null=True, blank=True)
+    cantidad_nueva = models.IntegerField(null=True, blank=True)
+    unidades = models.PositiveIntegerField(null=True, blank=True)
+    pedido_item = models.OneToOneField(
+        'negocio.PedidoItem', null=True, blank=True, on_delete=models.CASCADE,
+        related_name='salida_cantidad')
+    motivo = models.TextField(blank=True)
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='+')
+    creado_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['creado_at', 'pk']

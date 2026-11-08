@@ -16,7 +16,7 @@ _CENTAVOS = Decimal('0.01')
 def _filas(tarifas):
     """Un renglón por modelo base con el proveedor sugerido y
     [(via, variante|None, costo sugerido)] en el orden de VIAS."""
-    bases = (TipoArticulo.objects.filter(padre__isnull=True)
+    bases = (TipoArticulo.objects.filter(padre__isnull=True, stock_por_cantidad=False)
              .prefetch_related('variantes').order_by('nombre'))
     filas = []
     for base in bases:
@@ -59,7 +59,9 @@ def tipos_convertir(request):
     tarifas = tarifas_decimal()
     if request.method == 'POST':
         pedidos = request.POST.getlist('crear')
-        bases = {b.pk: b for b in TipoArticulo.objects.filter(padre__isnull=True)}
+        # Un tipo con stock por cantidad no puede tener variantes: no se ofrece ni se acepta.
+        bases = {b.pk: b for b in TipoArticulo.objects.filter(
+            padre__isnull=True, stock_por_cantidad=False)}
         creadas, errores = 0, []
         for valor in pedidos:
             pk, _, via = valor.partition(':')

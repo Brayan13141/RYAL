@@ -39,6 +39,43 @@
   {% endif %}
 </div>
 
+{% if cantidades or activables %}
+<section class="inv-lote-card mb-4" id="stock-cantidad">
+  <header class="inv-lote-card-head">
+    <div class="flex-grow-1">
+      <div class="inv-group-name">Stock por cantidad</div>
+      <div class="small inv-muted">Artículos que se cuentan por unidades (gorras), con una sola etiqueta por tipo. Cada ajuste pide un motivo.</div>
+    </div>
+  </header>
+  {% for c in cantidades %}
+  <div class="py-3 border-top">
+    <div class="d-flex flex-wrap align-items-baseline gap-2 mb-2">
+      <span class="inv-group-name">{{ c.tipo.nombre }}</span>
+      <span class="fs-5 fw-bold">{{ c.stock }}</span> <span class="small inv-muted">unidad{{ c.stock|pluralize:"es" }}</span>
+      <a class="small ms-auto" href="{% url 'inventario:cantidad_historial' c.tipo.pk %}"><i class="bi bi-clock-history"></i> Historial</a>
+    </div>
+    <form method="post" action="{% url 'inventario:cantidad_ajustar' c.tipo.pk %}" class="row g-2 align-items-end">{% csrf_token %}
+      <div class="col-4 col-md-2"><label class="form-label small mb-1" for="cant-{{ c.tipo.pk }}">Nuevo total</label><input type="number" min="0" step="1" required class="form-control" id="cant-{{ c.tipo.pk }}" name="cantidad" value="{{ c.stock }}"></div>
+      <div class="col-8 col-md-6"><label class="form-label small mb-1" for="mot-{{ c.tipo.pk }}">Motivo</label><input type="text" required maxlength="200" class="form-control" id="mot-{{ c.tipo.pk }}" name="motivo" placeholder="Ej. conté el exhibidor"></div>
+      <div class="col-12 col-md-4"><button type="submit" class="btn-g w-100"><i class="bi bi-check2"></i> Ajustar</button></div>
+    </form>
+    <form method="get" action="{% url 'inventario:cantidad_etiqueta' c.tipo.pk %}" target="_blank" class="d-flex flex-wrap align-items-end gap-2 mt-2">
+      <div><label class="form-label small mb-1" for="cop-{{ c.tipo.pk }}">Copias de la etiqueta</label><input type="number" min="1" max="100" step="1" value="1" class="form-control" id="cop-{{ c.tipo.pk }}" name="copias" style="width: 6rem"></div>
+      <button type="submit" class="btn-g"><i class="bi bi-printer"></i> Etiqueta</button>
+    </form>
+  </div>
+  {% endfor %}
+  {% if activables %}
+  <form method="post" action="{% url 'inventario:cantidad_activar' %}" class="row g-2 align-items-end pt-3 border-top" onsubmit="return confirm('Activar stock por cantidad no se puede deshacer desde la pantalla. ¿Continuar?')">{% csrf_token %}
+    <div class="col-12"><div class="fw-semibold">Activar stock por cantidad</div></div>
+    <div class="col-12 col-md-6"><label class="form-label small mb-1" for="act-tipo">Tipo de artículo</label><select class="form-select" id="act-tipo" name="tipo_id" required><option value="" selected disabled>Elige un tipo…</option>{% for t in activables %}<option value="{{ t.pk }}">{{ t.nombre }}</option>{% endfor %}</select></div>
+    <div class="col-6 col-md-3"><label class="form-label small mb-1" for="act-cant">Cantidad inicial</label><input type="number" min="0" step="1" required class="form-control" id="act-cant" name="cantidad" value="999"></div>
+    <div class="col-6 col-md-3"><button type="submit" class="btn-g w-100"><i class="bi bi-plus-lg"></i> Activar</button></div>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+
 {% if alertas.ventas_bot_sin_par or alertas.lotes_abiertos_con_faltantes or alertas.vendidos_bot_sin_escaneo %}
 <div class="inv-alert inv-alert-warn">
   <i class="bi bi-exclamation-triangle-fill"></i>

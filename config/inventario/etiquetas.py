@@ -148,3 +148,29 @@ def pdf_etiquetas(pares, *, base_url):
         c.showPage()
     c.save()
     return buf.getvalue()
+
+
+def _dibujar_tipo(c, tipo, base_url):
+    """Etiqueta de un tipo por cantidad: QR, código debajo y el nombre grande a la derecha."""
+    from inventario.services.cantidad import codigo_etiqueta
+    codigo = codigo_etiqueta(tipo)
+    qr_x, qr_y = MARGEN, ALTO - MARGEN_SUP - QR_LADO
+    c.drawImage(_imagen_qr(url_par(base_url, codigo)), qr_x, qr_y, QR_LADO, QR_LADO)
+    texto, tam = _ajustar(codigo, NEGRITA, T_CODIGO, QR_LADO + 2 * mm)
+    c.setFont(NEGRITA, tam)
+    c.drawCentredString(qr_x + QR_LADO / 2, qr_y - T_CODIGO - 1, texto)
+    x = qr_x + QR_LADO + 2 * mm
+    ancho = ANCHO - MARGEN - x
+    _dos_lineas(c, tipo.nombre, NEGRITA, 14, x, ALTO - MARGEN_SUP - 14 + 1, ancho)
+
+
+def pdf_etiquetas_tipo(tipo, copias, *, base_url):
+    """Un PDF con `copias` etiquetas idénticas del tipo (la misma hoja que las de pares)."""
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(ANCHO, ALTO), pageCompression=0)
+    c.setTitle(f'Etiqueta {tipo.nombre}')
+    for _ in range(copias):
+        _dibujar_tipo(c, tipo, base_url)
+        c.showPage()
+    c.save()
+    return buf.getvalue()

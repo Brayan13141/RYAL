@@ -205,6 +205,20 @@
       quitar.title = 'Quitar del carrito';
       quitar.addEventListener('click', () => { carrito.splice(i, 1); pintarCarrito(); });
       fila.append(tit, botones, campo, ' ', quitar);
+      if (l.cantidad) {
+        // Gorra (stock por cantidad): otra unidad igual sin reescanear la etiqueta.
+        const mas = document.createElement('button');
+        mas.type = 'button';
+        mas.className = 'btn-g';
+        mas.textContent = '+1';
+        mas.title = 'Agregar otra unidad igual';
+        mas.addEventListener('click', () => {
+          carrito.splice(i + 1, 0, Object.assign({}, l, { itemsBot: [] }));
+          pintarCarrito();
+          input.focus();
+        });
+        fila.append(' ', mas);
+      }
       if (l.itemsBot && l.itemsBot.length) fila.append(bloqueBot(l));
       vd.caja.append(fila);
     });
@@ -230,15 +244,17 @@
           return;
         }
         if (d.nivel !== 'verde' && !d.sin_recibir) { avisar('rojo', d.mensaje || d.error || 'Error'); return; }
-        if (carrito.some(l => l.codigo === d.par.codigo)) {
+        // Una gorra se agrega una línea por unidad escaneada: la etiqueta puede repetirse.
+        if (!d.cantidad && carrito.some(l => l.codigo === d.par.codigo)) {
           avisar('amarillo', 'Ese par ya está en el carrito'); return;
         }
         const linea = {
           codigo: d.par.codigo,
-          nombre: d.par.nombre + ' ' + d.par.color + ' ' + d.par.talla,
+          nombre: [d.par.nombre, d.par.color, d.par.talla].filter(Boolean).join(' '),
           precios: d.precios, lista: d.precio_lista || {},
           itemsBot: d.items_bot || [],
           recibir: !!d.sin_recibir,
+          cantidad: !!d.cantidad,
         };
         linea.precio = precioDeLista(linea);
         linea.auto = linea.precio !== '';
@@ -461,7 +477,11 @@
     lectura = (lectura || '').trim();
     if (!lectura) return;
     const ahora = Date.now();
-    if (lectura === ultimaLectura && ahora - ultimaLecturaAt < 1500) return;  // rebote
+    if (lectura === ultimaLectura && ahora - ultimaLecturaAt < 1500) {  // rebote
+      // En Vender cada lectura de una gorra suma una unidad: se avisa que se descartó.
+      if (modo === 'vender') avisar('amarillo', 'Lectura repetida ignorada');
+      return;
+    }
     ultimaLectura = lectura; ultimaLecturaAt = ahora;
     cola.push({ lectura: lectura, modoLectura: modo });
     procesarCola();
@@ -486,6 +506,10 @@
   // ── Cámara (mismo patrón que el POS) ───────────────────────────────────────
   let stream = null;
   let ultimoCodigo = '', ultimoEnvio = 0;  // la cámara no re-envía el mismo código en 4 s
+  // En Vender, el mismo código solo se reenvía tras salir del cuadro (o leerse otro):
+  // una etiqueta de gorra quieta frente a la cámara sumaría una unidad cada 4 s.
+  let ultimoVisto = 0;
+  const AUSENCIA_MS = 1000;
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
@@ -507,10 +531,14 @@
         { inversionAttempts: 'dontInvert' });
       if (code && code.data) {
         const ahora = Date.now();
-        if (code.data !== ultimoCodigo || ahora - ultimoEnvio > 4000) {
+        const repetir = modo === 'vender'
+          ? ahora - ultimoVisto > AUSENCIA_MS
+          : ahora - ultimoEnvio > 4000;
+        if (code.data !== ultimoCodigo || repetir) {
           ultimoCodigo = code.data; ultimoEnvio = ahora;
           enviar(code.data);
         }
+        ultimoVisto = ahora;
       }
     }
     requestAnimationFrame(bucle);

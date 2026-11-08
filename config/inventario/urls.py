@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import catalogos, escaner, etiquetas, importar, lote_editar, lotes, stock, tipos
+from .views import cantidad, catalogos, escaner, etiquetas, importar, lote_editar, lotes, stock, tipos
 
 app_name = 'inventario'
 
@@ -41,6 +41,10 @@ urlpatterns = [
     path('conteos/<int:pk>/corregir/', escaner.conteo_corregir, name='conteo_corregir'),
     path('ventas/<int:pedido_pk>/cancelar/', escaner.venta_cancelar, name='venta_cancelar'),
     path('ventas/par/<str:codigo>/quitar/', escaner.venta_quitar_par, name='venta_quitar_par'),
+    path('cantidad/activar/', cantidad.cantidad_activar, name='cantidad_activar'),
+    path('cantidad/<int:pk>/ajustar/', cantidad.cantidad_ajustar, name='cantidad_ajustar'),
+    path('cantidad/<int:pk>/', cantidad.cantidad_historial, name='cantidad_historial'),
+    path('cantidad/<int:pk>/etiqueta/', cantidad.cantidad_etiqueta, name='cantidad_etiqueta'),
     # Esta ruta es la que codifica el QR de la etiqueta: no cambiarla.
     path('p/<str:codigo>/', escaner.par_ficha, name='par_ficha'),
     path('etiquetas/<str:codigo>/', etiquetas.etiqueta_par, name='etiqueta_par'),
