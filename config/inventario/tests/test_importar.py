@@ -180,6 +180,13 @@ class ConfirmarTests(ImportarBase):
         self.assertEqual(self.v_jordan.costo, Decimal('600'))
         self.assertEqual(self.v_dunk.costo, Decimal('530'))
 
+    def test_confirmar_con_envio_gratis(self):
+        lote = confirmar_importacion(
+            self.sintetico(), via='aereo', usuario=self.user, flete=Decimal('0'))
+        self.assertEqual(lote.flete_por_par, Decimal('0'))
+        blanco = lote.pares.get(tipo=self.v_jordan, color=self.blanco)
+        self.assertEqual(blanco.costo, Decimal('320'))
+
     def test_confirmar_con_faltantes_no_crea_nada(self):
         with self.assertRaises(ValueError):
             confirmar_importacion(

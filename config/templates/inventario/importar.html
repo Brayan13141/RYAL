@@ -42,6 +42,10 @@
             <span class="input-group-text">$</span>
             <input id="f-flete" class="form-control" name="flete" inputmode="decimal" value="{{ flete }}">
           </div>
+          <div class="form-check mt-1">
+            <input class="form-check-input" type="checkbox" id="f-envio-gratis">
+            <label class="form-check-label small" for="f-envio-gratis">Envío gratis (cumplió el mínimo)</label>
+          </div>
         </div>
         <div class="col-12 col-md-5">
           <label class="form-label" for="f-ref">Referencia</label>
@@ -87,6 +91,13 @@
     var via = document.getElementById('f-via'), flete = document.getElementById('f-flete');
     var editado = false;
     flete.addEventListener('input', function () { editado = true; });
+    // Envío gratis: toda la llegada sin flete ($0); al quitarlo vuelve la tarifa de la vía.
+    var gratis = document.getElementById('f-envio-gratis');
+    gratis.addEventListener('change', function () {
+      flete.readOnly = gratis.checked;
+      flete.value = gratis.checked ? '0' : (TARIFAS[via.value] || '');
+      editado = gratis.checked;
+    });
     via.addEventListener('change', function () { if (!editado) flete.value = TARIFAS[via.value] || ''; });
   })();
 </script>

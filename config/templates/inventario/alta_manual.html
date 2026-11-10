@@ -25,6 +25,10 @@
         <span class="input-group-text">$</span>
         <input id="f-flete" class="form-control" inputmode="decimal" value="{{ tarifas.aereo|default:'' }}">
       </div>
+      <div class="form-check mt-1">
+        <input class="form-check-input" type="checkbox" id="f-envio-gratis">
+        <label class="form-check-label small" for="f-envio-gratis">Envío gratis (cumplió el mínimo)</label>
+      </div>
       <div class="form-text">Viene con la tarifa de la vía; cámbialo si esta llegada pagó otro flete.</div>
     </div>
     <div class="col-12 col-sm-6 col-lg-3">
@@ -166,6 +170,13 @@
   // El flete sigue a la tarifa de la vía hasta que se escribe a mano.
   var flete = $('#f-flete'), fleteEditado = false;
   flete.addEventListener('input', function () { fleteEditado = true; });
+  // Envío gratis: toda la llegada sin flete ($0); al quitarlo vuelve la tarifa de la vía.
+  var gratis = $('#f-envio-gratis');
+  gratis.addEventListener('change', function () {
+    flete.readOnly = gratis.checked;
+    flete.value = gratis.checked ? '0' : (TARIFAS[via.value] || '');
+    fleteEditado = gratis.checked;
+  });
   function error(msg) {
     var e = $('#alta-error');
     e.textContent = msg; e.classList.toggle('d-none', !msg);

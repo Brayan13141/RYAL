@@ -58,6 +58,14 @@ class CrearLoteTests(LotesBase):
         self.assertEqual(lote.flete_por_par, Decimal('280'))
         self.assertEqual(lote.pares.first().flete, Decimal('280'))
 
+    def test_envio_gratis_flete_cero(self):
+        # Proveedor que no cobra envío al cumplir el mínimo: costo = solo proveedor.
+        lote = crear_lote(via='aereo', origen='manual', lineas=[self.linea()],
+                          usuario=self.user, referencia='L1', flete_por_par=Decimal('0'))
+        self.assertEqual(lote.flete_por_par, Decimal('0'))
+        p = lote.pares.first()
+        self.assertEqual((p.flete, p.costo), (Decimal('0'), Decimal('360.00')))
+
     def test_inicial_toma_costo_del_tipo_sin_desglose(self):
         lote = self.crear(origen='inicial', lineas=[self.linea(precio=None)])
         p = lote.pares.first()
