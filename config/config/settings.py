@@ -1,5 +1,6 @@
 import os
 import sys
+from datetime import timedelta
 from pathlib import Path
 import dj_database_url
 from dotenv import load_dotenv
@@ -155,6 +156,14 @@ ACCOUNT_ADAPTER             = 'accounts.adapters.AccountAdapter'
 # arrastraría la dependencia `fido2` y aquí no hace falta.
 MFA_SUPPORTED_TYPES = ['totp', 'recovery_codes']
 
+# Tras escribir el código, "Confiar en este navegador" evita pedirlo de nuevo en
+# ese mismo navegador durante 30 días. Cambiar la contraseña o el TOTP lo anula.
+MFA_TRUST_ENABLED    = True
+MFA_TRUST_COOKIE_AGE = timedelta(days=30)
+
+# La sesión no muere al cerrar el navegador (sin depender del "Recordarme").
+ACCOUNT_SESSION_REMEMBER = True
+
 # Segundo factor obligatorio para staff en /panel/ y /admin/. Se apaga
 # durante la suite: esos tests ejercitan las vistas, no esta política —
 # que tiene su propio test activándola con override_settings.
@@ -190,7 +199,10 @@ MAX_UPLOAD_SIZE             = 15 * 1024 * 1024   # 15 MB per single file (enforc
 
 # ——— Session security ———
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_AGE      = 60 * 60 * 24 * 14  # 2 weeks
+# 30 días desde la última visita: cada request renueva el plazo, así que solo
+# se cierra la sesión si pasan 30 días sin entrar.
+SESSION_COOKIE_AGE         = 60 * 60 * 24 * 30
+SESSION_SAVE_EVERY_REQUEST = True
 
 # ——— Headers seguros (siempre activos) ———
 SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'

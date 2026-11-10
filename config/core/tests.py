@@ -220,6 +220,54 @@ class StaffDebeTener2FATests(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertIn('/accounts/login/', resp['Location'])
 
+    def _login_con_codigo(self, secret):
+        from allauth.mfa.totp.internal.auth import format_hotp_value, hotp_value,             yield_hotp_counters_from_time
+        from django.core.cache import cache
+        cache.clear()  # el código ya usado no se acepta dos veces
+        r = self.client.post('/accounts/login/',
+                             {'login': 'staff_2fa', 'password': 'Prueba1234!'})
+        self.assertIn('/2fa/authenticate/', r['Location'])
+        codigo = format_hotp_value(hotp_value(secret, next(yield_hotp_counters_from_time())))
+        return self.client.post('/2fa/authenticate/', {'code': codigo})
+
+    def _activar_totp(self):
+        from allauth.mfa.totp.internal.auth import TOTP, generate_totp_secret
+        secret = generate_totp_secret()
+        TOTP.activate(self.staff, secret)
+        return secret
+
+    def test_confiar_en_el_navegador_no_vuelve_a_pedir_el_codigo(self):
+        secret = self._activar_totp()
+        r = self._login_con_codigo(secret)
+        self.assertIn('/2fa/trust/', r['Location'])
+        self.assertContains(self.client.get('/2fa/trust/'), 'Confiar en este navegador')
+        self.client.post('/2fa/trust/', {'action': 'trust'})
+        self.assertIn('_auth_user_id', self.client.session)
+        self.client.post('/logout/')
+        self.assertNotIn('_auth_user_id', self.client.session)
+        r = self.client.post('/accounts/login/',
+                             {'login': 'staff_2fa', 'password': 'Prueba1234!'})
+        self.assertNotIn('/2fa/authenticate/', r['Location'])
+        self.assertIn('_auth_user_id', self.client.session)
+
+    def test_sin_confiar_vuelve_a_pedir_el_codigo(self):
+        secret = self._activar_totp()
+        self._login_con_codigo(secret)
+        self.client.post('/2fa/trust/', {'action': 'skip'})
+        self.assertIn('_auth_user_id', self.client.session)
+        self.client.post('/logout/')
+        self.assertNotIn('_auth_user_id', self.client.session)
+        r = self.client.post('/accounts/login/',
+                             {'login': 'staff_2fa', 'password': 'Prueba1234!'})
+        self.assertIn('/2fa/authenticate/', r['Location'])
+
+    def test_la_sesion_dura_30_dias_y_se_renueva(self):
+        from django.conf import settings
+        self.assertEqual(settings.SESSION_COOKIE_AGE, 60 * 60 * 24 * 30)
+        self.assertTrue(settings.SESSION_SAVE_EVERY_REQUEST)
+        self.client.post('/accounts/login/', {'login': 'staff_2fa', 'password': 'Prueba1234!'})
+        self.assertFalse(self.client.session.get_expire_at_browser_close())
+
     def test_un_usuario_normal_no_queda_atrapado_en_el_flujo_de_2fa(self):
         from django.contrib.auth.models import User
         cliente = User.objects.create_user('cliente_normal', password='Prueba1234!')

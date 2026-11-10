@@ -1,0 +1,39 @@
+{% extends "allauth/layouts/base.html" %}
+{% load allauth %}
+
+{% block head_title %}¿Confiar en este navegador?{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    {% include "allauth/_card_head.html" %}
+
+    <h1>¿Confiar en este navegador?</h1>
+    <p class="auth-p">
+      Si confías en él, no te volveremos a pedir el código de verificación en este
+      navegador durante {{ trust_until|timeuntil:trust_from }}. Hazlo solo en tu propio
+      teléfono o computadora.
+    </p>
+
+    <form method="post" action="{% url 'mfa_trust' %}">
+      {% csrf_token %}
+      {% for field in form %}{{ field.as_hidden }}{% endfor %}
+      <button type="submit" name="action" value="trust" class="btn-primary btn-full">Confiar en este navegador</button>
+      <button type="submit" name="action" value="skip" class="btn-primary btn-full mt-2"
+              style="background:none;border:1px solid var(--ink-3);color:inherit;">No, pedir el código siempre</button>
+    </form>
+
+    <p class="auth-switch">
+      <button type="submit" form="logout-from-stage"
+              style="background:none;border:none;color:var(--ink-3);cursor:pointer;font-size:12px;">
+        Cancelar y salir
+      </button>
+    </p>
+
+    <form id="logout-from-stage" method="post" action="{% url 'account_logout' %}">
+      <input type="hidden" name="next" value="{% url 'account_login' %}">
+      {% csrf_token %}
+    </form>
+  </div>
+</div>
+{% endblock %}
