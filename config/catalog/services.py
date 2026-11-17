@@ -39,10 +39,17 @@ def _arranca_palabra(kw_norm: str, texto_norm: str) -> bool:
 
     El sufijo se admite a proposito: `gorra` tiene que seguir tomando
     `gorras`. Solo se corta el arranque en medio de palabra.
+
+    Excepto si la keyword termina en numero: ahi el numero tiene que ir
+    completo. `jordan 1` se llevaba `jordan 11`, otro modelo, con el costo de
+    Jordan 1.
     """
     if not kw_norm:
         return False
-    return re.search(r'(?<!\w)' + re.escape(kw_norm), texto_norm) is not None
+    patron = r'(?<!\w)' + re.escape(kw_norm)
+    if kw_norm[-1].isdigit():
+        patron += r'(?!\d)'
+    return re.search(patron, texto_norm) is not None
 
 
 def buscar_tipo_articulo(texto: str, tipos=None):

@@ -1741,6 +1741,29 @@ class BuscarTipoArticuloLimiteDePalabraTest(TestCase):
     def test_keyword_admite_sufijo_en_la_misma_palabra(self):
         self.assertEqual(buscar_tipo_articulo('gorras negras'), self.gorras)
 
+    def test_keyword_que_termina_en_numero_no_toma_un_numero_mas_largo(self):
+        # `jordan 1` se llevaba `jordan 11` (otro modelo) con el costo de Jordan 1.
+        TipoArticulo.objects.create(
+            nombre='Jordan 1', keywords='jordan 1', costo=Decimal('700')
+        )
+        self.assertIsNone(buscar_tipo_articulo('jordan 11 negro 27'))
+
+    def test_keyword_que_termina_en_numero_sigue_tomando_su_numero(self):
+        jordan1 = TipoArticulo.objects.create(
+            nombre='Jordan 1', keywords='jordan 1', costo=Decimal('700')
+        )
+        self.assertEqual(buscar_tipo_articulo('jordan 1 negro 27'), jordan1)
+        self.assertEqual(buscar_tipo_articulo('jordan 1'), jordan1)
+
+    def test_numero_largo_gana_con_su_propia_keyword(self):
+        TipoArticulo.objects.create(
+            nombre='Jordan 1', keywords='jordan 1', costo=Decimal('700')
+        )
+        jordan11 = TipoArticulo.objects.create(
+            nombre='Jordan 11', keywords='jordan 11', costo=Decimal('900')
+        )
+        self.assertEqual(buscar_tipo_articulo('jordan 11 negro 27'), jordan11)
+
 
 class ValidarCodigoTest(TestCase):
     def setUp(self):
