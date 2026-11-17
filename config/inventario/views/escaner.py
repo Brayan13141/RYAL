@@ -142,13 +142,22 @@ def vender_info(request):
     tipo = tipo_de_codigo(codigo)
     if tipo is not None:
         # Gorra: una etiqueta por tipo, se vende por unidad. Sin costo (lo ve el cliente).
+        precios = list(tipo.precios_venta.order_by('orden', 'pk'))
+        # No usa la lista por calidad: llena el campo con su precio llamado
+        # "Menudeo" / "Mayoreo", según el selector.
+        tipos_venta = dict(Pedido.TIPO_VENTA_CHOICES)
+        lista = {}
+        for pv in precios:
+            tv = pv.nombre.strip().lower()
+            if tv in tipos_venta and tv not in lista:
+                lista[tv] = _dos_decimales(pv.precio)
         return JsonResponse({
             'nivel': 'verde', 'cantidad': True,
             'par': {'codigo': codigo_etiqueta(tipo), 'nombre': tipo.nombre,
                     'color': '', 'talla': ''},
             'precios': [{'nombre': pv.nombre, 'precio': _dos_decimales(pv.precio)}
-                        for pv in tipo.precios_venta.order_by('orden', 'pk')],
-            'precio_lista': {}})
+                        for pv in precios],
+            'precio_lista': lista})
     par = (Par.objects.select_related('tipo__padre', 'color', 'talla')
            .filter(codigo=codigo).first()) if codigo else None
     if par is None:

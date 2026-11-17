@@ -34,6 +34,22 @@ class VenderCantidadTests(VenderBase):
                 self.assertEqual(d['precio_lista'], {})
                 self.assertEqual(d['precios'], [{'nombre': 'Normal', 'precio': '250.00'}])
 
+    def test_info_llena_precio_lista_con_precios_menudeo_y_mayoreo(self):
+        # Los precios llamados como el tipo de venta llenan el campo, igual que en los pares.
+        PrecioVenta.objects.create(
+            tipo=self.gorra, nombre=' Menudeo ', precio=Decimal('300'), orden=2)
+        PrecioVenta.objects.create(
+            tipo=self.gorra, nombre='MAYOREO', precio=Decimal('270'), orden=3)
+        d = self.post_json('inventario:vender_info', {'lectura': self.etiqueta}).json()
+        self.assertEqual(d['precio_lista'], {'menudeo': '300.00', 'mayoreo': '270.00'})
+        self.assertEqual(len(d['precios']), 3)
+
+    def test_info_solo_menudeo_no_inventa_mayoreo(self):
+        PrecioVenta.objects.create(
+            tipo=self.gorra, nombre='Menudeo', precio=Decimal('300'), orden=2)
+        d = self.post_json('inventario:vender_info', {'lectura': self.etiqueta}).json()
+        self.assertEqual(d['precio_lista'], {'menudeo': '300.00'})
+
     def test_info_tipo_no_activo_es_rojo(self):
         otro = TipoArticulo(nombre='Gorra B', keywords='gorra b', costo=Decimal('1'))
         otro.full_clean()
