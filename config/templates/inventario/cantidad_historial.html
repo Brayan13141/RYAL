@@ -7,7 +7,7 @@
     <h1 class="inv-title">{{ tipo.nombre }}</h1>
     <p class="inv-sub">Stock actual: <b>{{ stock }}</b> unidad{{ stock|pluralize:"es" }}. Cada ajuste manual fija el total; las ventas restan desde el último ajuste.</p>
   </div>
-  <a href="{% url 'inventario:stock' %}" class="btn-g"><i class="bi bi-arrow-left"></i> Volver al stock</a>
+  <a href="{% url 'inventario:stock_cantidad' %}" class="btn-g"><i class="bi bi-arrow-left"></i> Volver a stock por cantidad</a>
 </div>
 
 {% if not movimientos %}

@@ -1306,6 +1306,10 @@
               <i class="bi bi-grid-3x3-gap"></i>
               <span class="nav-label">Stock</span>
             </a>
+            <a href="{% url 'inventario:stock_cantidad' %}" title="Stock por cantidad" class="nav-child{% if inv_ns == 'inventario' %}{% if inv_u == 'stock_cantidad' or inv_u == 'cantidad_historial' %} on{% endif %}{% endif %}">
+              <i class="bi bi-123"></i>
+              <span class="nav-label">Por cantidad</span>
+            </a>
             <a href="{% url 'inventario:lotes' %}" title="Lotes" class="nav-child{% if inv_ns == 'inventario' %}{% if inv_u == 'lotes' or inv_u == 'lote_detalle' %} on{% endif %}{% endif %}">
               <i class="bi bi-boxes"></i>
               <span class="nav-label">Lotes</span>

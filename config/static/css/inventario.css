@@ -24,23 +24,6 @@
 /* El JS oculta con el atributo hidden: ningún display de esta hoja debe ganarle. */
 .inv [hidden] { display: none !important; }
 
-/* ── Navegación propia del módulo ─────────────────────────────── */
-.inv-nav {
-  display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none;
-  margin: -4px 0 22px; padding: 4px; border-radius: var(--inv-r);
-  background: var(--inv-raise); border: 1px solid var(--inv-line);
-}
-.inv-nav::-webkit-scrollbar { display: none; }
-.inv-nav-link {
-  display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
-  padding: 7px 12px; border-radius: 7px; font-size: 13px; font-weight: 500;
-  color: var(--inv-mute); text-decoration: none; transition: color .12s, background .12s;
-}
-.inv-nav-link:hover { color: var(--inv-ink); background: var(--inv-raise-2); }
-.inv-nav-link.is-active { color: #000; background: var(--inv-gold); font-weight: 600; }
-.inv-nav-link .bi { font-size: 14px; }
-.inv-nav-sep { width: 1px; margin: 6px 4px; background: var(--inv-line-2); flex: 0 0 1px; }
-
 /* ── Encabezado de pantalla ───────────────────────────────────── */
 .inv-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
   gap: 14px 24px; margin-bottom: 22px; }

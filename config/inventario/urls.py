@@ -42,6 +42,7 @@ urlpatterns = [
     path('conteos/<int:pk>/corregir/', escaner.conteo_corregir, name='conteo_corregir'),
     path('ventas/<int:pedido_pk>/cancelar/', escaner.venta_cancelar, name='venta_cancelar'),
     path('ventas/par/<str:codigo>/quitar/', escaner.venta_quitar_par, name='venta_quitar_par'),
+    path('cantidad/', cantidad.stock_cantidad, name='stock_cantidad'),
     path('cantidad/activar/', cantidad.cantidad_activar, name='cantidad_activar'),
     path('cantidad/<int:pk>/ajustar/', cantidad.cantidad_ajustar, name='cantidad_ajustar'),
     path('cantidad/<int:pk>/', cantidad.cantidad_historial, name='cantidad_historial'),

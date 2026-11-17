@@ -9,7 +9,7 @@ from django.views.decorators.http import require_POST
 
 from catalog.models import TipoArticulo
 from inventario import etiquetas
-from inventario.models import MovimientoCantidad
+from inventario.models import MovimientoCantidad, Par
 from inventario.services import cantidad as svc
 from negocio.models import Pedido
 
@@ -24,6 +24,20 @@ def _entero(valor):
 
 def _tipo_activo(pk):
     return get_object_or_404(TipoArticulo, pk=pk, stock_por_cantidad=True)
+
+
+@staff_member_required
+def stock_cantidad(request):
+    """Artículos sin talla que se cuentan por unidades (gorras, bolsas): aparte de los pares."""
+    cantidades = [{'tipo': t, 'stock': svc.stock_actual(t)}
+                  for t in TipoArticulo.objects.filter(stock_por_cantidad=True).order_by('nombre')]
+    activables = (TipoArticulo.objects
+                  .filter(padre__isnull=True, variantes__isnull=True, usa_tallas=False,
+                          stock_por_cantidad=False)
+                  .exclude(pk__in=Par.objects.values('tipo'))
+                  .order_by('nombre'))
+    return render(request, 'inventario/stock_cantidad.html', {
+        'cantidades': cantidades, 'activables': activables})
 
 
 @staff_member_required
@@ -42,7 +56,7 @@ def cantidad_activar(request):
     else:
         messages.success(
             request, f'{tipo.nombre}: stock por cantidad activado con {cantidad} unidades.')
-    return redirect('inventario:stock')
+    return redirect('inventario:stock_cantidad')
 
 
 @staff_member_required
@@ -56,7 +70,7 @@ def cantidad_ajustar(request, pk):
         messages.error(request, str(e))
     else:
         messages.success(request, f'{tipo.nombre}: stock ajustado a {cantidad}.')
-    return redirect('inventario:stock')
+    return redirect('inventario:stock_cantidad')
 
 
 @staff_member_required

@@ -228,3 +228,44 @@ class StockCardsTests(StockBase):
         r = self.get()
         self.assertNotContains(r, 'Todos los modelos</option>')
         self.assertNotContains(r, 'name="via"')
+
+    def test_chips_de_color_agrupan_por_nombre_entre_modelos(self):
+        Par.objects.create(codigo='AF1A-0002', tipo=self.af_a, color=self.marino, talla=self.t27,
+                           lote=self.lote, estado=E.EN_STOCK, costo=Decimal('400'))
+        r = self.get()
+        # Negro: 3 de Jordan 4 + 1 de Air Force. Ordenados por nombre.
+        self.assertEqual(r.context['colores'], [
+            {'clave': 'marino', 'nombre': 'Marino', 'n': 1},
+            {'clave': 'negro', 'nombre': 'Negro', 'n': 4}])
+        self.assertContains(r, 'class="inv-filtro-chip js-color" data-color="negro"')
+        self.assertContains(r, 'id="color-todos"')
+
+    def test_las_filas_llevan_su_color_para_filtrar(self):
+        r = self.get()
+        self.assertContains(r, '<tr class="js-fila" data-color="negro">', count=2)
+
+    def test_sin_pares_no_hay_chips_de_color(self):
+        Par.objects.all().delete()
+        r = self.get()
+        self.assertEqual(r.context['colores'], [])
+        self.assertNotContains(r, 'id="color-todos"')
+
+    def test_la_pagina_carga_los_filtros_desde_su_archivo(self):
+        r = self.get()
+        self.assertContains(r, 'js/inventario_stock.js')
+
+
+class StockFiltrosJsTests(TestCase):
+    """La lógica de los filtros vive en static/js/inventario_stock.js y se prueba con node."""
+
+    def test_node(self):
+        import shutil
+        import subprocess
+        from pathlib import Path
+        node = shutil.which('node')
+        if node is None:
+            self.skipTest('node no está instalado')
+        tests = Path(__file__).resolve().parent / 'js'
+        r = subprocess.run([node, '--test', str(tests / 'stock_filtros.test.js')],
+                           capture_output=True, text=True, encoding='utf-8', timeout=60)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)

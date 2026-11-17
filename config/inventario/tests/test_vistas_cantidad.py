@@ -39,6 +39,7 @@ class CantidadAccesoTests(CantidadBase):
         self.activo()
         self.client.logout()
         for nombre, kw, metodo in (
+                ('inventario:stock_cantidad', {}, 'get'),
                 ('inventario:cantidad_activar', {}, 'post'),
                 ('inventario:cantidad_ajustar', {'pk': self.tipo.pk}, 'post'),
                 ('inventario:cantidad_historial', {'pk': self.tipo.pk}, 'get'),
@@ -53,7 +54,7 @@ class CantidadAccionesTests(CantidadBase):
     def test_activar_desde_pantalla(self):
         r = self.client.post(reverse('inventario:cantidad_activar'),
                              {'tipo_id': self.tipo.pk, 'cantidad': '999'})
-        self.assertRedirects(r, reverse('inventario:stock'))
+        self.assertRedirects(r, reverse('inventario:stock_cantidad'))
         self.tipo.refresh_from_db()
         self.assertTrue(self.tipo.stock_por_cantidad)
         self.assertEqual(svc.stock_actual(self.tipo), 999)
@@ -61,7 +62,7 @@ class CantidadAccionesTests(CantidadBase):
     def test_activar_invalido_da_error(self):
         r = self.client.post(reverse('inventario:cantidad_activar'),
                              {'tipo_id': self.tipo.pk, 'cantidad': 'abc'})
-        self.assertRedirects(r, reverse('inventario:stock'))
+        self.assertRedirects(r, reverse('inventario:stock_cantidad'))
         self.tipo.refresh_from_db()
         self.assertFalse(self.tipo.stock_por_cantidad)
         self.assertEqual(self.niveles(r), ['error'])
@@ -70,7 +71,7 @@ class CantidadAccionesTests(CantidadBase):
         self.activo()
         r = self.client.post(reverse('inventario:cantidad_ajustar', args=[self.tipo.pk]),
                              {'cantidad': '40', 'motivo': 'conté el exhibidor'})
-        self.assertRedirects(r, reverse('inventario:stock'))
+        self.assertRedirects(r, reverse('inventario:stock_cantidad'))
         self.assertEqual(svc.stock_actual(self.tipo), 40)
         self.assertEqual(self.niveles(r), ['success'])
 
@@ -116,10 +117,10 @@ class CantidadPantallasTests(CantidadBase):
         r = self.client.get(reverse('inventario:cantidad_historial', args=[self.tipo.pk]))
         self.assertEqual(r.status_code, 404)
 
-    def test_stock_muestra_seccion(self):
+    def test_pantalla_muestra_tipos_y_activables(self):
         self.activo(77)
         otro = _tipo('Gorra Libre')
-        r = self.client.get(reverse('inventario:stock'))
+        r = self.client.get(reverse('inventario:stock_cantidad'))
         self.assertContains(r, 'Gorra Barbas')
         self.assertContains(r, '77')
         self.assertEqual([c['tipo'] for c in r.context['cantidades']], [self.tipo])
@@ -132,7 +133,7 @@ class CantidadPantallasTests(CantidadBase):
                            padre=base, via='aereo', usa_tallas=True)
         var.full_clean()
         var.save()
-        r = self.client.get(reverse('inventario:stock'))
+        r = self.client.get(reverse('inventario:stock_cantidad'))
         activables = list(r.context['activables'])
         self.assertIn(self.tipo, activables)
         self.assertNotIn(base, activables)
@@ -159,6 +160,38 @@ class CantidadPantallasTests(CantidadBase):
         r = self.client.get(reverse('inventario:cantidad_etiqueta', args=[self.tipo.pk]))
         self.assertEqual(r.status_code, 404)
 
+    def test_stock_de_pares_ya_no_muestra_la_seccion(self):
+        self.activo(77)
+        _tipo('Gorra Libre')
+        r = self.client.get(reverse('inventario:stock'))
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn('cantidades', r.context)
+        self.assertNotIn('activables', r.context)
+        self.assertNotContains(r, 'id="stock-cantidad"')
+        self.assertNotContains(r, reverse('inventario:cantidad_activar'))
+
+    def test_navegacion_lleva_a_la_pantalla(self):
+        # Menú lateral del panel: el enlace está siempre y se marca en su pantalla y el historial.
+        self.activo()
+        url = reverse('inventario:stock_cantidad')
+        enlace = f'href="{url}" title="Stock por cantidad" class="nav-child'
+        r = self.client.get(reverse('inventario:stock'))
+        self.assertContains(r, f'{enlace}"')
+        for origen in (url, reverse('inventario:cantidad_historial', args=[self.tipo.pk])):
+            with self.subTest(origen=origen):
+                self.assertContains(self.client.get(origen), f'{enlace} on"')
+
+    def test_pantalla_vacia_explica(self):
+        TipoArticulo.objects.all().delete()
+        r = self.client.get(reverse('inventario:stock_cantidad'))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'No hay artículos con stock por cantidad')
+
+    def test_historial_vuelve_a_la_pantalla(self):
+        self.activo()
+        r = self.client.get(reverse('inventario:cantidad_historial', args=[self.tipo.pk]))
+        self.assertContains(r, f'href="{reverse("inventario:stock_cantidad")}"')
+
 
 class CantidadRondaFinalTests(CantidadBase):
     def test_activar_tipo_invalido_pide_elegir_tipo(self):
@@ -168,8 +201,8 @@ class CantidadRondaFinalTests(CantidadBase):
                                      {'tipo_id': tipo_id, 'cantidad': '5'}, follow=True)
                 self.assertEqual(self.mensajes(r), ['Elige un tipo de artículo.'])
 
-    def test_stock_select_arranca_sin_tipo_y_pide_confirmar(self):
-        r = self.client.get(reverse('inventario:stock'))
+    def test_pantalla_select_arranca_sin_tipo_y_pide_confirmar(self):
+        r = self.client.get(reverse('inventario:stock_cantidad'))
         self.assertContains(r, '<option value="" selected disabled>Elige un tipo…</option>',
                             html=False)
         self.assertContains(r, 'Activar stock por cantidad no se puede deshacer desde la '

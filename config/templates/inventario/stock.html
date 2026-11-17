@@ -1,4 +1,5 @@
 {% extends "inventario/_base.html" %}
+{% load static %}
 {% block title %}Stock{% endblock %}
 
 {% block inv_content %}
@@ -36,45 +37,16 @@
     {% for t in tallas %}<button type="button" class="inv-filtro-chip js-talla" data-talla="{{ t.clave }}" aria-pressed="false">{{ t.clave }} <span class="inv-filtro-n">{{ t.n }} par{{ t.n|pluralize:",es" }}</span></button>
     {% endfor %}
   </div>
+  {% if colores %}
+  <div class="inv-filtros mb-3" role="group" aria-label="Filtrar por color">
+    <span class="small inv-muted"><i class="bi bi-palette"></i> Color</span>
+    <button type="button" id="color-todos" class="inv-filtro-chip is-on" aria-pressed="true">Todos</button>
+    {% for c in colores %}<button type="button" class="inv-filtro-chip js-color" data-color="{{ c.clave }}" aria-pressed="false">{{ c.nombre }} <span class="inv-filtro-n">{{ c.n }} par{{ c.n|pluralize:",es" }}</span></button>
+    {% endfor %}
+  </div>
+  {% endif %}
   {% endif %}
 </div>
-
-{% if cantidades or activables %}
-<section class="inv-lote-card mb-4" id="stock-cantidad">
-  <header class="inv-lote-card-head">
-    <div class="flex-grow-1">
-      <div class="inv-group-name">Stock por cantidad</div>
-      <div class="small inv-muted">Artículos que se cuentan por unidades (gorras), con una sola etiqueta por tipo. Cada ajuste pide un motivo.</div>
-    </div>
-  </header>
-  {% for c in cantidades %}
-  <div class="py-3 border-top">
-    <div class="d-flex flex-wrap align-items-baseline gap-2 mb-2">
-      <span class="inv-group-name">{{ c.tipo.nombre }}</span>
-      <span class="fs-5 fw-bold">{{ c.stock }}</span> <span class="small inv-muted">unidad{{ c.stock|pluralize:"es" }}</span>
-      <a class="small ms-auto" href="{% url 'inventario:cantidad_historial' c.tipo.pk %}"><i class="bi bi-clock-history"></i> Historial</a>
-    </div>
-    <form method="post" action="{% url 'inventario:cantidad_ajustar' c.tipo.pk %}" class="row g-2 align-items-end">{% csrf_token %}
-      <div class="col-4 col-md-2"><label class="form-label small mb-1" for="cant-{{ c.tipo.pk }}">Nuevo total</label><input type="number" min="0" step="1" required class="form-control" id="cant-{{ c.tipo.pk }}" name="cantidad" value="{{ c.stock }}"></div>
-      <div class="col-8 col-md-6"><label class="form-label small mb-1" for="mot-{{ c.tipo.pk }}">Motivo</label><input type="text" required maxlength="200" class="form-control" id="mot-{{ c.tipo.pk }}" name="motivo" placeholder="Ej. conté el exhibidor"></div>
-      <div class="col-12 col-md-4"><button type="submit" class="btn-g w-100"><i class="bi bi-check2"></i> Ajustar</button></div>
-    </form>
-    <form method="get" action="{% url 'inventario:cantidad_etiqueta' c.tipo.pk %}" target="_blank" class="d-flex flex-wrap align-items-end gap-2 mt-2">
-      <div><label class="form-label small mb-1" for="cop-{{ c.tipo.pk }}">Copias de la etiqueta</label><input type="number" min="1" max="100" step="1" value="1" class="form-control" id="cop-{{ c.tipo.pk }}" name="copias" style="width: 6rem"></div>
-      <button type="submit" class="btn-g"><i class="bi bi-printer"></i> Etiqueta</button>
-    </form>
-  </div>
-  {% endfor %}
-  {% if activables %}
-  <form method="post" action="{% url 'inventario:cantidad_activar' %}" class="row g-2 align-items-end pt-3 border-top" onsubmit="return confirm('Activar stock por cantidad no se puede deshacer desde la pantalla. ¿Continuar?')">{% csrf_token %}
-    <div class="col-12"><div class="fw-semibold">Activar stock por cantidad</div></div>
-    <div class="col-12 col-md-6"><label class="form-label small mb-1" for="act-tipo">Tipo de artículo</label><select class="form-select" id="act-tipo" name="tipo_id" required><option value="" selected disabled>Elige un tipo…</option>{% for t in activables %}<option value="{{ t.pk }}">{{ t.nombre }}</option>{% endfor %}</select></div>
-    <div class="col-6 col-md-3"><label class="form-label small mb-1" for="act-cant">Cantidad inicial</label><input type="number" min="0" step="1" required class="form-control" id="act-cant" name="cantidad" value="999"></div>
-    <div class="col-6 col-md-3"><button type="submit" class="btn-g w-100"><i class="bi bi-plus-lg"></i> Activar</button></div>
-  </form>
-  {% endif %}
-</section>
-{% endif %}
 
 {% if alertas.ventas_bot_sin_par or alertas.lotes_abiertos_con_faltantes or alertas.vendidos_bot_sin_escaneo %}
 <div class="inv-alert inv-alert-warn">
@@ -119,7 +91,7 @@
         </thead>
         <tbody>
           {% for f in t.filas %}
-          <tr class="js-fila">
+          <tr class="js-fila" data-color="{{ f.clave_color }}">
             <td>{{ f.color.nombre|capfirst }}</td>
             {% for c in f.celdas %}<td data-talla="{{ c.clave }}" data-n="{{ c.n }}"><span class="inv-cell {% if not c.n %}h0{% elif c.n >= 4 %}h3{% elif c.n >= 2 %}h2{% else %}h1{% endif %}">{% if c.n %}<b>{{ c.n }}</b><i>{{ c.desglose }}</i>{% else %}·{% endif %}</span></td>{% endfor %}
             <td class="tot"><b class="js-fila-tot">{{ f.total }}</b></td>
@@ -163,51 +135,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
-(function () {
-  var cards = document.querySelectorAll('.js-card');
-  if (!cards.length) return;
-  var chipsModelo = document.querySelectorAll('.js-filtro'), chipsTalla = document.querySelectorAll('.js-talla');
-  var todos = document.getElementById('filtro-todos'), todas = document.getElementById('talla-todas');
-  var vacio = document.getElementById('cards-vacio');
-  var modelos = {}, tallas = {};  // vacío = sin filtro
-
-  function hay(o) { return Object.keys(o).length > 0; }
-  function marcar(chip, on) { chip.classList.toggle('is-on', on); chip.setAttribute('aria-pressed', on ? 'true' : 'false'); }
-
-  function aplicar() {
-    var conTalla = hay(tallas), conModelo = hay(modelos), alguna = false;
-    cards.forEach(function (card) {
-      if (conModelo && !modelos[card.dataset.modelo]) { card.hidden = true; return; }
-      card.querySelectorAll('[data-talla]').forEach(function (el) {
-        el.hidden = conTalla && !tallas[el.dataset.talla];
-      });
-      var total = 0;
-      card.querySelectorAll('.js-fila').forEach(function (fila) {
-        var n = 0;
-        fila.querySelectorAll('td[data-n]').forEach(function (td) { if (!td.hidden) n += +td.dataset.n; });
-        fila.hidden = conTalla && n === 0;
-        fila.querySelector('.js-fila-tot').textContent = n;
-        total += n;
-      });
-      card.querySelector('.js-card-tot').textContent = total;
-      card.querySelector('.js-card-par').textContent = total === 1 ? 'par' : 'pares';
-      card.querySelector('.js-pie-tot').textContent = total;
-      card.hidden = total === 0;
-      if (!card.hidden) alguna = true;
-    });
-    vacio.hidden = alguna;
-    chipsModelo.forEach(function (c) { marcar(c, !!modelos[c.dataset.modelo]); });
-    chipsTalla.forEach(function (c) { marcar(c, !!tallas[c.dataset.talla]); });
-    marcar(todos, !conModelo);
-    marcar(todas, !conTalla);
-  }
-
-  function alternar(obj, clave) { if (obj[clave]) delete obj[clave]; else obj[clave] = true; aplicar(); }
-  chipsModelo.forEach(function (c) { c.addEventListener('click', function () { alternar(modelos, c.dataset.modelo); }); });
-  chipsTalla.forEach(function (c) { c.addEventListener('click', function () { alternar(tallas, c.dataset.talla); }); });
-  todos.addEventListener('click', function () { modelos = {}; aplicar(); });
-  todas.addEventListener('click', function () { tallas = {}; aplicar(); });
-})();
-</script>
+<script src="{% static 'js/inventario_stock.js' %}"></script>
 {% endblock %}
