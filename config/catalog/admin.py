@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.utils import timezone
 from django.utils.html import format_html
-from .models import (Category, Tag, Product, ProductImage, ProductVariant, VolumeTier,
+from .models import (Category, Tag, Product, ProductImage, VolumeTier,
                      PendingProduct, AliasTexto)
 
 
@@ -40,12 +40,6 @@ class ProductImageInline(admin.TabularInline):
     fields = ['image', 'is_cover', 'display_order']
 
 
-class ProductVariantInline(admin.TabularInline):
-    model = ProductVariant
-    extra = 1
-    fields = ['name', 'attributes', 'extra_price', 'stock', 'is_active']
-
-
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
     list_display = [
@@ -57,7 +51,7 @@ class ProductAdmin(admin.ModelAdmin):
     list_editable = ['status', 'is_active']
     filter_horizontal = ['tags']
     readonly_fields = ['get_final_price', 'requires_shipping_display']
-    inlines = [ProductImageInline, ProductVariantInline]
+    inlines = [ProductImageInline]
     fieldsets = (
         ('Información principal', {
             'fields': ('sku', 'name', 'description', 'category', 'tags', 'status', 'is_active')

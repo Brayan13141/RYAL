@@ -47,13 +47,13 @@ def motivo_no_editable(order):
     return None
 
 
-def precio_sugerido(product, qty, variant=None):
+def precio_sugerido(product, qty):
     """Precio de hoy en la tienda para un renglón de `qty` piezas (tier por renglón)."""
-    base = float(variant.final_price if variant else product.final_price)
+    base = float(product.final_price)
     return Decimal(str(_price_with_volume_tier(product, qty, base))).quantize(_CENTAVO, ROUND_HALF_UP)
 
 
-def variante_texto(product, variant=None, size_name=None, image=None, color=None):
+def variante_texto(product, size_name=None, image=None, color=None):
     """Texto de la variante (`variant_snapshot`) tal como lo arma la tienda.
 
     El colorway sin etiqueta es "Color N" con N = posición (1-based) de la imagen
@@ -66,13 +66,13 @@ def variante_texto(product, variant=None, size_name=None, image=None, color=None
         posiciones = [i.pk for i in product.images.all()]
         if image.pk in posiciones:
             color_num = posiciones.index(image.pk) + 1
-    return nombre_variante(size_name, color, image, color_num, variant)
+    return nombre_variante(size_name, color, image, color_num)
 
 
-def renglon_existente(order, product, variant, variant_snapshot):
+def renglon_existente(order, product, variant_snapshot):
     """El renglón del pedido al que se sumaría este producto+variante, o None."""
-    return order.items.select_related('product__category__parent', 'variant').filter(
-        product=product, variant=variant, variant_snapshot=variant_snapshot,
+    return order.items.select_related('product__category__parent').filter(
+        product=product, variant_snapshot=variant_snapshot,
     ).first()
 
 
@@ -106,7 +106,7 @@ def _validar_precio(precio):
 
 def _renglon(order, item):
     try:
-        return order.items.select_related('product__category__parent', 'variant').get(pk=item.pk)
+        return order.items.select_related('product__category__parent').get(pk=item.pk)
     except OrderItem.DoesNotExist:
         raise EdicionRechazada('Ese renglón ya no está en el pedido.')
 
@@ -148,7 +148,7 @@ def _aplicar_cantidad(item, qty, precio):
     """Cambia cantidad y precio de un renglón ya bloqueado. cost_snapshot no se toca."""
     if precio is None:
         if item.product_id:
-            precio = precio_sugerido(item.product, qty, item.variant)
+            precio = precio_sugerido(item.product, qty)
         else:
             precio = item.price_snapshot
     if qty == item.quantity and precio == item.price_snapshot:
@@ -169,7 +169,7 @@ def _aplicar_cantidad(item, qty, precio):
 
 # ── API pública ──────────────────────────────────────────────────────────
 
-def agregar_renglon(order, usuario, product, qty, precio=None, variant=None,
+def agregar_renglon(order, usuario, product, qty, precio=None,
                     size_name=None, image=None, color=None):
     """Agrega un producto al pedido, o suma al renglón igual que ya exista."""
     def aplicar(order):
@@ -179,8 +179,6 @@ def agregar_renglon(order, usuario, product, qty, precio=None, variant=None,
         # ya no vende no entra al pedido por ningún camino.
         if not product.is_active or product.status != 'available':
             raise EdicionRechazada('Ese producto no está disponible en la tienda.')
-        if variant is not None and (variant.product_id != product.pk or not variant.is_active):
-            raise EdicionRechazada('Esa variante no está disponible.')
         if image is not None and image.product_id != product.pk:
             raise EdicionRechazada('Ese color no es de este producto.')
         grupo = product.effective_size_group
@@ -192,9 +190,9 @@ def agregar_renglon(order, usuario, product, qty, precio=None, variant=None,
         if product.variant_colors and not color:
             raise EdicionRechazada('Selecciona el color.')
 
-        variant_snapshot = variante_texto(product, variant, size_name, image, color)
+        variant_snapshot = variante_texto(product, size_name, image, color)
 
-        existente = renglon_existente(order, product, variant, variant_snapshot)
+        existente = renglon_existente(order, product, variant_snapshot)
         if existente is not None:
             # Mismo producto y variante: se suma al renglón, como el carrito.
             return _aplicar_cantidad(existente, existente.quantity + qty, p)
@@ -206,7 +204,7 @@ def agregar_renglon(order, usuario, product, qty, precio=None, variant=None,
                 raise EdicionRechazada(f'Mínimo {minimo} piezas para {product.name}')
 
         if p is None:
-            p = precio_sugerido(product, qty, variant)
+            p = precio_sugerido(product, qty)
         try:
             cost_snapshot = product.effective_base_price + product.effective_shipping
         except Exception:
@@ -215,7 +213,6 @@ def agregar_renglon(order, usuario, product, qty, precio=None, variant=None,
         item = OrderItem.objects.create(
             order=order,
             product=product,
-            variant=variant,
             quantity=qty,
             price_snapshot=p,
             cost_snapshot=cost_snapshot,

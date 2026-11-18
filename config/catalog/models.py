@@ -478,29 +478,6 @@ class ProductImage(models.Model):
         return f'Imagen de {self.product.sku} ({"portada" if self.is_cover else f"#{self.display_order}"})'
 
 
-class ProductVariant(models.Model):
-    product = models.ForeignKey(
-        Product, on_delete=models.CASCADE, related_name='variants'
-    )
-    name = models.CharField(max_length=100)  # "Talla 42 / Blanco"
-    # {"color": "negro"} | {"talla": "42", "color": "blanco"} | {"tono": "nude"}
-    attributes = models.JSONField(default=dict)
-    extra_price = models.DecimalField(max_digits=8, decimal_places=2, default=0)
-    stock = models.PositiveIntegerField(default=0)
-    is_active = models.BooleanField(default=True)
-
-    class Meta:
-        verbose_name = 'Variante'
-        verbose_name_plural = 'Variantes'
-
-    @property
-    def final_price(self):
-        return self.product.final_price + self.extra_price
-
-    def __str__(self):
-        return f'{self.product.sku} — {self.name}'
-
-
 class SiteConfig(models.Model):
     whatsapp = models.CharField(
         max_length=30, default='521XXXXXXXXXX',

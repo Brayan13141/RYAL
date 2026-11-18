@@ -15,7 +15,7 @@ from django_ratelimit.decorators import ratelimit
 from core.ratelimit import client_ip as _client_ip
 
 from negocio.phone import normalize_telefono
-from catalog.models import Product, ProductVariant, ProductImage
+from catalog.models import Product, ProductImage
 from .models import Order, OrderItem, SavedCartItem
 from .notifications import notify_new_order_async
 from .minimos import faltantes, lineas_de_carrito
@@ -31,7 +31,7 @@ def _save_cart(request, cart):
     request.session['cart'] = cart
     request.session.modified = True
 
-def _cart_key(product_id, variant_id, size_name=None, image_pk=None, color=None):
+def _cart_key(product_id, size_name=None, image_pk=None, color=None):
     # color (variant_colors, texto) es ortogonal al colorway por imagen (image_pk)
     if size_name and color:
         return f'{product_id}_size_{size_name}_color_{color}'
@@ -44,7 +44,9 @@ def _cart_key(product_id, variant_id, size_name=None, image_pk=None, color=None)
         return f'{product_id}_size_{size_name}'
     if image_pk:
         return f'{product_id}_img_{image_pk}'
-    return f'{product_id}_{variant_id or "none"}'
+    # Sufijo histórico de cuando existían variantes de producto: las sesiones y
+    # los SavedCartItem ya guardados usan esta clave.
+    return f'{product_id}_none'
 
 
 def _get_category_violations(cart):
@@ -177,7 +179,6 @@ def cart_add(request):
     try:
         body       = json.loads(request.body)
         product_id = int(body['product_id'])
-        variant_id = body.get('variant_id')
         size_name  = body.get('size_name') or None
         image_pk   = body.get('image_pk') or None   # colorway específico
         color_num  = body.get('color_num') or None   # número 1-based visible al usuario
@@ -197,12 +198,7 @@ def cart_add(request):
         ),
         pk=product_id, is_active=True, status='available',
     )
-    variant = None
     price   = float(product.final_price)
-
-    if variant_id:
-        variant = get_object_or_404(ProductVariant, pk=variant_id, product=product, is_active=True)
-        price   = float(variant.final_price)
 
     # Validar image_pk cuando se envía (modo colorway)
     img_obj = None
@@ -213,7 +209,7 @@ def cart_add(request):
             image_pk = None  # inválido — caer en flujo normal
 
     cart = _get_cart(request)
-    key  = _cart_key(product_id, variant_id, size_name, image_pk, color)
+    key  = _cart_key(product_id, size_name, image_pk, color)
 
     # Productos con grupo de tallas (cascade: producto > subcategoría > padre)
     # requieren selección explícita de talla antes de agregar al carrito.
@@ -246,7 +242,7 @@ def cart_add(request):
     price = _price_with_volume_tier(product, total_qty, price)
 
     # Nombre descriptivo del ítem en el carrito
-    variant_name = nombre_variante(size_name, color, img_obj, color_num, variant)
+    variant_name = nombre_variante(size_name, color, img_obj, color_num)
 
     if key in cart:
         cart[key]['quantity'] += qty
@@ -254,7 +250,6 @@ def cart_add(request):
     else:
         cart[key] = {
             'product_id':   product_id,
-            'variant_id':   variant_id,
             'image_pk':     image_pk,    # colorway: pk de la imagen seleccionada
             'variant_name': variant_name,
             'quantity':     qty,
@@ -268,7 +263,6 @@ def cart_add(request):
             user=request.user, cart_key=key,
             defaults={
                 'product_id':   product_id,
-                'variant_id':   variant_id,
                 'variant_name': variant_name,
                 'quantity':     cart[key]['quantity'],
             }
@@ -467,9 +461,6 @@ def checkout_confirm(request):
     for key, item in cart.items():
         try:
             product = Product.objects.select_related('category__parent').get(pk=item['product_id'])
-            variant = None
-            if item.get('variant_id'):
-                variant = ProductVariant.objects.filter(pk=item['variant_id']).first()
             try:
                 cost_snapshot = product.effective_base_price + product.effective_shipping
             except Exception:
@@ -478,7 +469,6 @@ def checkout_confirm(request):
             OrderItem.objects.create(
                 order            = order,
                 product          = product,
-                variant          = variant,
                 quantity         = item['quantity'],
                 price_snapshot   = item['price'],
                 cost_snapshot    = cost_snapshot,
@@ -567,7 +557,7 @@ def order_track(request):
         else:
             try:
                 candidato = (Order.objects
-                             .prefetch_related('items__product', 'items__variant')
+                             .prefetch_related('items__product')
                              .get(order_code=code))
             except Order.DoesNotExist:
                 candidato = None

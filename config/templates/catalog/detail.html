@@ -254,13 +254,6 @@
       {% endif %}
 
       {% else %}
-      <!-- Variantes (comportamiento original) -->
-      {% if product.variants.exists %}
-      <div class="pd-variants" id="variantsSection">
-        <div id="variantControls"></div>
-      </div>
-      {% endif %}
-
       <!-- Cantidad -->
       <div class="pd-qty">
         <span class="pd-qty-label">Cantidad</span>
@@ -786,7 +779,6 @@
 
 {% block extra_js %}
 <script>
-  const PRODUCT_VARIANTS = {{ variants_json|safe }};
   const PRODUCT_ID       = {{ product.pk }};
   const MIN_QTY          = {{ product.effective_min_qty }};
   const QTY_STEP         = {{ qty_step }};
@@ -810,7 +802,7 @@
   });
 </script>
 {% endif %}
-<script src="{% static 'js/product.js' %}?v=5"></script>
+<script src="{% static 'js/product.js' %}?v=6"></script>
 <script>
   function toggleDesc(toggle) {
     toggle.classList.toggle('open');

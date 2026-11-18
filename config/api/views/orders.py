@@ -9,7 +9,7 @@ from django_ratelimit.decorators import ratelimit
 from core.ratelimit import client_ip
 from negocio.phone import normalize_telefono
 
-from catalog.models import Product, ProductVariant, SiteConfig
+from catalog.models import Product, SiteConfig
 from orders.models import Order, OrderItem
 from orders.views import _get_cart, _save_cart, _create_order_safe
 from api.serializers import OrderSerializer, OrderTrackSerializer
@@ -82,21 +82,14 @@ def checkout(request):
             product = Product.objects.select_related('category').get(pk=item['product_id'])
         except Product.DoesNotExist:
             continue
-        variant = None
-        if item.get('variant_id'):
-            try:
-                variant = ProductVariant.objects.get(pk=item['variant_id'])
-            except ProductVariant.DoesNotExist:
-                pass
         OrderItem.objects.create(
             order=order,
             product=product,
-            variant=variant,
             quantity=item['quantity'],
             price_snapshot=item['price'],
             sku_snapshot=product.sku,
             name_snapshot=product.name,
-            variant_snapshot=variant.name if variant else '',
+            variant_snapshot=item.get('variant_name', ''),
         )
 
     _save_cart(request, {})

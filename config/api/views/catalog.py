@@ -120,7 +120,7 @@ def product_detail(request, pk):
         product = (
             Product.objects
             .filter(is_active=True)
-            .prefetch_related('images', 'variants', 'tags', 'category__parent')
+            .prefetch_related('images', 'tags', 'category__parent')
             .get(pk=pk)
         )
     except Product.DoesNotExist:

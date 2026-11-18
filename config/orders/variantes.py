@@ -1,10 +1,10 @@
-def nombre_variante(size_name, color, img_obj, color_num, variant):
+def nombre_variante(size_name, color, img_obj, color_num):
     """Texto descriptivo de la variante de un ítem (carrito y edición de pedidos).
 
     Formatos (los que lee cart_builder.parse_variant):
       talla + color texto  → "Talla L / Rojo"
       talla + colorway     → "Blanco · Talla 26"
-      solo color / talla / colorway / ProductVariant, o '' si no hay nada.
+      solo color / talla / colorway, o '' si no hay nada.
     color_num puede ser None (el panel no lo conoce): cae a display_order + 1.
     """
     if size_name and color:
@@ -24,6 +24,4 @@ def nombre_variante(size_name, color, img_obj, color_num, variant):
         if color_num:
             return f'Color {color_num}'
         return f'Color {img_obj.display_order + 1}'
-    if variant:
-        return variant.name
     return ''

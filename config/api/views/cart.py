@@ -7,7 +7,7 @@ from django_ratelimit.decorators import ratelimit
 from core.ratelimit import client_ip
 from django.shortcuts import get_object_or_404
 
-from catalog.models import Product, ProductVariant
+from catalog.models import Product
 from orders.models import SavedCartItem
 from orders.views import _get_cart, _save_cart, _cart_key, _get_category_violations
 
@@ -27,7 +27,6 @@ def cart_get(request):
             items.append({
                 'key': key,
                 'product_id': item['product_id'],
-                'variant_id': item.get('variant_id'),
                 'name': product.name,
                 'sku': product.sku,
                 'image': image_url,
@@ -57,34 +56,27 @@ def cart_add(request):
         return Response({'detail': 'Demasiadas solicitudes.'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
     product_id = request.data.get('product_id')
-    variant_id = request.data.get('variant_id')
     qty = int(request.data.get('qty', 1))
 
     if not product_id:
         return Response({'detail': 'product_id requerido.'}, status=status.HTTP_400_BAD_REQUEST)
 
     product = get_object_or_404(Product, pk=product_id, is_active=True, status='available')
-    variant = None
     price = float(product.final_price)
-
-    if variant_id:
-        variant = get_object_or_404(ProductVariant, pk=variant_id, product=product, is_active=True)
-        price = float(variant.final_price)
 
     min_qty = product.effective_min_qty
     if qty < min_qty:
         return Response({'detail': f'Mínimo {min_qty} piezas para {product.name}.'}, status=status.HTTP_400_BAD_REQUEST)
 
     cart = _get_cart(request)
-    key = _cart_key(product_id, variant_id)
+    key = _cart_key(product_id)
 
     if key in cart:
         cart[key]['quantity'] += qty
     else:
         cart[key] = {
             'product_id': int(product_id),
-            'variant_id': variant_id,
-            'variant_name': variant.name if variant else '',
+            'variant_name': '',
             'quantity': qty,
             'price': price,
         }
@@ -96,8 +88,7 @@ def cart_add(request):
             user=request.user, cart_key=key,
             defaults={
                 'product_id': int(product_id),
-                'variant_id': variant_id,
-                'variant_name': variant.name if variant else '',
+                'variant_name': '',
                 'quantity': cart[key]['quantity'],
             }
         )

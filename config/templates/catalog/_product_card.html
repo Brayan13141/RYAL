@@ -44,7 +44,6 @@
               data-product-id="{{ product.pk }}"
               data-product-name="{{ product.name }}"
               data-product-price="{{ product.final_price }}"
-              data-has-variants="{% if product.variants.exists %}true{% else %}false{% endif %}"
               data-has-sizes="{% if product.effective_size_group %}true{% else %}false{% endif %}"
               data-has-colorway="{% if product.effective_has_colorway %}true{% else %}false{% endif %}"
               data-has-colors="{% if product.variant_colors %}true{% else %}false{% endif %}"

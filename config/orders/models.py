@@ -6,7 +6,8 @@ from django.core.validators import URLValidator
 from django.db import models
 from django.utils import timezone
 from django.contrib.auth.models import User
-from catalog.models import Product, ProductVariant
+from catalog.models import Product
+from core.models import PagoBase
 
 
 SUPPLIER_ORDER_STATUS = [
@@ -39,7 +40,6 @@ class SavedCartItem(models.Model):
     user      = models.ForeignKey(User, on_delete=models.CASCADE, related_name='saved_cart')
     cart_key  = models.CharField(max_length=60)
     product   = models.ForeignKey(Product, on_delete=models.CASCADE)
-    variant   = models.ForeignKey(ProductVariant, on_delete=models.SET_NULL, null=True, blank=True)
     variant_name = models.CharField(max_length=100, blank=True)
     quantity  = models.PositiveIntegerField(default=1)
 
@@ -85,7 +85,6 @@ class Order(models.Model):
         help_text='URL de rastreo que manda el proveedor (17track, etc). Obligatoria para pasar a Enviado.',
     )
 
-    deposit             = models.DecimalField(max_digits=8, decimal_places=2, default=0)  # deprecado: reemplazado por OrderPayment
     descuento_aplicado  = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     is_paid  = models.BooleanField(default=False)
 
@@ -205,9 +204,6 @@ class OrderItem(models.Model):
     product = models.ForeignKey(
         Product, on_delete=models.SET_NULL, null=True, related_name='order_items'
     )
-    variant = models.ForeignKey(
-        ProductVariant, on_delete=models.SET_NULL, null=True, blank=True
-    )
     quantity = models.PositiveIntegerField(default=1)
 
     # Snapshots — prices/names may change; order history stays accurate
@@ -309,23 +305,9 @@ class OrderItemChange(models.Model):
         return f'#{self.order_id} {self.accion}: {self.descripcion}'
 
 
-class OrderPayment(models.Model):
-    EFECTIVO = 'efectivo'
-    TRANSFERENCIA = 'transferencia'
-    TARJETA = 'tarjeta'
-    OTRO = 'otro'
-    METODO_CHOICES = [
-        (EFECTIVO, 'Efectivo'),
-        (TRANSFERENCIA, 'Transferencia'),
-        (TARJETA, 'Tarjeta'),
-        (OTRO, 'Otro'),
-    ]
-
+class OrderPayment(PagoBase):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='payments')
-    fecha = models.DateField()
     monto = models.DecimalField(max_digits=8, decimal_places=2)
-    metodo_pago = models.CharField(max_length=20, choices=METODO_CHOICES, default=EFECTIVO)
-    notas = models.CharField(max_length=200, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

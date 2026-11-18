@@ -3,6 +3,8 @@ from decimal import Decimal
 from django.db import models
 from django.conf import settings
 
+from core.models import PagoBase
+
 
 class Cliente(models.Model):
     nombre = models.CharField(max_length=200)
@@ -97,24 +99,23 @@ class Pedido(models.Model):
         pagado = sum(p.monto for p in self.pagos.all())
         return self.total_a_cobrar - pagado
 
+    def recalcular_totales(self, items=None):
+        """Pone precio_venta y costo_producto como la suma de sus renglones. No guarda.
 
-class Pago(models.Model):
-    EFECTIVO = 'efectivo'
-    TRANSFERENCIA = 'transferencia'
-    TARJETA = 'tarjeta'
-    OTRO = 'otro'
-    METODO_CHOICES = [
-        (EFECTIVO, 'Efectivo'),
-        (TRANSFERENCIA, 'Transferencia'),
-        (TARJETA, 'Tarjeta'),
-        (OTRO, 'Otro'),
-    ]
+        `items`: los renglones ya en memoria (evita releerlos); si no, se leen de la BD.
+        Única fórmula para todos los flujos salvo `crear_pedido_tienda_bot`, que calcula
+        el costo con el total exacto de cada línea de tenis: con costo_unitario
+        redondeado × cantidad derivaría centavos.
+        """
+        if items is None:
+            items = list(self.items.all())
+        self.precio_venta = sum((i.cantidad * i.precio_unitario for i in items), Decimal('0'))
+        self.costo_producto = sum((i.cantidad * i.costo_unitario for i in items), Decimal('0'))
 
+
+class Pago(PagoBase):
     pedido = models.ForeignKey(Pedido, on_delete=models.CASCADE, related_name='pagos')
-    fecha = models.DateField()
     monto = models.DecimalField(max_digits=10, decimal_places=2)
-    metodo_pago = models.CharField(max_length=20, choices=METODO_CHOICES, default=EFECTIVO)
-    notas = models.CharField(max_length=200, blank=True)
     # Hora en que se REGISTRÓ (no la fecha del movimiento). Desempata contra el
     # arqueo los movimientos del mismo día. NULL en lo grabado antes de 0011.
     created_at = models.DateTimeField(default=timezone.now, null=True, editable=False)

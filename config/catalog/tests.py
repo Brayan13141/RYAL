@@ -2767,3 +2767,37 @@ class HiddenAtTests(TestCase):
         })
         p.refresh_from_db()
         self.assertIsNone(p.hidden_at)
+
+
+class ListadosRenderizanProductosTests(TestCase):
+    """Los listados del catálogo y la API renderizan con un producto real.
+
+    Ninguna otra prueba pintaba un listado con productos: un prefetch a una
+    relación que ya no existe (las variantes de producto) solo lo detectaba la
+    ficha de producto.
+    """
+
+    def setUp(self):
+        self.raiz = Category.objects.create(name="Gorras", slug="gorras")
+        self.sub = Category.objects.create(name="New Era", slug="new-era", parent=self.raiz)
+        self.prod = Product.objects.create(
+            sku="RYL-CAP-900", name="Gorra Listado", category=self.sub,
+            base_price=Decimal("150"), is_active=True,
+        )
+
+    def test_listados_y_busqueda(self):
+        for url in (
+            reverse("catalog:product_list", args=["gorras", "new-era"]),
+            reverse("catalog:search") + "?q=Listado",
+            reverse("catalog:detail", args=[self.prod.pk]),
+        ):
+            with self.subTest(url=url):
+                res = self.client.get(url, follow=True)
+                self.assertEqual(res.status_code, 200)
+                self.assertContains(res, "Gorra Listado")
+
+    def test_api_detalle_sin_variantes(self):
+        res = self.client.get(reverse("api:catalog-product", args=[self.prod.pk]))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["sku"], "RYL-CAP-900")
+        self.assertNotIn("variants", res.json())

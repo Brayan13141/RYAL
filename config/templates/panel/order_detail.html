@@ -148,7 +148,7 @@
         </thead>
         <tbody>
           {% for item in order.items.all %}
-          <tr{% if editable %} data-item="{{ item.pk }}" data-product="{{ item.product_id|default:'' }}" data-variant="{{ item.variant_id|default:'' }}"{% endif %}>
+          <tr{% if editable %} data-item="{{ item.pk }}" data-product="{{ item.product_id|default:'' }}"{% endif %}>
             <td style="padding:6px 8px;">
               {% if item.product %}
                 {% with item.product.images.all as imgs %}
@@ -777,7 +777,7 @@ document.querySelectorAll('tr[data-item]').forEach(tr => {
     try {
       // item_pk: el precio es el de esta cantidad, sin combinarse con el renglón mismo.
       const res = await fetch(urlOpciones(tr.dataset.product,
-        { qty: q, variant_id: tr.dataset.variant, item_pk: tr.dataset.item }));
+        { qty: q, item_pk: tr.dataset.item }));
       if (mio !== seq || !res.ok) return;
       const o = await res.json();
       if (mio !== seq) return;
@@ -920,10 +920,10 @@ async function oeCargarOpciones(reconstruir) {
   try {
     let o;
     try {
-      // Con la variante elegida: si ya está en el pedido, el sugerido es el de la
+      // Con talla/color elegidos: si ya está en el pedido, el sugerido es el de la
       // cantidad combinada (agregar suma a ese renglón).
       const res = await fetch(urlOpciones(oeProducto.id, {
-        qty: oeQty.value, variant_id: oeVal('oeVariante'), size_name: oeVal('oeTalla'),
+        qty: oeQty.value, size_name: oeVal('oeTalla'),
         image_pk: oeColorwayPk(), color: oeVal('oeColor'),
       }));
       if (!oeProducto || mio !== oeSeq) return false;
@@ -943,11 +943,6 @@ async function oeCargarOpciones(reconstruir) {
       oeCampos.replaceChildren();
       const bloque = (txt, nodo) => oeCampos.append(oeEl('label', {}, txt), nodo);
       const recargar = () => oeRefrescar(false);
-      if (o.variants.length) {
-        const sel = oeSelect('oeVariante', 'Elige variante', o.variants.map(v => [v.id, `${v.name} — ${oeMoney(v.price)}`]));
-        sel.addEventListener('change', recargar);
-        bloque('Variante', sel);
-      }
       if (o.sizes.length) {
         const sel = oeSelect('oeTalla', 'Elige talla', o.sizes.map(s => [s, s]));
         sel.addEventListener('change', recargar);
@@ -1048,7 +1043,6 @@ oeGuardar.addEventListener('click', async () => {
   const qty = parseInt(oeQty.value, 10);
   if (!(qty >= 1)) { fallo('Cantidad inválida.'); return; }
   if (oePrecio.value === '') { fallo('Indica el precio.'); return; }  // nunca mandar vacío: el servidor repreciaría
-  if (o.variants.length && !oeVal('oeVariante')) { fallo('Elige la variante.'); return; }
   if (o.sizes.length && !oeVal('oeTalla')) { fallo('Elige la talla.'); return; }
   if (o.colors.length && !oeVal('oeColor')) { fallo('Elige el color.'); return; }
   const cw = oeColorwayPk();
@@ -1057,7 +1051,6 @@ oeGuardar.addEventListener('click', async () => {
     product_id: oeProducto.id,
     qty: qty,
     precio: oePrecio.value,
-    variant_id: oeVal('oeVariante'),
     size_name: oeVal('oeTalla'),
     color: oeVal('oeColor'),
     image_pk: cw,

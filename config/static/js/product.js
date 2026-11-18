@@ -134,81 +134,10 @@ function setQty(n) {
 }
 
 
-// ─── Variantes ───────────────────────────────────────────────────────────────
-
-let selectedVariantId = null;
-
-if (typeof PRODUCT_VARIANTS !== 'undefined' && PRODUCT_VARIANTS.length > 0) {
-  renderVariants();
-}
-
-function renderVariants() {
-  const container = document.getElementById('variantControls');
-  if (!container) return;
-
-  // Agrupar atributos únicos
-  const attrMap = {};
-  PRODUCT_VARIANTS.forEach(v => {
-    if (!v.is_active) return;
-    Object.entries(v.attributes).forEach(([key, val]) => {
-      if (!attrMap[key]) attrMap[key] = new Set();
-      attrMap[key].add(val);
-    });
-  });
-
-  container.innerHTML = Object.entries(attrMap).map(([key, vals]) => `
-    <div class="variant-group">
-      <span class="variant-label">${capitalize(key)}</span>
-      <div class="variant-chips" data-attr="${key}">
-        ${[...vals].map(val => `
-          <button class="chip" data-attr="${key}" data-val="${val}"
-                  onclick="selectVariantAttr('${key}', '${val}', this)">
-            ${val}
-          </button>
-        `).join('')}
-      </div>
-    </div>
-  `).join('');
-}
-
-const selectedAttrs = {};
-
-function selectVariantAttr(key, val, btn) {
-  // Deseleccionar otros en el mismo grupo
-  document.querySelectorAll(`.variant-chips[data-attr="${key}"] .chip`).forEach(c => c.classList.remove('selected'));
-  btn.classList.add('selected');
-  selectedAttrs[key] = val;
-  resolveVariant();
-}
-
-function resolveVariant() {
-  const match = PRODUCT_VARIANTS.find(v => {
-    if (!v.is_active) return false;
-    return Object.entries(v.attributes).every(([k, val]) => selectedAttrs[k] === val);
-  });
-
-  selectedVariantId = match ? match.pk : null;
-
-  if (match) {
-    const price = parseFloat(match.final_price);
-    document.getElementById('ctaPrice').textContent = Math.round(price).toLocaleString('es-MX');
-    const btn = document.getElementById('addToCartBtn');
-    if (btn) btn.dataset.variantId = match.pk;
-  }
-}
-
-
 // ─── Agregar al carrito ──────────────────────────────────────────────────────
 
 document.getElementById('addToCartBtn')?.addEventListener('click', async function () {
   const productId = this.dataset.productId;
-  const variantId = selectedVariantId || null;
-
-  if (PRODUCT_VARIANTS.length > 0 && !selectedVariantId) {
-    showToast('Selecciona una variante primero', 'error');
-    return;
-  }
-
   if (_colorRequiredAndMissing()) {
     showToast('Selecciona un color primero', 'error');
     return;
@@ -225,18 +154,11 @@ document.getElementById('addToCartBtn')?.addEventListener('click', async functio
   const imagePkForCart = (typeof HAS_COLORWAY !== 'undefined' && HAS_COLORWAY && _selectedImagePk)
     ? _selectedImagePk
     : null;
-  await addToCart(productId, variantId, qty, imagePkForCart, colorForCart);
+  await addToCart(productId, null, qty, imagePkForCart, colorForCart);
 
   btn.disabled = false;
   btn.innerHTML = original;
 });
-
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-function capitalize(str) {
-  return str.charAt(0).toUpperCase() + str.slice(1);
-}
 
 
 // ─── Selector de colores / variantes (calzado) ──────────────────────────────

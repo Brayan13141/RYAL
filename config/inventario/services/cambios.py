@@ -11,7 +11,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from inventario.models import Par, fmt_talla
-from inventario.services.ventas import _descripcion
+from inventario.services.ventas import _resincronizar
 from negocio.models import Pago, Pedido, PedidoItem
 
 _METODOS_VALIDOS = {m[0] for m in Pago.METODO_CHOICES}
@@ -93,12 +93,7 @@ def cambiar_par(regresa, nuevo, *, precio, metodo_pago, usuario, danado=False, n
         nuevo.transicionar('vendido', usuario=usuario, origen='escaner', pedido_item=item,
                            nota=f'Cambio: se llevó en lugar de {regresa.codigo}{extra}')
 
-        items = list(pedido.items.all())
-        pedido.precio_venta = sum((i.cantidad * i.precio_unitario for i in items), Decimal('0'))
-        pedido.costo_producto = sum((i.cantidad * i.costo_unitario for i in items), Decimal('0'))
-        pedido.descripcion = _descripcion(
-            len(items), [f'{i.nombre_snapshot} ×{i.cantidad}' for i in items])
-        pedido.save(update_fields=['precio_venta', 'costo_producto', 'descripcion'])
+        _resincronizar(pedido, list(pedido.items.all()))
         if diferencia > 0:
             Pago.objects.create(
                 pedido=pedido, fecha=timezone.localdate(), monto=diferencia,

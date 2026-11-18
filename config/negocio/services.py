@@ -219,6 +219,8 @@ def crear_pedido_tienda_bot(*, items, envio=Decimal('0'), idem_key=None):
         total_costo += costo_linea
         partes_desc.append(f'{nombre_snap[:30]} ×{qty}')
 
+    # No usa Pedido.recalcular_totales(): el costo de los tenis es el total exacto de
+    # la línea, no costo_unitario (redondeado) × cantidad.
     pedido.costo_producto = total_costo
     pedido.descripcion = f'{len(resueltos)} art.: ' + ', '.join(partes_desc)
     pedido.save(update_fields=['costo_producto', 'descripcion'])
@@ -284,8 +286,7 @@ def crear_pedido_bot(*, nombre, telefono, items, envio=Decimal('0'),
         origen=Pedido.BOT,
         idem_key=idem_key or None,
     )
-    total_precio = Decimal('0')
-    total_costo = Decimal('0')
+    creados = []
     partes_desc = []
 
     for item in items:
@@ -293,7 +294,7 @@ def crear_pedido_bot(*, nombre, telefono, items, envio=Decimal('0'),
         qty = _parse_cantidad(item.get('qty', 1))
         costo = _parse_precio(item.get('costo', 0))
         nombre_snap = str(item.get('description', ''))[:200]
-        PedidoItem.objects.create(
+        creados.append(PedidoItem.objects.create(
             pedido=pedido,
             product=None,
             sku_snapshot='BOT',
@@ -301,17 +302,14 @@ def crear_pedido_bot(*, nombre, telefono, items, envio=Decimal('0'),
             cantidad=qty,
             costo_unitario=costo,
             precio_unitario=precio,
-        )
-        total_precio += precio * qty
-        total_costo += costo * qty
+        ))
         partes_desc.append(f'{nombre_snap[:30]} ×{qty}')
 
-    pedido.precio_venta = total_precio
-    pedido.costo_producto = total_costo
+    pedido.recalcular_totales(creados)
     pedido.descripcion = f'Bot: {", ".join(partes_desc)}'
     # El descuento nunca excede el total a cobrar (precio + envío) — el bot ya
     # floorea el total mostrado en WhatsApp, esto evita registrarlo negativo.
-    pedido.descuento_aplicado = min(descuento_d, total_precio + envio_d)
+    pedido.descuento_aplicado = min(descuento_d, pedido.precio_venta + envio_d)
     pedido.save(update_fields=[
         'precio_venta', 'costo_producto', 'descripcion', 'descuento_aplicado',
     ])

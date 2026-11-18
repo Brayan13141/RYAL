@@ -22,6 +22,14 @@ def _descripcion(n_articulos, partes):
     return f'{n_articulos} art.: ' + ', '.join(partes)
 
 
+def _resincronizar(pedido, items):
+    """Totales y descripción del pedido a partir de sus renglones, y guarda."""
+    pedido.recalcular_totales(items)
+    pedido.descripcion = _descripcion(
+        len(items), [f'{i.nombre_snapshot} ×{i.cantidad}' for i in items])
+    pedido.save(update_fields=['precio_venta', 'costo_producto', 'descripcion'])
+
+
 def sin_recibir(par):
     """True si el par llegó físicamente pero su llegada no se escaneó: por recibir, o
     faltante al cerrar el lote. Se puede vender confirmando que se registre la llegada."""
@@ -82,9 +90,7 @@ def vender_pares(lineas, *, metodo_pago, usuario, tipo_venta=None, recibir=froze
             precio_venta=Decimal('0'), envio=Decimal('0'),
             estado=Pedido.PAGADO, origen=Pedido.TIENDA, tipo_venta=tipo_venta)
 
-        total_precio = Decimal('0')
-        total_costo = Decimal('0')
-        partes = []
+        items = []
         for par, precio in lineas:
             p = bloqueados[par.pk]
             nombre = f'{p.tipo.nombre} {p.color.nombre} {fmt_talla(p.talla.mx_cm)}'
@@ -95,9 +101,7 @@ def vender_pares(lineas, *, metodo_pago, usuario, tipo_venta=None, recibir=froze
                 par.transicionar('en_stock', usuario=usuario, origen='escaner',
                                  nota='Recibido al venderlo: no se había escaneado su llegada')
             par.transicionar('vendido', usuario=usuario, origen='escaner', pedido_item=item)
-            total_precio += precio
-            total_costo += p.costo
-            partes.append(f'{nombre} ×1')
+            items.append(item)
 
         for tipo, precio in cantidades:
             item = PedidoItem.objects.create(
@@ -105,17 +109,12 @@ def vender_pares(lineas, *, metodo_pago, usuario, tipo_venta=None, recibir=froze
                 nombre_snapshot=tipo.nombre, cantidad=1,
                 costo_unitario=tipo.costo, precio_unitario=precio)
             registrar_salida(item, tipo, usuario=usuario)
-            total_precio += precio
-            total_costo += tipo.costo
-            partes.append(f'{tipo.nombre} ×1')
+            items.append(item)
 
-        pedido.precio_venta = total_precio
-        pedido.costo_producto = total_costo
-        pedido.descripcion = _descripcion(len(lineas) + len(cantidades), partes)
-        pedido.save(update_fields=['precio_venta', 'costo_producto', 'descripcion'])
+        _resincronizar(pedido, items)
         Pago.objects.create(
             pedido=pedido, fecha=timezone.localdate(),
-            monto=total_precio, metodo_pago=metodo_pago)
+            monto=pedido.precio_venta, metodo_pago=metodo_pago)
     return pedido
 
 
@@ -309,9 +308,5 @@ def quitar_par_de_pedido(par, *, usuario, nota):
         if not items:
             _cancelar_bloqueado(pedido, usuario, nota)
             return
-        pedido.precio_venta = sum((i.cantidad * i.precio_unitario for i in items), Decimal('0'))
-        pedido.costo_producto = sum((i.cantidad * i.costo_unitario for i in items), Decimal('0'))
-        pedido.descripcion = _descripcion(
-            len(items), [f'{i.nombre_snapshot} ×{i.cantidad}' for i in items])
-        pedido.save(update_fields=['precio_venta', 'costo_producto', 'descripcion'])
+        _resincronizar(pedido, items)
         _reembolsar(pedido, precio, nota)

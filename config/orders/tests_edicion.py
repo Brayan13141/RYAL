@@ -7,7 +7,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from catalog.models import (
-    Category, Product, ProductImage, ProductVariant, SizeGroup, VolumeTier,
+    Category, Product, ProductImage, SizeGroup, VolumeTier,
 )
 from orders.edicion import (
     EdicionRechazada, agregar_renglon, cambiar_cantidad, motivo_no_editable,
@@ -71,7 +71,7 @@ class EdicionTests(TestCase):
                 price_snapshot=Decimal(kw.get('price', '200')),
                 cost_snapshot=Decimal(kw['cost']) if 'cost' in kw else Decimal('100'),
                 sku_snapshot=product.sku if product else 'SKU', name_snapshot=product.name if product else 'Viejo',
-                variant_snapshot=nombre_variante(kw.get('size'), kw.get('color'), kw.get('img'), None, None),
+                variant_snapshot=nombre_variante(kw.get('size'), kw.get('color'), kw.get('img'), None),
             )
         return order
 
@@ -107,15 +107,9 @@ class EdicionTests(TestCase):
         self.assertEqual(item.sku_snapshot, 'S1')
         self.assertEqual(item.name_snapshot, 'Sudadera')
         self.assertEqual(item.variant_snapshot, '')
-        self.assertIsNone(item.variant)
 
-    def test_agregar_con_variante_y_talla_arma_variant_snapshot(self):
+    def test_agregar_con_talla_arma_variant_snapshot(self):
         order = self._pedido((self.playera, 1))
-        variante = ProductVariant.objects.create(product=self.sudadera, name='Azul', extra_price=10)
-        item = agregar_renglon(order, self.staff, self.sudadera, 1, variant=variante)
-        self.assertEqual(item.variant_snapshot, 'Azul')
-        self.assertEqual(item.variant, variante)
-        self.assertEqual(item.price_snapshot, Decimal('210.00'))
         item2 = agregar_renglon(order, self.staff, self.con_talla, 1, size_name='M')
         self.assertEqual(item2.variant_snapshot, 'Talla M')
 
@@ -219,12 +213,12 @@ class EdicionTests(TestCase):
     def test_renglon_existente_usa_el_mismo_texto_que_agregar(self):
         order = self._pedido((self.playera, 1))
         self.assertIsNone(renglon_existente(
-            order, self.con_talla, None, variante_texto(self.con_talla, size_name='M')))
+            order, self.con_talla, variante_texto(self.con_talla, size_name='M')))
         item = agregar_renglon(order, self.staff, self.con_talla, 2, size_name='M')
         self.assertEqual(renglon_existente(
-            order, self.con_talla, None, variante_texto(self.con_talla, size_name='M')), item)
+            order, self.con_talla, variante_texto(self.con_talla, size_name='M')), item)
         self.assertIsNone(renglon_existente(
-            order, self.con_talla, None, variante_texto(self.con_talla, size_name='L')))
+            order, self.con_talla, variante_texto(self.con_talla, size_name='L')))
 
     def test_colorways_sin_etiqueta_numeran_como_la_tienda(self):
         # La tienda numera por posición en product.images.all(), no por display_order.

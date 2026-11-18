@@ -600,7 +600,7 @@ def orders_export(request):
 def order_detail(request, pk):
     _pedidos_nuevos_qs().update(seen_at=timezone.now())
     order = get_object_or_404(
-        Order.objects.prefetch_related('items__product__images', 'items__variant', 'payments'),
+        Order.objects.prefetch_related('items__product__images', 'payments'),
         pk=pk,
     )
     motivo = edicion.motivo_no_editable(order)

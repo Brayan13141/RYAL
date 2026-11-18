@@ -17,15 +17,15 @@ class CartKeyColorTests(TestCase):
 
     def test_talla_y_color(self):
         self.assertEqual(
-            _cart_key(7, None, size_name="L", color="Rojo burdeos"),
+            _cart_key(7, size_name="L", color="Rojo burdeos"),
             "7_size_L_color_Rojo burdeos",
         )
 
     def test_solo_color(self):
-        self.assertEqual(_cart_key(7, None, color="Negro"), "7_color_Negro")
+        self.assertEqual(_cart_key(7, color="Negro"), "7_color_Negro")
 
     def test_solo_talla_sin_color_sin_cambios(self):
-        self.assertEqual(_cart_key(7, None, size_name="L"), "7_size_L")
+        self.assertEqual(_cart_key(7, size_name="L"), "7_size_L")
 
 
 class CartAddColorTests(TestCase):

@@ -215,12 +215,11 @@ async function updateCartItem(key, qty) {
 
 function cardQuickAdd(btn) {
   const productId    = btn.dataset.productId;
-  const hasVariants  = btn.dataset.hasVariants  === 'true';
   const hasSizes     = btn.dataset.hasSizes     === 'true';
   const hasColorway  = btn.dataset.hasColorway  === 'true';
   const hasColors    = btn.dataset.hasColors    === 'true';
   const minQty       = parseInt(btn.dataset.minQty || '1', 10);
-  if (hasVariants || hasSizes || hasColors || hasColorway || minQty > 1) {
+  if (hasSizes || hasColors || hasColorway || minQty > 1) {
     window.location.href = `/catalogo/${productId}/`;
     return;
   }

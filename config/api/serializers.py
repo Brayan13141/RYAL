@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from catalog.models import Category, Product, ProductImage, ProductVariant, Tag, HeroSlide, Section, SiteConfig
+from catalog.models import Category, Product, ProductImage, Tag, HeroSlide, Section, SiteConfig
 from orders.models import Order, OrderItem
 
 
@@ -61,14 +61,6 @@ class ProductImageSerializer(serializers.ModelSerializer):
         return None
 
 
-class ProductVariantSerializer(serializers.ModelSerializer):
-    final_price = serializers.DecimalField(max_digits=8, decimal_places=2, read_only=True)
-
-    class Meta:
-        model = ProductVariant
-        fields = ['id', 'name', 'attributes', 'extra_price', 'final_price', 'stock', 'is_active']
-
-
 class ProductListSerializer(serializers.ModelSerializer):
     cover_url = serializers.SerializerMethodField()
     final_price = serializers.DecimalField(max_digits=8, decimal_places=2, read_only=True)
@@ -100,13 +92,12 @@ class ProductListSerializer(serializers.ModelSerializer):
 
 class ProductDetailSerializer(ProductListSerializer):
     images = ProductImageSerializer(many=True, read_only=True)
-    variants = ProductVariantSerializer(many=True, read_only=True)
     tags = TagSerializer(many=True, read_only=True)
     category = CategorySerializer(read_only=True)
 
     class Meta(ProductListSerializer.Meta):
         fields = ProductListSerializer.Meta.fields + [
-            'description', 'base_price', 'images', 'variants', 'tags', 'category',
+            'description', 'base_price', 'images', 'tags', 'category',
         ]
 
 

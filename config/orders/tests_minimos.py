@@ -38,11 +38,11 @@ class MinimosTests(TestCase):
             product, qty = s[0], s[1]
             kw = s[2] if len(s) > 2 else {}
             size, img, color = kw.get('size'), kw.get('img'), kw.get('color')
-            key = _cart_key(product.pk, None, size, img.pk if img else None, color)
+            key = _cart_key(product.pk, size, img.pk if img else None, color)
             item = {
                 'product_id': product.pk,
                 'quantity': qty,
-                'variant_name': nombre_variante(size, color, img, None, None),
+                'variant_name': nombre_variante(size, color, img, None),
             }
             if img:
                 item['image_pk'] = img.pk
@@ -58,7 +58,7 @@ class MinimosTests(TestCase):
                 order=order, product=product, quantity=qty, price_snapshot=100,
                 sku_snapshot=product.sku, name_snapshot=product.name,
                 variant_snapshot=nombre_variante(
-                    kw.get('size'), kw.get('color'), kw.get('img'), None, None),
+                    kw.get('size'), kw.get('color'), kw.get('img'), None),
             )
         return order
 

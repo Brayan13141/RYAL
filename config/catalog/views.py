@@ -282,7 +282,7 @@ def product_list(request, cat_slug, subcat_slug=None):
             Q(category=parent) | Q(category__parent=parent), is_active=True
         ).distinct()
 
-    qs = qs.select_related(*_CARD_SELECT).prefetch_related('images', 'tags', 'variants')
+    qs = qs.select_related(*_CARD_SELECT).prefetch_related('images', 'tags')
     qs = _annotate_final(qs)
     qs, selected_tags, q = _apply_filters(request, qs)
 
@@ -303,7 +303,7 @@ def product_list(request, cat_slug, subcat_slug=None):
                     subsec.products
                     .filter(is_active=True)
                     .select_related(*_CARD_SELECT)
-                    .prefetch_related('images', 'tags', 'variants')
+                    .prefetch_related('images', 'tags')
                     .order_by('display_order', '-created_at')
                 )
                 if not sec_prods:
@@ -326,7 +326,7 @@ def product_list(request, cat_slug, subcat_slug=None):
                 .filter(is_active=True, category=subcat)
                 .exclude(pk__in=assigned_pks)
                 .select_related(*_CARD_SELECT)
-                .prefetch_related('images', 'tags', 'variants')
+                .prefetch_related('images', 'tags')
                 .order_by('display_order', '-created_at')
             )
             if unassigned:
@@ -353,7 +353,7 @@ def product_list(request, cat_slug, subcat_slug=None):
                     Product.objects
                     .filter(is_active=True, category__pk__in=sub_pks)
                     .select_related(*_CARD_SELECT)
-                    .prefetch_related('images', 'tags', 'variants')
+                    .prefetch_related('images', 'tags')
                     .order_by('display_order', '-created_at')
                 )
                 total = sec_qs.count()
@@ -377,7 +377,7 @@ def product_list(request, cat_slug, subcat_slug=None):
                         Product.objects
                         .filter(is_active=True, category=sub)
                         .select_related(*_CARD_SELECT)
-                        .prefetch_related('images', 'tags', 'variants')
+                        .prefetch_related('images', 'tags')
                         .order_by('display_order', '-created_at')
                     )
                     total = sub_qs.count()
@@ -422,7 +422,7 @@ def search_results(request):
         Product.objects
         .filter(is_active=True)
         .select_related(*_CARD_SELECT)
-        .prefetch_related('images', 'tags', 'variants')
+        .prefetch_related('images', 'tags')
     )
     qs = _annotate_final(qs)
     qs, selected_tags, q = _apply_filters(request, qs)
@@ -452,7 +452,7 @@ def product_detail(request, pk):
             'category__parent__size_group',
             'size_group',           # per-product override
         )
-        .prefetch_related('images', 'tags', 'variants'),
+        .prefetch_related('images', 'tags'),
         pk=pk, is_active=True
     )
     related_products = (
@@ -462,18 +462,6 @@ def product_detail(request, pk):
         .prefetch_related('images', 'tags')
         [:4]
     )
-    variants_data = [
-        {
-            'pk':          v.pk,
-            'name':        v.name,
-            'attributes':  v.attributes,
-            'extra_price': float(v.extra_price),
-            'final_price': float(v.final_price),
-            'stock':       v.stock,
-            'is_active':   v.is_active,
-        }
-        for v in product.variants.filter(is_active=True)
-    ]
     base_price = float(product.final_price)
     root       = product.category.parent if product.category.parent_id else product.category
     tiers      = list(root.volume_tiers.values('min_qty', 'discount_amount').order_by('min_qty'))
@@ -522,7 +510,6 @@ def product_detail(request, pk):
     return render(request, 'catalog/detail.html', {
         'product':             product,
         'related_products':    related_products,
-        'variants_json':       json.dumps(variants_data),
         'tiers':               tiers_data,
         'tiers_json':          json.dumps(tiers_data),
         'base_final_price':    base_price,

@@ -3635,3 +3635,40 @@ class ApiVentaTenisTest(TestCase):
         res = self._post('/api/negocio/articulo/buscar/', {'descripcion': 'zzz raro'})
         self.assertFalse(res.json()['match'])
         self.assertEqual(res.json()['falta'], [])
+
+
+class PedidoRecalcularTotalesTest(TestCase):
+    """Pedido.recalcular_totales(): única fórmula de precio y costo desde los renglones."""
+
+    def setUp(self):
+        self.pedido = Pedido.objects.create(
+            cliente=Cliente.objects.create(nombre='Ana', telefono='5210000000001'),
+            costo_producto=Decimal('999'), precio_venta=Decimal('999'))
+        PedidoItem.objects.create(pedido=self.pedido, sku_snapshot='A', nombre_snapshot='A',
+                                  cantidad=2, costo_unitario=Decimal('100.50'),
+                                  precio_unitario=Decimal('250'))
+        PedidoItem.objects.create(pedido=self.pedido, sku_snapshot='B', nombre_snapshot='B',
+                                  cantidad=1, costo_unitario=Decimal('40'),
+                                  precio_unitario=Decimal('90'))
+
+    def test_suma_cantidad_por_unitario_de_cada_renglon(self):
+        self.pedido.recalcular_totales()
+        self.assertEqual(self.pedido.precio_venta, Decimal('590'))
+        self.assertEqual(self.pedido.costo_producto, Decimal('241.00'))
+
+    def test_no_guarda(self):
+        self.pedido.recalcular_totales()
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.precio_venta, Decimal('999'))
+
+    def test_usa_los_renglones_que_recibe(self):
+        solo_b = list(self.pedido.items.filter(sku_snapshot='B'))
+        self.pedido.recalcular_totales(solo_b)
+        self.assertEqual(self.pedido.precio_venta, Decimal('90'))
+        self.assertEqual(self.pedido.costo_producto, Decimal('40'))
+
+    def test_sin_renglones_da_cero(self):
+        self.pedido.items.all().delete()
+        self.pedido.recalcular_totales()
+        self.assertEqual(self.pedido.precio_venta, Decimal('0'))
+        self.assertEqual(self.pedido.costo_producto, Decimal('0'))

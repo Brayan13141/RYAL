@@ -10,7 +10,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_GET, require_POST
 
-from catalog.models import Product, ProductImage, ProductVariant
+from catalog.models import Product, ProductImage
 from orders import edicion
 from orders.edicion import EdicionRechazada
 from orders.models import Order, OrderItem
@@ -102,7 +102,6 @@ def order_product_options(request, pk, product_pk):
     if product.effective_has_colorway and len(imagenes) > 1:
         colorways = [{'pk': i.pk, 'label': i.color_label, 'thumb': _thumb(i)} for i in imagenes]
 
-    variantes = list(product.variants.filter(is_active=True))
     min_qty = product.effective_min_qty
 
     get = request.GET
@@ -112,10 +111,6 @@ def order_product_options(request, pk, product_pk):
             qty = min_qty
     except ValueError:
         qty = min_qty
-    variante = None
-    variant_id = get.get('variant_id', '').strip()
-    if variant_id.isdigit():
-        variante = next((v for v in variantes if v.pk == int(variant_id)), None)
     imagen = None
     image_pk = get.get('image_pk', '').strip()
     if image_pk.isdigit():
@@ -126,8 +121,8 @@ def order_product_options(request, pk, product_pk):
     # item_pk lo pide una fila que cambia su propia cantidad: no se combina.
     existente = None
     if not get.get('item_pk', '').strip():
-        existente = edicion.renglon_existente(order, product, variante, edicion.variante_texto(
-            product, variante, get.get('size_name', '').strip() or None, imagen,
+        existente = edicion.renglon_existente(order, product, edicion.variante_texto(
+            product, get.get('size_name', '').strip() or None, imagen,
             get.get('color', '').strip() or None))
     qty_precio = qty + existente.quantity if existente else qty
 
@@ -140,9 +135,8 @@ def order_product_options(request, pk, product_pk):
         'sizes': sizes,
         'colors': product.variant_colors or [],
         'colorways': colorways,
-        'variants': [{'id': v.pk, 'name': v.name, 'price': float(v.final_price)} for v in variantes],
         'min_qty': min_qty,
-        'sugerido': float(edicion.precio_sugerido(product, qty_precio, variante)),
+        'sugerido': float(edicion.precio_sugerido(product, qty_precio)),
         'costo': costo,
         'existente': {
             'item_pk': existente.pk,
@@ -168,14 +162,6 @@ def order_item_add(request, pk):
         return _error('Producto inválido.')
     product = get_object_or_404(Product, pk=int(product_id))
 
-    variante = None
-    variant_id = post.get('variant_id', '').strip()
-    if variant_id:
-        variante = ProductVariant.objects.filter(
-            pk=int(variant_id) if variant_id.isdigit() else 0, product=product, is_active=True).first()
-        if variante is None:
-            return _error('Esa variante no está disponible.')
-
     imagen = None
     image_pk = post.get('image_pk', '').strip()
     if image_pk:
@@ -186,7 +172,7 @@ def order_item_add(request, pk):
 
     try:
         edicion.agregar_renglon(
-            order, request.user, product, qty, precio=precio, variant=variante,
+            order, request.user, product, qty, precio=precio,
             size_name=post.get('size_name', '').strip() or None,
             image=imagen, color=post.get('color', '').strip() or None)
     except EdicionRechazada as e:
