@@ -104,11 +104,12 @@ class StockPorEstadoTests(InterfazBase):
         self.assertEqual(conteos['vendido'], 0)
         self.assertContains(r, f'href="?estado=por_recibir"')
 
-    def test_las_pestanas_conservan_los_filtros(self):
+    def test_las_pestanas_no_llevan_la_via(self):
         r = self.client.get(reverse('inventario:stock'), {'via': 'aereo'})
-        self.assertContains(r, 'href="?estado=por_recibir&amp;via=aereo"')
+        self.assertContains(r, 'href="?estado=por_recibir"')
+        self.assertNotContains(r, 'href="?estado=por_recibir&amp;via=')
 
-    def test_el_conteo_respeta_el_filtro_de_via(self):
+    def test_el_conteo_no_depende_de_la_via(self):
         r = self.client.get(reverse('inventario:stock'), {'via': 'maritimo'})
         conteos = dict((c['valor'], c['n']) for c in r.context['pestanas'])
-        self.assertEqual(conteos['por_recibir'], 0)
+        self.assertEqual(conteos['por_recibir'], 2)

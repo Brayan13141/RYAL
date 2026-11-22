@@ -191,7 +191,8 @@ class VistasTests(Base):
         self.assertEqual(r.status_code, 302)
         self.assertEqual(Lote.objects.get().flete_por_par, Decimal('50.00'))
 
-    def test_stock_filtra_por_nacional(self):
+    def test_stock_premarca_el_chip_nacional(self):
         r = self.client.get(reverse('inventario:stock'), {'via': 'nacional'})
         self.assertEqual(r.status_code, 200)
-        self.assertContains(r, 'class="inv-filtro-chip is-on" href="?estado=en_stock&amp;via=nacional"')
+        self.assertContains(
+            r, '<button type="button" class="inv-filtro-chip js-via is-on" data-via="nacional" aria-pressed="true">')

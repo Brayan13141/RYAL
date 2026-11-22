@@ -5,15 +5,16 @@ const path = require('node:path');
 
 const f = require(path.join(__dirname, '..', '..', '..', 'static', 'js', 'inventario_stock.js'));
 
-// Jordan 4 (1): negro 27 ×3, negro 26.5 ×1, rojo 27 ×2 · Air Force (2): negro 26.5 ×1, blanco 25 ×4
+// Jordan 4 (1): negro 27 ×3 (2 aéreo + 1 marítimo), negro 26.5 ×1, rojo 27 ×2 · Air Force (2): negro 26.5 ×1, blanco 25 ×4
 const E = [
-  { modelo: '1', color: 'negro', talla: '27', n: 3 },
-  { modelo: '1', color: 'negro', talla: '26.5', n: 1 },
-  { modelo: '1', color: 'rojo', talla: '27', n: 2 },
-  { modelo: '2', color: 'negro', talla: '26.5', n: 1 },
-  { modelo: '2', color: 'blanco', talla: '25', n: 4 },
+  { modelo: '1', color: 'negro', talla: '27', via: 'aereo', n: 2 },
+  { modelo: '1', color: 'negro', talla: '27', via: 'maritimo', n: 1 },
+  { modelo: '1', color: 'negro', talla: '26.5', via: 'aereo', n: 1 },
+  { modelo: '1', color: 'rojo', talla: '27', via: 'aereo', n: 2 },
+  { modelo: '2', color: 'negro', talla: '26.5', via: 'aereo', n: 1 },
+  { modelo: '2', color: 'blanco', talla: '25', via: 'aereo', n: 4 },
 ];
-const sel = (o = {}) => ({ modelo: {}, talla: {}, color: {}, ...o });
+const sel = (o = {}) => ({ modelo: {}, talla: {}, color: {}, via: {}, ...o });
 const set = (...vs) => Object.fromEntries(vs.map(v => [v, true]));
 
 test('sin filtros cuenta todo por talla y por color', () => {
@@ -71,7 +72,32 @@ test('podar una talla y un color que solo se excluyen entre sí deja al menos un
 
 test('pasa respeta los tres filtros', () => {
   const s = sel({ modelo: set('1'), talla: set('27'), color: set('rojo') });
-  assert.equal(f.pasa(E[2], s), true);
+  assert.equal(f.pasa(E[3], s), true);
   assert.equal(f.pasa(E[0], s), false);
   assert.equal(f.pasa(E[0], s, 'color'), true);
+});
+
+test('la vía reduce tallas y colores', () => {
+  assert.deepEqual(f.cuenta(E, sel({ via: set('maritimo') }), 'talla'), { '27': 1 });
+});
+
+test('la vía no se reduce a sí misma', () => {
+  assert.deepEqual(f.cuenta(E, sel({ via: set('maritimo') }), 'via'), { aereo: 10, maritimo: 1 });
+});
+
+test('podar desmarca la vía que el modelo no tiene', () => {
+  assert.deepEqual(f.podar(E, sel({ modelo: set('2'), via: set('maritimo') })).via, {});
+});
+
+test('podar tolera un sel sin via', () => {
+  const s = f.podar(E, { modelo: set('1'), talla: {}, color: {} });
+  assert.deepEqual(s.via, {});
+  assert.equal(f.pasa(E[0], { modelo: {}, talla: {}, color: {} }), true);
+});
+
+test('desglose igual al servidor', () => {
+  assert.equal(f.desglose({ aereo: 4 }), 'A');
+  assert.equal(f.desglose({ aereo: 4, maritimo: 2 }), 'A4 M2');
+  assert.equal(f.desglose({ maritimo: 1, aereo: 0, nacional: 3 }), 'M1 N3');
+  assert.equal(f.desglose({}), '');
 });

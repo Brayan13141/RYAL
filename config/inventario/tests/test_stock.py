@@ -216,13 +216,31 @@ class StockCardsTests(StockBase):
         self.assertContains(r, 'data-talla="27" data-n="3"')
         self.assertContains(r, 'data-talla="26.5" data-n="1"')
 
-    def test_via_en_chips_que_conservan_el_estado(self):
-        r = self.get(estado='por_recibir')
-        self.assertContains(r, 'href="?estado=por_recibir&amp;via=maritimo"')
-        self.assertContains(r, 'href="?estado=por_recibir"')
+    def test_las_celdas_llevan_sus_pares_por_via(self):
+        r = self.get()
+        self.assertContains(r, 'data-talla="27" data-n="3" data-a="2" data-m="1" data-nac="0"')
+        self.assertContains(r, 'data-talla="26.5" data-n="1" data-a="1" data-m="0" data-nac="0"')
+
+    def test_via_son_botones_del_navegador(self):
+        r = self.get()
+        self.assertContains(r, 'data-via="maritimo"')
+        self.assertContains(r, 'id="via-todas"')
+        self.assertNotContains(r, 'href="?estado=en_stock&amp;via=')
+
+    def test_via_en_la_url_premarca_el_chip_y_no_filtra_la_matriz(self):
         r = self.get(via='maritimo')
-        self.assertEqual([t['total'] for t in r.context['tablas']], [1])
-        self.assertContains(r, 'class="inv-filtro-chip is-on" href="?estado=en_stock&amp;via=maritimo"')
+        self.assertEqual(sorted(t['total'] for t in r.context['tablas']), [1, 3])
+        self.assertContains(
+            r, '<button type="button" class="inv-filtro-chip js-via is-on" data-via="maritimo" aria-pressed="true">')
+        self.assertContains(
+            r, '<button type="button" id="via-todas" class="inv-filtro-chip" aria-pressed="false">')
+        self.assertContains(r, 'data-talla="27" data-n="3" data-a="2" data-m="1"')
+
+    def test_conteos_de_pestanas_no_dependen_de_la_via(self):
+        r = self.get(via='maritimo')
+        en_stock = next(p for p in r.context['pestanas'] if p['valor'] == 'en_stock')
+        self.assertEqual(en_stock['n'], 4)
+        self.assertNotIn('via=', en_stock['query'])
 
     def test_sin_desplegables_de_modelo_ni_via(self):
         r = self.get()
@@ -250,6 +268,12 @@ class StockCardsTests(StockBase):
         self.assertEqual(r.context['colores'], [])
         self.assertNotContains(r, 'id="color-todos"')
 
+    def test_buscador_y_lineas_en_la_pagina(self):
+        r = self.get()
+        self.assertContains(r, 'id="stock-buscar"')
+        self.assertContains(r, 'id="stock-entendi"')
+        self.assertContains(r, 'class="inv-filtro-carril"', count=4)
+
     def test_la_pagina_carga_los_filtros_desde_su_archivo(self):
         r = self.get()
         self.assertContains(r, 'js/inventario_stock.js')
@@ -266,6 +290,6 @@ class StockFiltrosJsTests(TestCase):
         if node is None:
             self.skipTest('node no está instalado')
         tests = Path(__file__).resolve().parent / 'js'
-        r = subprocess.run([node, '--test', str(tests / 'stock_filtros.test.js')],
+        r = subprocess.run([node, '--test', *map(str, sorted(tests.glob('*.test.js')))],
                            capture_output=True, text=True, encoding='utf-8', timeout=60)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)

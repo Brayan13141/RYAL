@@ -28,7 +28,9 @@ def _celda(por_via):
         desglose = con[0][0]
     else:
         desglose = ' '.join(f'{letra}{n}' for letra, n in con)
-    return {'n': sum(n for _, n in con), 'desglose': desglose}
+    vias = {'a': por_via.get('aereo', 0), 'm': por_via.get('maritimo', 0),
+            'nac': por_via.get('nacional', 0)}
+    return {'n': sum(n for _, n in con), 'desglose': desglose, 'vias': vias}
 
 
 def _clave_color(color):
@@ -81,24 +83,21 @@ def _tablas(matriz):
     return tablas, tallas, colores
 
 
-def _chips_via(estado, via):
-    """Chips de vía como enlaces: cambiar de vía conserva el estado elegido."""
+def _chips_via(via):
+    """Chips de vía: los pinta el navegador; `via` (de la URL) solo los deja premarcados."""
     opciones = [(None, 'Todas')] + list(VIAS.items())
-    return [{'etiqueta': nombre, 'on': valor == via,
-             'query': urlencode({'estado': estado, **({'via': valor} if valor else {})})}
-            for valor, nombre in opciones]
+    return [{'valor': valor, 'etiqueta': nombre, 'on': valor == via} for valor, nombre in opciones]
 
 
-def _pestanas(base_id, via):
-    """Una pestaña por estado con su conteo (con los mismos filtros de modelo y vía) y el
-    query string que conserva esos filtros: así lo dado de alta y aún sin recibir se ve."""
+def _pestanas(base_id):
+    """Una pestaña por estado con su conteo (con el mismo filtro de modelo; la vía no
+    cuenta porque se filtra en el navegador) y el query string que conserva ese filtro:
+    así lo dado de alta y aún sin recibir se ve."""
     qs = Par.objects.all()
     if base_id is not None:
         qs = qs.filter(tipo__padre_id=base_id)
-    if via is not None:
-        qs = qs.filter(tipo__via=via)
     n = dict(qs.values_list('estado').annotate(c=Count('pk')))
-    filtros = {k: v for k, v in (('base_id', base_id), ('via', via)) if v is not None}
+    filtros = {'base_id': base_id} if base_id is not None else {}
     return [{'valor': valor, 'etiqueta': etiqueta, 'n': n.get(valor, 0),
              'query': urlencode({'estado': valor, **filtros})}
             for valor, etiqueta in ESTADOS]
@@ -116,12 +115,12 @@ def stock(request):
     bases = TipoArticulo.objects.filter(padre__isnull=True, variantes__isnull=False).distinct()
     if base_id is not None and not bases.filter(pk=base_id).exists():
         base_id = None
-    tablas, tallas, colores = _tablas(matriz_stock(base_id=base_id, via=via, estado=estado))
+    tablas, tallas, colores = _tablas(matriz_stock(base_id=base_id, via=None, estado=estado))
     return render(request, 'inventario/stock.html', {
-        'pestanas': _pestanas(base_id, via),
+        'pestanas': _pestanas(base_id),
         'tablas': tablas, 'tallas': tallas, 'colores': colores,
-        'chips_via': _chips_via(estado, via),
+        'chips_via': _chips_via(via),
         'alertas': alertas(),
-        'bases': bases, 'base_id': base_id, 'via': via, 'vias': VIAS,
+        'bases': bases, 'base_id': base_id,
         'estado': estado, 'estados': ESTADOS, 'estado_label': dict(ESTADOS)[estado].lower(),
     })

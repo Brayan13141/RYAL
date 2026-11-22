@@ -6,7 +6,7 @@
 <div class="inv-head">
   <div>
     <h1 class="inv-title">Stock</h1>
-    <p class="inv-sub">Pares por modelo, color y talla MX. Cada celda separa lo que llegó por avión (A) y por barco (M). Prende varios chips para ver solo esos modelos o tallas.</p>
+    <p class="inv-sub">Pares por modelo, color y talla MX. Cada celda separa lo que llegó por avión (A), barco (M) y nacional (N). Escribe en el buscador o prende chips para filtrar.</p>
   </div>
 </div>
 
@@ -19,33 +19,47 @@
 </nav>
 
 <div class="mb-4">
-  <div class="inv-filtros mb-3" role="group" aria-label="Filtrar por vía">
-    <span class="small inv-muted"><i class="bi bi-truck"></i> Vía</span>
-    {% for c in chips_via %}<a class="inv-filtro-chip{% if c.on %} is-on{% endif %}" href="?{{ c.query }}"{% if c.on %} aria-current="page"{% endif %}>{{ c.etiqueta }}</a>
-    {% endfor %}
-  </div>
   {% if tablas %}
-  <div class="inv-filtros mb-3" role="group" aria-label="Filtrar por modelo">
-    <span class="small inv-muted"><i class="bi bi-funnel"></i> Modelo</span>
-    <button type="button" id="filtro-todos" class="inv-filtro-chip is-on" aria-pressed="true">Todos <span class="inv-filtro-n">{{ tablas|length }}</span></button>
-    {% for t in tablas %}<button type="button" class="inv-filtro-chip js-filtro" data-modelo="{{ t.base.pk }}" aria-pressed="false">{{ t.base.nombre }} <span class="inv-filtro-n">{{ t.total }} par{{ t.total|pluralize:",es" }}</span></button>
-    {% endfor %}
+  <div class="inv-buscar">
+    <i class="bi bi-search" aria-hidden="true"></i>
+    <input type="search" id="stock-buscar" class="form-control" placeholder="Buscar: jordan 4 negro 27" autocomplete="off" aria-label="Buscar modelo, color, talla o vía" aria-describedby="stock-entendi">
+    <button type="button" id="stock-buscar-limpiar" class="inv-buscar-x" aria-label="Borrar la búsqueda y los filtros">✕</button>
   </div>
-  <div class="inv-filtros mb-3" role="group" aria-label="Filtrar por talla">
+  <p id="stock-entendi" aria-live="polite" hidden></p>
+  <div class="inv-filtro-linea" role="group" aria-label="Filtrar por modelo">
+    <span class="small inv-muted"><i class="bi bi-funnel"></i> Modelo</span>
+    <div class="inv-filtro-carril">
+      <button type="button" id="filtro-todos" class="inv-filtro-chip is-on" aria-pressed="true">Todos <span class="inv-filtro-n">{{ tablas|length }}</span></button>
+      {% for t in tablas %}<button type="button" class="inv-filtro-chip js-filtro" data-modelo="{{ t.base.pk }}" aria-pressed="false">{{ t.base.nombre }} <span class="inv-filtro-n">{{ t.total }} par{{ t.total|pluralize:",es" }}</span></button>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="inv-filtro-linea" role="group" aria-label="Filtrar por talla">
     <span class="small inv-muted"><i class="bi bi-rulers"></i> Talla</span>
-    <button type="button" id="talla-todas" class="inv-filtro-chip is-on" aria-pressed="true">Todas</button>
-    {% for t in tallas %}<button type="button" class="inv-filtro-chip js-talla" data-talla="{{ t.clave }}" aria-pressed="false">{{ t.clave }} <span class="inv-filtro-n">{{ t.n }} par{{ t.n|pluralize:",es" }}</span></button>
-    {% endfor %}
+    <div class="inv-filtro-carril">
+      <button type="button" id="talla-todas" class="inv-filtro-chip is-on" aria-pressed="true">Todas</button>
+      {% for t in tallas %}<button type="button" class="inv-filtro-chip js-talla" data-talla="{{ t.clave }}" aria-pressed="false">{{ t.clave }} <span class="inv-filtro-n">{{ t.n }} par{{ t.n|pluralize:",es" }}</span></button>
+      {% endfor %}
+    </div>
   </div>
   {% if colores %}
-  <div class="inv-filtros mb-3" role="group" aria-label="Filtrar por color">
+  <div class="inv-filtro-linea" role="group" aria-label="Filtrar por color">
     <span class="small inv-muted"><i class="bi bi-palette"></i> Color</span>
-    <button type="button" id="color-todos" class="inv-filtro-chip is-on" aria-pressed="true">Todos</button>
-    {% for c in colores %}<button type="button" class="inv-filtro-chip js-color" data-color="{{ c.clave }}" aria-pressed="false">{{ c.nombre }} <span class="inv-filtro-n">{{ c.n }} par{{ c.n|pluralize:",es" }}</span></button>
-    {% endfor %}
+    <div class="inv-filtro-carril">
+      <button type="button" id="color-todos" class="inv-filtro-chip is-on" aria-pressed="true">Todos</button>
+      {% for c in colores %}<button type="button" class="inv-filtro-chip js-color" data-color="{{ c.clave }}" aria-pressed="false">{{ c.nombre }} <span class="inv-filtro-n">{{ c.n }} par{{ c.n|pluralize:",es" }}</span></button>
+      {% endfor %}
+    </div>
   </div>
   {% endif %}
   {% endif %}
+  <div class="inv-filtro-linea" role="group" aria-label="Filtrar por vía">
+    <span class="small inv-muted"><i class="bi bi-truck"></i> Vía</span>
+    <div class="inv-filtro-carril">
+      {% for c in chips_via %}{% if c.valor %}<button type="button" class="inv-filtro-chip js-via{% if c.on %} is-on{% endif %}" data-via="{{ c.valor }}" aria-pressed="{% if c.on %}true{% else %}false{% endif %}">{{ c.etiqueta }}</button>{% else %}<button type="button" id="via-todas" class="inv-filtro-chip{% if c.on %} is-on{% endif %}" aria-pressed="{% if c.on %}true{% else %}false{% endif %}">{{ c.etiqueta }}</button>{% endif %}
+      {% endfor %}
+    </div>
+  </div>
 </div>
 
 {% if alertas.ventas_bot_sin_par or alertas.lotes_abiertos_con_faltantes or alertas.vendidos_bot_sin_escaneo %}
@@ -93,7 +107,7 @@
           {% for f in t.filas %}
           <tr class="js-fila" data-color="{{ f.clave_color }}">
             <td>{{ f.color.nombre|capfirst }}</td>
-            {% for c in f.celdas %}<td data-talla="{{ c.clave }}" data-n="{{ c.n }}"><span class="inv-cell {% if not c.n %}h0{% elif c.n >= 4 %}h3{% elif c.n >= 2 %}h2{% else %}h1{% endif %}">{% if c.n %}<b>{{ c.n }}</b><i>{{ c.desglose }}</i>{% else %}·{% endif %}</span></td>{% endfor %}
+            {% for c in f.celdas %}<td data-talla="{{ c.clave }}" data-n="{{ c.n }}" data-a="{{ c.vias.a }}" data-m="{{ c.vias.m }}" data-nac="{{ c.vias.nac }}"><span class="inv-cell {% if not c.n %}h0{% elif c.n >= 4 %}h3{% elif c.n >= 2 %}h2{% else %}h1{% endif %}">{% if c.n %}<b>{{ c.n }}</b><i>{{ c.desglose }}</i>{% else %}·{% endif %}</span></td>{% endfor %}
             <td class="tot"><b class="js-fila-tot">{{ f.total }}</b></td>
           </tr>
           {% endfor %}
@@ -123,6 +137,26 @@
 {% include "inventario/_filtros_css.html" %}
 <style>
   a.inv-filtro-chip { text-decoration: none; }
+  /* Buscador: el mismo input del inventario (borde dorado al enfocar), con lupa y ✕. */
+  .inv-buscar { position: relative; max-width: 460px; }
+  .inv-buscar .bi-search { position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+    color: var(--inv-mute); pointer-events: none; }
+  .inv-buscar .form-control { padding-left: 36px; padding-right: 44px; }
+  .inv-buscar input[type=search]::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+  .inv-buscar-x { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px;
+    border: 0; border-radius: var(--inv-r-sm); background: transparent; color: var(--inv-mute); font-size: 14px; line-height: 1; }
+  .inv-buscar-x:hover { color: var(--inv-ink); background: var(--inv-raise-2); }
+  #stock-entendi { margin: 8px 0 0; font-size: 12.5px; color: var(--inv-ink); }
+  /* Una línea por filtro, etiqueta arriba y chips en un carril que se desliza de lado. */
+  .inv-filtro-linea { margin-top: 12px; min-width: 0; }
+  .inv-filtro-linea > .small { display: block; margin-bottom: 6px; }
+  .inv-filtro-carril { display: flex; flex-wrap: nowrap; gap: 8px; overflow-x: auto; padding: 3px 2px;
+    scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); }
+  .inv-filtro-carril::-webkit-scrollbar { display: none; }
+  /* Hueco al final: el último chip puede salir del desvanecido. */
+  .inv-filtro-carril::after { content: ''; flex: 0 0 32px; }
+  .inv-filtro-carril > .inv-filtro-chip { flex: 0 0 auto; white-space: nowrap; }
   /* Dentro de la card la tabla no lleva su propia caja: la card ya la tiene. */
   .inv-lote-card .inv-table-wrap { border: 0; border-radius: 0; background: transparent; margin: 0 -16px; }
   .inv-lote-card .inv-matrix th:first-child, .inv-lote-card .inv-matrix td:first-child { min-width: 110px; }
@@ -135,5 +169,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/inventario_stock.js' %}"></script>
+<script src="{% static 'js/inventario_stock.js' %}?v=20261121"></script>
 {% endblock %}
