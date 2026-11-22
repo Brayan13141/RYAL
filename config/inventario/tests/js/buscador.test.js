@@ -92,3 +92,53 @@ test('texto vacío', () => {
     assert.deepEqual(r.sobra, []);
   }
 });
+
+// repartir: la línea "Entendí" contra lo que de verdad quedó prendido.
+const clave = (e) => e.v;
+const H = [{ dim: 'modelo', v: '1' }, { dim: 'color', v: 'blanco' }, { dim: 'talla', v: '27' }];
+const S = (o = {}) => ({ modelo: {}, talla: {}, color: {}, via: {}, ...o });
+
+test('repartir: lo prendido es entendido y lo apagado queda sin pares', () => {
+  const r = f.repartir(H, S({ modelo: { 1: true }, talla: { 27: true } }), S(), clave);
+  assert.deepEqual(r.si.map(clave), ['1', '27']);
+  assert.deepEqual(r.sinPares.map(clave), ['blanco']);
+});
+
+test('repartir: lo que se apagó a mano no se presenta como sin pares', () => {
+  const r = f.repartir(H, S({ talla: { 27: true } }), S({ modelo: { 1: true } }), clave);
+  assert.deepEqual(r.si.map(clave), ['27']);
+  assert.deepEqual(r.sinPares.map(clave), ['blanco']);
+});
+
+test('repartir: lo que se prendió a mano tampoco va en la línea', () => {
+  const r = f.repartir(H, S({ color: { blanco: true } }), S({ color: { blanco: true } }), clave);
+  assert.deepEqual(r.sinPares.map(clave), ['1', '27']);
+  assert.deepEqual(r.si, []);
+});
+
+// Filtros en la URL, para que las pestañas no los pierdan.
+test('queryDeFiltros agrega lo marcado a mano y el texto al query de la pestaña', () => {
+  const q = f.queryDeFiltros('estado=vendido&base_id=3',
+    S({ modelo: { 1: true, 2: true }, talla: { 27: true }, via: { aereo: true } }), 'negro 27');
+  const p = new URLSearchParams(q);
+  assert.equal(p.get('estado'), 'vendido');
+  assert.equal(p.get('base_id'), '3');
+  assert.deepEqual(p.getAll('modelo'), ['1', '2']);
+  assert.deepEqual(p.getAll('talla'), ['27']);
+  assert.deepEqual(p.getAll('via'), ['aereo']);
+  assert.equal(p.get('q'), 'negro 27');
+  assert.equal(p.has('color'), false);
+});
+
+test('queryDeFiltros sin filtros deja el query tal cual', () => {
+  assert.equal(f.queryDeFiltros('estado=en_stock', S(), '  '), 'estado=en_stock');
+});
+
+test('filtrosDeQuery lee lo que escribió queryDeFiltros', () => {
+  const r = f.filtrosDeQuery('?estado=vendido&modelo=1&modelo=2&color=negro+total&via=maritimo&q=jordan+4');
+  assert.deepEqual(Object.keys(r.sel.modelo), ['1', '2']);
+  assert.deepEqual(Object.keys(r.sel.color), ['negro total']);
+  assert.deepEqual(Object.keys(r.sel.via), ['maritimo']);
+  assert.deepEqual(r.sel.talla, {});
+  assert.equal(r.texto, 'jordan 4');
+});

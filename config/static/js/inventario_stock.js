@@ -122,8 +122,82 @@
     return res;
   }
 
+  // ¿`a` va antes que `b`? Listas de posiciones del mismo largo, en orden.
+  function antes(a, b) {
+    for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i];
+    return false;
+  }
+
+  // Qué fichas de la búsqueda prender sobre lo ya marcado (`base`). hallazgos: [{dim, v}] en
+  // el orden del texto. Gana el grupo más grande en el que cada ficha tiene pares con las
+  // demás; a igual tamaño, el que conserva lo escrito primero. Devuelve sus posiciones.
+  // Una búsqueda trae pocas fichas: se prueban todas las combinaciones (con más de 8, de
+  // una en una en el orden del texto).
+  function elegir(entradas, base, hallazgos) {
+    var n = hallazgos.length;
+    function valen(idx) {
+      var s = { modelo: Object.assign({}, base.modelo), talla: Object.assign({}, base.talla),
+                color: Object.assign({}, base.color), via: Object.assign({}, base.via || {}) };
+      for (var i = 0; i < idx.length; i++) {
+        if (hallazgos[idx[i]].v == null) return false;
+        s[hallazgos[idx[i]].dim][hallazgos[idx[i]].v] = true;
+      }
+      return idx.every(function (i) {
+        var h = hallazgos[i];
+        return (cuenta(entradas, s, h.dim)[h.v] || 0) > 0;
+      });
+    }
+    var mejor = [];
+    if (n > 8) {
+      for (var j = 0; j < n; j++) if (valen(mejor.concat([j]))) mejor.push(j);
+      return mejor;
+    }
+    for (var mask = 1; mask < (1 << n); mask++) {
+      var idx = [];
+      for (var k = 0; k < n; k++) if (mask & (1 << k)) idx.push(k);
+      if (idx.length < mejor.length || (idx.length === mejor.length && !antes(idx, mejor))) continue;
+      if (valen(idx)) mejor = idx;
+    }
+    return mejor;
+  }
+
+  // La línea "Entendí" contra lo que de verdad quedó prendido: lo prendido es entendido, lo
+  // apagado queda "sin pares". Lo que se tocó a mano después de buscar (`aMano`) no va en
+  // ninguna de las dos: ya no es lo que dijo la búsqueda.
+  function repartir(entendido, sel, aMano, clave) {
+    var r = { si: [], sinPares: [] };
+    entendido.forEach(function (h) {
+      var v = clave(h);
+      if (aMano[h.dim] && aMano[h.dim][v]) return;
+      (sel[h.dim][v] ? r.si : r.sinPares).push(h);
+    });
+    return r;
+  }
+
+  // Query de una pestaña + lo marcado a mano + el texto del buscador (`q`).
+  function queryDeFiltros(base, manual, texto) {
+    var p = new URLSearchParams(base);
+    DIMS.forEach(function (d) {
+      Object.keys(manual[d] || {}).forEach(function (v) { p.append(d, v); });
+    });
+    var t = String(texto == null ? '' : texto).trim();
+    if (t) p.set('q', t);
+    return p.toString();
+  }
+
+  // Lo inverso: los filtros y el texto que trae la URL.
+  function filtrosDeQuery(search) {
+    var p = new URLSearchParams(search), sel = { modelo: {}, talla: {}, color: {}, via: {} };
+    DIMS.forEach(function (d) {
+      p.getAll(d).forEach(function (v) { if (v) sel[d][v] = true; });
+    });
+    return { sel: sel, texto: p.get('q') || '' };
+  }
+
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { pasa: pasa, cuenta: cuenta, podar: podar, desglose: desglose, normalizar: normalizar, interpretar: interpretar };
+    module.exports = { pasa: pasa, cuenta: cuenta, podar: podar, desglose: desglose, normalizar: normalizar,
+                       interpretar: interpretar, elegir: elegir, repartir: repartir,
+                       queryDeFiltros: queryDeFiltros, filtrosDeQuery: filtrosDeQuery };
     return;
   }
 
@@ -141,9 +215,20 @@
     return s.trim();
   }
 
+  // Las pestañas recargan la página: su enlace lleva lo marcado a mano y el texto buscado.
+  var pestanas = [];
+  function pintarPestanas(manual, texto) {
+    pestanas.forEach(function (a) {
+      a.setAttribute('href', '?' + queryDeFiltros(a.dataset.query, manual, texto));
+    });
+  }
+
   function iniciar() {
+    pestanas = Array.prototype.slice.call(document.querySelectorAll('.js-pestana'));
+    var desdeUrl = filtrosDeQuery(window.location.search);
     var cards = document.querySelectorAll('.js-card');
-    if (!cards.length) return;
+    // Sin pares no hay chips, pero los filtros siguen viajando a las otras pestañas.
+    if (!cards.length) { pintarPestanas(desdeUrl.sel, desdeUrl.texto); return; }
     var chips = {
       modelo: document.querySelectorAll('.js-filtro'),
       talla: document.querySelectorAll('.js-talla'),
@@ -163,6 +248,7 @@
     var sel = vacios();          // vacío = sin filtro
     var selBusqueda = vacios();  // lo que prendió la última búsqueda (no lo marcado a mano)
     var marcadoEn = vacios();    // valor → número de orden en que se marcó
+    var aMano = vacios();        // lo tocado a mano después de la última búsqueda
     var contador = 0;
 
     function valor(chip, dim) { return chip.dataset[dim]; }  // data-modelo / data-talla / data-color / data-via
@@ -292,6 +378,11 @@
       pintarChips('modelo');
       DIMS.forEach(reordenar);
       pintarEntendi();
+      var manual = vacios();
+      DIMS.forEach(function (d) {
+        Object.keys(sel[d]).forEach(function (v) { if (!selBusqueda[d][v]) manual[d][v] = true; });
+      });
+      pintarPestanas(manual, buscar ? buscar.value : '');
     }
 
     DIMS.forEach(function (dim) {
@@ -299,11 +390,13 @@
         c.addEventListener('click', function () {
           var v = valor(c, dim);
           delete selBusqueda[dim][v];  // tocado a mano: la próxima búsqueda no lo apaga
+          aMano[dim][v] = true;         // y deja de contar en "Entendí"
           if (sel[dim][v]) delete sel[dim][v]; else prender(dim, v);
           aplicar();
         });
       });
       if (todos[dim]) todos[dim].addEventListener('click', function () {
+        if (ultima) ultima.entendido.forEach(function (h) { if (h.dim === dim) aMano[dim][claveDe(h)] = true; });
         sel[dim] = {};
         selBusqueda[dim] = {};
         aplicar();
@@ -331,17 +424,14 @@
       return it && it.clave;
     }
 
-    // "Entendí" de la última búsqueda, contra lo que de verdad quedó prendido: lo que
-    // `podar` soltó (no tiene pares con lo demás) no se presume entendido, va atenuado.
+    // "Entendí" de la última búsqueda, contra lo que de verdad quedó prendido (ver `repartir`).
     var ultima = null;
     function pintarEntendi() {
       if (!entendi) return;
       entendi.textContent = '';
       if (!ultima) { entendi.hidden = true; return; }
-      var si = [], sinPares = [];
-      ultima.entendido.forEach(function (h) {
-        (sel[h.dim][claveDe(h)] ? si : sinPares).push(textoEntendido(h));
-      });
+      var r = repartir(ultima.entendido, sel, aMano, claveDe);
+      var si = r.si.map(textoEntendido), sinPares = r.sinPares.map(textoEntendido);
       var algo = false;
       function parte(txt, atenuado) {
         var nodo = atenuado ? document.createElement('span') : document.createTextNode('');
@@ -364,16 +454,20 @@
         Object.keys(selBusqueda[dim]).forEach(function (v) { delete sel[dim][v]; });
         selBusqueda[dim] = {};
       });
-      // En el orden del texto, cada ficha se prende solo si tiene pares con lo ya prendido:
-      // así "jordan 4 blanco 27" deja Jordan 4 + 27 aunque Jordan 4 no tenga blanco (si no,
-      // podar soltaría la talla por culpa del color). Lo que no entra queda "sin pares".
-      if (r) r.entendido.forEach(function (h) {
-        var v = claveDe(h);
-        if (v == null || sel[h.dim][v]) return;  // ya estaba marcado a mano: se respeta
-        if (!cuenta(entradas, sel, h.dim)[v]) return;
-        prender(h.dim, v);
-        selBusqueda[h.dim][v] = true;
-      });
+      aMano = vacios();
+      // Se prende el grupo más grande de fichas con pares juntas (ver `elegir`): así
+      // "jordan 4 blanco 27" deja Jordan 4 + 27 aunque Jordan 4 no tenga blanco, y
+      // "25 jordan 4 negro" no deja que el 25 tape a Jordan 4 negro. Lo que no entra queda
+      // "sin pares".
+      if (r) {
+        var hs = r.entendido.map(function (h) { return { dim: h.dim, v: claveDe(h) }; });
+        elegir(entradas, sel, hs).forEach(function (i) {
+          var x = hs[i];
+          if (sel[x.dim][x.v]) return;  // ya estaba marcado a mano: se respeta
+          prender(x.dim, x.v);
+          selBusqueda[x.dim][x.v] = true;
+        });
+      }
       aplicar();  // también repinta "Entendí" con lo que sobrevivió a podar
     }
 
@@ -389,15 +483,23 @@
       sel = vacios();
       selBusqueda = vacios();
       marcadoEn = vacios();
+      aMano = vacios();
       ultima = null;
       aplicar();
       if (buscar) buscar.focus();
     });
 
-    // `?via=` de enlaces viejos: el chip llega marcado desde el servidor.
-    chips.via.forEach(function (c) { if (c.classList.contains('is-on')) prender('via', valor(c, 'via')); });
+    // Filtros de la URL (los trae una pestaña) y `?via=` de enlaces viejos, que el servidor ya
+    // dejó marcado: se prenden los que existen en esta pestaña; lo demás se ignora.
+    DIMS.forEach(function (dim) {
+      chips[dim].forEach(function (c) {
+        var v = valor(c, dim);
+        if (desdeUrl.sel[dim][v] || (dim === 'via' && c.classList.contains('is-on'))) prender(dim, v);
+      });
+    });
+    if (buscar && !buscar.value && desdeUrl.texto) buscar.value = desdeUrl.texto;
     aplicar();
-    // El navegador puede devolver el texto al volver atrás: se vuelve a leer.
+    // El texto (de la URL, o el que el navegador devuelve al volver atrás) se vuelve a leer.
     if (buscar && buscar.value) buscarAhora();
   }
 

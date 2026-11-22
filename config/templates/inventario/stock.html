@@ -12,7 +12,7 @@
 
 <nav class="inv-seg mb-4" aria-label="Estado de los pares">
   {% for p in pestanas %}
-  <a href="?{{ p.query }}" class="{% if p.valor == estado %}is-active{% endif %}"{% if p.valor == estado %} aria-current="page"{% endif %}>
+  <a href="?{{ p.query }}" data-query="{{ p.query }}" class="js-pestana{% if p.valor == estado %} is-active{% endif %}"{% if p.valor == estado %} aria-current="page"{% endif %}>
     {{ p.etiqueta }} <span class="n">{{ p.n }}</span>
   </a>
   {% endfor %}
@@ -52,7 +52,6 @@
     </div>
   </div>
   {% endif %}
-  {% endif %}
   <div class="inv-filtro-linea" role="group" aria-label="Filtrar por vía">
     <span class="small inv-muted"><i class="bi bi-truck"></i> Vía</span>
     <div class="inv-filtro-carril">
@@ -60,6 +59,7 @@
       {% endfor %}
     </div>
   </div>
+  {% endif %}
 </div>
 
 {% if alertas.ventas_bot_sin_par or alertas.lotes_abiertos_con_faltantes or alertas.vendidos_bot_sin_escaneo %}
@@ -169,5 +169,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/inventario_stock.js' %}?v=20261121"></script>
+<script src="{% static 'js/inventario_stock.js' %}?v=20261122"></script>
 {% endblock %}

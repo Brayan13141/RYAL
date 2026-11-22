@@ -101,3 +101,41 @@ test('desglose igual al servidor', () => {
   assert.equal(f.desglose({ maritimo: 1, aereo: 0, nacional: 3 }), 'M1 N3');
   assert.equal(f.desglose({}), '');
 });
+
+// elegir: qué fichas de la búsqueda se prenden. Gana el grupo más grande con pares juntos;
+// a igual tamaño, el que conserva lo escrito primero.
+const h = (dim, v) => ({ dim, v });
+
+test('elegir prende todo lo que tiene pares junto', () => {
+  assert.deepEqual(f.elegir(E, sel(), [h('modelo', '1'), h('color', 'negro'), h('talla', '27')]), [0, 1, 2]);
+});
+
+test('elegir no deja que lo primero escrito tape dos fichas compatibles', () => {
+  // 25 solo existe en Air Force blanco; Jordan 4 negro sí existe: se quedan esos dos.
+  assert.deepEqual(f.elegir(E, sel(), [h('talla', '25'), h('modelo', '1'), h('color', 'negro')]), [1, 2]);
+});
+
+test('elegir a igual tamaño se queda con lo escrito primero', () => {
+  // 25 y rojo no tienen pares juntos; cada uno solo sí.
+  assert.deepEqual(f.elegir(E, sel(), [h('talla', '25'), h('color', 'rojo')]), [0]);
+  assert.deepEqual(f.elegir(E, sel(), [h('color', 'rojo'), h('talla', '25')]), [0]);
+});
+
+test('elegir respeta lo marcado a mano', () => {
+  // Con Air Force marcado a mano, rojo no tiene pares; 25 sí.
+  assert.deepEqual(f.elegir(E, sel({ modelo: set('2') }), [h('color', 'rojo'), h('talla', '25')]), [1]);
+});
+
+test('elegir con valores de la misma dimensión los suma', () => {
+  assert.deepEqual(f.elegir(E, sel(), [h('talla', '25'), h('talla', '27')]), [0, 1]);
+});
+
+test('elegir descarta lo que no tiene ningún par', () => {
+  assert.deepEqual(f.elegir(E, sel(), [h('color', 'verde'), h('talla', '27')]), [1]);
+  assert.deepEqual(f.elegir(E, sel(), []), []);
+});
+
+test('elegir con más de 8 fichas prende de una en una en el orden del texto', () => {
+  const hs = [h('talla', '25'), h('modelo', '1')].concat(Array(7).fill(h('talla', '25')));
+  assert.deepEqual(f.elegir(E, sel(), hs), [0, 2, 3, 4, 5, 6, 7, 8]);
+});

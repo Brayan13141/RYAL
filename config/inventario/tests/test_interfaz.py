@@ -109,6 +109,18 @@ class StockPorEstadoTests(InterfazBase):
         self.assertContains(r, 'href="?estado=por_recibir"')
         self.assertNotContains(r, 'href="?estado=por_recibir&amp;via=')
 
+    def test_sin_pares_no_salen_los_filtros_de_via(self):
+        r = self.client.get(reverse('inventario:stock'), {'estado': 'vendido'})
+        self.assertEqual(r.context['tablas'], [])
+        self.assertNotContains(r, 'id="via-todas"')
+        self.assertNotContains(r, 'js-via')
+        r = self.client.get(reverse('inventario:stock'), {'estado': 'por_recibir'})
+        self.assertContains(r, 'id="via-todas"')
+
+    def test_las_pestanas_llevan_su_query_para_sumarle_los_filtros(self):
+        r = self.client.get(reverse('inventario:stock'))
+        self.assertContains(r, 'href="?estado=vendido" data-query="estado=vendido" class="js-pestana')
+
     def test_el_conteo_no_depende_de_la_via(self):
         r = self.client.get(reverse('inventario:stock'), {'via': 'maritimo'})
         conteos = dict((c['valor'], c['n']) for c in r.context['pestanas'])

@@ -192,6 +192,10 @@ class VistasTests(Base):
         self.assertEqual(Lote.objects.get().flete_por_par, Decimal('50.00'))
 
     def test_stock_premarca_el_chip_nacional(self):
+        # Con pares: sin ellos la línea de Vía no se pinta.
+        crear_lote(via='nacional', origen='manual', usuario=self.user,
+                   lineas=[self.linea(self.variante())])
+        Par.objects.update(estado='en_stock')
         r = self.client.get(reverse('inventario:stock'), {'via': 'nacional'})
         self.assertEqual(r.status_code, 200)
         self.assertContains(
