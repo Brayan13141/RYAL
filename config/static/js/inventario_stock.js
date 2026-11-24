@@ -118,8 +118,90 @@
 
     hallazgos.sort(function (a, b) { return a.pos - b.pos; });
     res.entendido = hallazgos.map(function (h) { return { dim: h.dim, nombre: h.nombre }; });
-    res.sobra = palabras.filter(function (p, i) { return !usada[i]; });
+    res.sobra = [];
+    res.sobraPos = [];  // posición de cada palabra de `sobra` entre las palabras del texto
+    palabras.forEach(function (p, i) { if (!usada[i]) { res.sobra.push(p); res.sobraPos.push(i); } });
     return res;
+  }
+
+  // Distancia de edición entre dos palabras; cambiar dos letras vecinas de lugar cuenta 1.
+  function distancia(a, b) {
+    var d = [], i, j;
+    for (i = 0; i <= a.length; i++) { d[i] = [i]; }
+    for (j = 0; j <= b.length; j++) d[0][j] = j;
+    for (i = 1; i <= a.length; i++) {
+      for (j = 1; j <= b.length; j++) {
+        var costo = a[i - 1] === b[j - 1] ? 0 : 1;
+        d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + costo);
+        if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+          d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+        }
+      }
+    }
+    return d[a.length][b.length];
+  }
+
+  function esNumero(p) { return /^\d+(?:\.\d+)?$/.test(p); }
+
+  // Qué tanto se parece la palabra escrita `s` a la palabra del nombre `w`:
+  // 3 igual · 2 prefijo (≥2 letras) · 1 error de dedo (≥4 letras) · 0 nada. Números: solo iguales.
+  function parecido(s, w) {
+    if (s === w) return 3;
+    if (esNumero(s) || esNumero(w)) return 0;
+    if (s.length >= 2 && w.indexOf(s) === 0) return 2;
+    if (s.length >= 4 && distancia(s, w) <= (s.length >= 7 ? 2 : 1)) return 1;
+    return 0;
+  }
+
+  // Modelos que podrían ser lo que no se entendió (`sobra`). Solo los que tienen pares
+  // (`conPares`) y no están prendidos; máximo 5, los más parecidos y con más pares primero.
+  // `usadas`: índices de `sobra` que aportaron, para reemplazarlos al elegir.
+  function sugerir(sobra, modelos, conPares, prendidos) {
+    var res = [];
+    (modelos || []).forEach(function (m, idx) {
+      if (!conPares[m.clave] || (prendidos && prendidos[m.clave])) return;
+      var ws = normalizar(m.nombre).split(' ').filter(Boolean);
+      var puntos = 0, usadas = [], conLetras = false;
+      sobra.forEach(function (s, k) {
+        var mejor = 0;
+        ws.forEach(function (w) { mejor = Math.max(mejor, parecido(s, w)); });
+        if (!mejor) return;
+        puntos += mejor;
+        usadas.push(k);
+        if (!esNumero(s)) conLetras = true;
+      });
+      if (conLetras) res.push({ clave: m.clave, nombre: m.nombre, n: conPares[m.clave], usadas: usadas, p: puntos, i: idx });
+    });
+    res.sort(function (a, b) { return (b.p - a.p) || (b.n - a.n) || (a.i - b.i); });
+    return res.slice(0, 5).map(function (r) { return { clave: r.clave, nombre: r.nombre, n: r.n, usadas: r.usadas }; });
+  }
+
+  // Suma a `posiciones` las palabras pegadas a ellas que ya son parte de `nombre`: con
+  // "jordan 4 retr" y "Jordan 4 Retro", el "jordan 4" que la búsqueda ya había tomado como
+  // otro modelo se va con la elección, en vez de dejar prendidos los dos.
+  function ampliarPosiciones(texto, posiciones, nombre) {
+    var palabras = String(texto == null ? '' : texto).split(/\s+/).filter(Boolean).map(normalizar);
+    var delNombre = {};
+    normalizar(nombre).split(' ').forEach(function (w) { if (w) delNombre[w] = true; });
+    var dentro = {};
+    posiciones.forEach(function (p) { dentro[p] = true; });
+    var ini = Math.min.apply(null, posiciones), fin = Math.max.apply(null, posiciones);
+    while (ini > 0 && delNombre[palabras[ini - 1]]) dentro[--ini] = true;
+    while (fin < palabras.length - 1 && delNombre[palabras[fin + 1]]) dentro[++fin] = true;
+    return Object.keys(dentro).map(Number).sort(function (a, b) { return a - b; });
+  }
+
+  // Cambia las palabras en `posiciones` por `nombre` (en la primera de ellas) y quita las demás.
+  function reemplazarPalabras(texto, posiciones, nombre) {
+    var palabras = String(texto == null ? '' : texto).split(/\s+/).filter(Boolean);
+    var primera = Math.min.apply(null, posiciones), quitar = {};
+    posiciones.forEach(function (p) { quitar[p] = true; });
+    var out = [];
+    palabras.forEach(function (p, i) {
+      if (i === primera) out.push(nombre);
+      else if (!quitar[i]) out.push(p);
+    });
+    return out.join(' ');
   }
 
   // ¿`a` va antes que `b`? Listas de posiciones del mismo largo, en orden.
@@ -197,7 +279,9 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = { pasa: pasa, cuenta: cuenta, podar: podar, desglose: desglose, normalizar: normalizar,
                        interpretar: interpretar, elegir: elegir, repartir: repartir,
-                       queryDeFiltros: queryDeFiltros, filtrosDeQuery: filtrosDeQuery };
+                       queryDeFiltros: queryDeFiltros, filtrosDeQuery: filtrosDeQuery,
+                       distancia: distancia, sugerir: sugerir, reemplazarPalabras: reemplazarPalabras,
+                       ampliarPosiciones: ampliarPosiciones };
     return;
   }
 
@@ -469,6 +553,94 @@
         });
       }
       aplicar();  // también repinta "Entendí" con lo que sobrevivió a podar
+      pintarSugerencias();
+    }
+
+    // ── Sugerencias: modelos parecidos a lo que no se entendió, para elegir uno ──
+    var cajaSug = document.getElementById('stock-sugerencias-caja');
+    var listaSug = document.getElementById('stock-sugerencias');
+    var sugerencias = [], activa = -1;
+
+    function marcarActiva(i) {
+      activa = i;
+      Array.prototype.forEach.call(listaSug.children, function (li, k) {
+        li.classList.toggle('is-activa', k === i);
+        li.setAttribute('aria-selected', k === i ? 'true' : 'false');
+      });
+      if (i >= 0) buscar.setAttribute('aria-activedescendant', listaSug.children[i].id);
+      else buscar.removeAttribute('aria-activedescendant');
+    }
+
+    function cerrarSugerencias() {
+      sugerencias = [];
+      if (!cajaSug) return;
+      cajaSug.hidden = true;
+      listaSug.textContent = '';
+      buscar.setAttribute('aria-expanded', 'false');
+      buscar.removeAttribute('aria-activedescendant');
+      activa = -1;
+    }
+
+    function pintarSugerencias() {
+      if (!cajaSug || !buscar) return;
+      // Solo mientras se escribe: al cargar una pestaña con `q` no se abre sola.
+      sugerencias = (ultima && ultima.sobra.length && document.activeElement === buscar)
+        ? sugerir(ultima.sobra, cat.modelos, cuenta(entradas, sel, 'modelo'), sel.modelo) : [];
+      if (!sugerencias.length) { cerrarSugerencias(); return; }
+      listaSug.textContent = '';
+      sugerencias.forEach(function (s, i) {
+        var li = document.createElement('li'), nombre = document.createElement('span'), n = document.createElement('span');
+        li.id = 'sug-' + s.clave;
+        li.setAttribute('role', 'option');
+        li.setAttribute('aria-selected', 'false');
+        li.dataset.i = i;
+        nombre.textContent = s.nombre;
+        n.className = 'inv-filtro-n';
+        n.textContent = pares(s.n);
+        li.appendChild(nombre);
+        li.appendChild(n);
+        listaSug.appendChild(li);
+      });
+      cajaSug.hidden = false;
+      buscar.setAttribute('aria-expanded', 'true');
+      marcarActiva(-1);
+    }
+
+    function elegirSugerencia(i) {
+      var s = sugerencias[i];
+      if (!s || !ultima) return;
+      var pos = ampliarPosiciones(buscar.value, s.usadas.map(function (k) { return ultima.sobraPos[k]; }), s.nombre);
+      buscar.value = reemplazarPalabras(buscar.value, pos, s.nombre);
+      clearTimeout(pausa);
+      buscarAhora();
+      cerrarSugerencias();
+      buscar.focus();
+    }
+
+    if (cajaSug && buscar) {
+      // Tocar una opción no debe quitarle el foco al buscador (el blur cerraría la lista).
+      ['mousedown', 'pointerdown'].forEach(function (ev) {
+        cajaSug.addEventListener(ev, function (e) { e.preventDefault(); });
+      });
+      listaSug.addEventListener('click', function (e) {
+        var li = e.target.closest('li[role=option]');
+        if (li) elegirSugerencia(+li.dataset.i);
+      });
+      buscar.addEventListener('keydown', function (e) {
+        if (cajaSug.hidden) return;
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          var ult = sugerencias.length - 1;
+          marcarActiva(e.key === 'ArrowDown' ? Math.min(activa + 1, ult) : Math.max(activa - 1, 0));
+        } else if (e.key === 'Enter' && activa >= 0) {
+          e.preventDefault();
+          elegirSugerencia(activa);
+        } else if (e.key === 'Escape') {
+          e.preventDefault();  // en un type=search, Escape también borraría el texto
+          cerrarSugerencias();
+        }
+      });
+      buscar.addEventListener('blur', cerrarSugerencias);
     }
 
     var pausa = null;
@@ -485,6 +657,7 @@
       marcadoEn = vacios();
       aMano = vacios();
       ultima = null;
+      cerrarSugerencias();
       aplicar();
       if (buscar) buscar.focus();
     });

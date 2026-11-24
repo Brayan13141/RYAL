@@ -274,6 +274,26 @@ class StockCardsTests(StockBase):
         self.assertContains(r, 'id="stock-entendi"')
         self.assertContains(r, 'class="inv-filtro-carril"', count=4)
 
+    def test_buscador_con_lista_de_sugerencias(self):
+        r = self.get()
+        self.assertContains(r, 'id="stock-sugerencias"')
+        self.assertContains(r, 'role="listbox"')
+        self.assertContains(r, 'role="combobox"')
+        self.assertContains(r, 'aria-controls="stock-sugerencias"')
+        self.assertContains(r, 'inventario_stock.js?v=20261124')
+
+    def test_sin_pares_no_hay_lista_de_sugerencias(self):
+        Par.objects.all().delete()
+        r = self.get()
+        self.assertNotContains(r, 'id="stock-sugerencias"')
+
+    def test_en_pc_las_lineas_muestran_todos_los_chips(self):
+        html = self.get().content.decode()
+        i = html.index('@media (min-width: 768px)')
+        regla = html[i:html.index('}', html.index('.inv-filtro-carril', i)) + 1]
+        self.assertIn('flex-wrap: wrap', regla)
+        self.assertIn('mask-image: none', regla)
+
     def test_la_pagina_carga_los_filtros_desde_su_archivo(self):
         r = self.get()
         self.assertContains(r, 'js/inventario_stock.js')

@@ -22,9 +22,10 @@
   {% if tablas %}
   <div class="inv-buscar">
     <i class="bi bi-search" aria-hidden="true"></i>
-    <input type="search" id="stock-buscar" class="form-control" placeholder="Buscar: jordan 4 negro 27" autocomplete="off" aria-label="Buscar modelo, color, talla o vía" aria-describedby="stock-entendi">
+    <input type="search" id="stock-buscar" class="form-control" placeholder="Buscar: jordan 4 negro 27" autocomplete="off" aria-label="Buscar modelo, color, talla o vía" aria-describedby="stock-entendi" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="stock-sugerencias">
     <button type="button" id="stock-buscar-limpiar" class="inv-buscar-x" aria-label="Borrar la búsqueda y los filtros">✕</button>
   </div>
+  <div id="stock-sugerencias-caja" class="inv-sugerencias" hidden><div class="small inv-muted">¿Buscas?</div><ul id="stock-sugerencias" role="listbox" aria-label="Modelos parecidos"></ul></div>
   <p id="stock-entendi" aria-live="polite" hidden></p>
   <div class="inv-filtro-linea" role="group" aria-label="Filtrar por modelo">
     <span class="small inv-muted"><i class="bi bi-funnel"></i> Modelo</span>
@@ -146,6 +147,15 @@
   .inv-buscar-x { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px;
     border: 0; border-radius: var(--inv-r-sm); background: transparent; color: var(--inv-mute); font-size: 14px; line-height: 1; }
   .inv-buscar-x:hover { color: var(--inv-ink); background: var(--inv-raise-2); }
+  /* Modelos parecidos a lo escrito, para elegir uno. */
+  .inv-sugerencias { max-width: 460px; margin-top: 6px; padding: 8px; border: 1px solid var(--inv-line-2);
+    border-radius: var(--inv-r-sm); background: var(--inv-raise); }
+  .inv-sugerencias > .small { padding: 0 6px 4px; }
+  .inv-sugerencias ul { list-style: none; margin: 0; padding: 0; }
+  .inv-sugerencias li { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    padding: 8px 10px; border: 1px solid transparent; border-radius: var(--inv-r-sm); cursor: pointer;
+    color: var(--inv-ink); font-size: 13.5px; }
+  .inv-sugerencias li:hover, .inv-sugerencias li.is-activa { border-color: var(--inv-gold); background: var(--inv-raise-2); }
   #stock-entendi { margin: 8px 0 0; font-size: 12.5px; color: var(--inv-ink); }
   /* Una línea por filtro, etiqueta arriba y chips en un carril que se desliza de lado. */
   .inv-filtro-linea { margin-top: 12px; min-width: 0; }
@@ -157,6 +167,11 @@
   /* Hueco al final: el último chip puede salir del desvanecido. */
   .inv-filtro-carril::after { content: ''; flex: 0 0 32px; }
   .inv-filtro-carril > .inv-filtro-chip { flex: 0 0 auto; white-space: nowrap; }
+  /* En PC caben todos: los chips bajan de renglón, sin desvanecido ni scroll de lado. */
+  @media (min-width: 768px) {
+    .inv-filtro-carril { flex-wrap: wrap; overflow: visible; -webkit-mask-image: none; mask-image: none; }
+    .inv-filtro-carril::after { content: none; }
+  }
   /* Dentro de la card la tabla no lleva su propia caja: la card ya la tiene. */
   .inv-lote-card .inv-table-wrap { border: 0; border-radius: 0; background: transparent; margin: 0 -16px; }
   .inv-lote-card .inv-matrix th:first-child, .inv-lote-card .inv-matrix td:first-child { min-width: 110px; }
@@ -169,5 +184,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/inventario_stock.js' %}?v=20261122"></script>
+<script src="{% static 'js/inventario_stock.js' %}?v=20261124"></script>
 {% endblock %}
