@@ -280,7 +280,7 @@ class StockCardsTests(StockBase):
         self.assertContains(r, 'role="listbox"')
         self.assertContains(r, 'role="combobox"')
         self.assertContains(r, 'aria-controls="stock-sugerencias"')
-        self.assertContains(r, 'inventario_stock.js?v=20261125')
+        self.assertContains(r, 'inventario_stock.js?v=20261126')
 
     def test_sin_pares_no_hay_lista_de_sugerencias(self):
         Par.objects.all().delete()
@@ -324,7 +324,7 @@ class StockCardsTests(StockBase):
         self.assertContains(r, 'Sin foto', count=1)
 
     def test_stock_js_version(self):
-        self.assertContains(self.get(), 'inventario_stock.js?v=20261125')
+        self.assertContains(self.get(), 'inventario_stock.js?v=20261126')
 
 
 class StockFiltrosJsTests(TestCase):

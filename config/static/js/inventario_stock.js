@@ -330,7 +330,11 @@
     var desdeUrl = filtrosDeQuery(window.location.search);
     var cards = document.querySelectorAll('.js-card');
     // Sin pares no hay chips, pero los filtros siguen viajando a las otras pestañas.
-    if (!cards.length) { pintarPestanas(desdeUrl.sel, desdeUrl.texto); return; }
+    if (!cards.length) {
+      pintarPestanas(desdeUrl.sel, desdeUrl.texto);
+      pintarDescargas(desdeUrl.sel);
+      return;
+    }
     var chips = {
       modelo: document.querySelectorAll('.js-filtro'),
       talla: document.querySelectorAll('.js-talla'),

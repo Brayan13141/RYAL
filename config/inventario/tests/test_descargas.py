@@ -127,6 +127,52 @@ class InternoTests(DescargasViewsBase):
         self.assertIn('Promo', t)
 
 
+class InternoAnchoTests(DescargasViewsBase):
+    def test_pdf_interno_no_corta_montos_con_muchos_precios(self):
+        nombres = ['Precio Facebook', 'Precio Instagram Mayorista', 'Distribuidor Zona Norte',
+                   'Cliente Frecuente', 'Liquidación', 'Tiktok Shop', 'Amazon', 'Mercado Libre',
+                   'Evento Especial']
+        for n in nombres:
+            PrecioVenta.objects.create(tipo=self.base, nombre=n, precio=Decimal('125000'))
+        self.par(costo='125000')
+        t = textos(self.pdf('inventario:stock_pdf_interno'))
+        self.assertIn('125,000.00', t)
+        lineas = t.splitlines()
+        for n in nombres + ['Promo']:
+            self.assertTrue(
+                n in lineas or any(l.endswith('…') and len(l) > 3 and n.startswith(l[:-1])
+                                   for l in lineas), n)
+
+    def test_excel_encabezado_precio_venta_formula_es_texto(self):
+        PrecioVenta.objects.create(tipo=self.base, nombre='=Promo', precio=Decimal('1'))
+        ws = load_workbook(io.BytesIO(self.pdf('inventario:stock_excel_interno')))['Stock']
+        celdas = [c for c in ws[1] if c.value == '=Promo']
+        self.assertEqual(len(celdas), 1)
+        self.assertEqual(celdas[0].data_type, 's')
+
+
+class TallasEnvueltasTests(DescargasViewsBase):
+    def test_envolver_respeta_el_ancho(self):
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+        from inventario.reportes_stock import _envolver
+        items = [f'{30 + i / 2:g}' for i in range(20)]
+        lineas = _envolver('Tallas: ', items, 200, 'Helvetica', 11)
+        self.assertGreater(len(lineas), 1)
+        for l in lineas:
+            self.assertLessEqual(stringWidth(l, 'Helvetica', 11), 200)
+        self.assertEqual(' '.join(' '.join(lineas).replace('Tallas:', '').split()),
+                         ' '.join(items))
+
+    def test_pdf_clientes_con_20_tallas_aparecen_todas(self):
+        from inventario.models import TallaCalzado
+        for i in range(20):
+            t = TallaCalzado.objects.create(mx_cm=Decimal(f'{30 + i / 2}'), orden=100 + i)
+            self.par(talla=t)
+        t = textos(self.pdf('inventario:stock_pdf_clientes'))
+        for i in range(20):
+            self.assertRegex(t, rf'(^|\s){30 + i / 2:g}(\s|$)')
+
+
 class VistasTests(DescargasViewsBase):
     def test_vistas_attachment_y_nombre(self):
         hoy = timezone.localdate().isoformat()

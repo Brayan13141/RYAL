@@ -117,6 +117,17 @@ class InternosTests(DescargasBase):
         self.assertEqual(f['costo_promedio'], Decimal('1100'))
         self.assertEqual(f['valor_costo'], Decimal('2200'))
 
+    def test_interno_aereo_y_maritimo_mismo_grupo_promedia_y_suma(self):
+        self.par(costo='1000')
+        p = self.par_m()
+        Par.objects.filter(pk=p.pk).update(costo=Decimal('1300'))
+        d = datos_internos(SIN_FILTRO)
+        self.assertEqual(len(d['filas']), 1)
+        f = d['filas'][0]
+        self.assertEqual(f['calidad'], 'importado')
+        self.assertEqual(f['costo_promedio'], Decimal('1150'))
+        self.assertEqual(f['valor_costo'], Decimal('2300'))
+
     def test_interno_lote_inicial_flete_none(self):
         self.par()
         Par.objects.update(flete=None)

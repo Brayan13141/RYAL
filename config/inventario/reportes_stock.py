@@ -9,6 +9,7 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
 from negocio.contabilidad_excel import _fila
@@ -26,6 +27,41 @@ def _fecha(fecha):
 
 def _dinero(valor):
     return '' if valor is None else f'{valor:,.2f}'
+
+
+TAM_TABLA, TAM_MINIMO = 7, 5
+ELIPSIS = '…'
+
+
+def _ajustar(texto, ancho, fuente, numerico=False):
+    """(texto, tamaño) que cabe en `ancho` puntos: primero se achica la letra y, si aun así
+    no cabe, el texto se corta con "…". Un número nunca se corta: se achica sin límite."""
+    texto = str(texto)
+    tam = TAM_TABLA
+    while stringWidth(texto, fuente, tam) > ancho and tam > TAM_MINIMO:
+        tam -= 0.25
+    if stringWidth(texto, fuente, tam) <= ancho:
+        return texto, tam
+    if numerico:
+        return texto, max(1, tam * ancho / stringWidth(texto, fuente, tam))
+    while len(texto) > 1 and stringWidth(texto + ELIPSIS, fuente, tam) > ancho:
+        texto = texto[:-1]
+    return texto + ELIPSIS, tam
+
+
+def _envolver(prefijo, items, ancho, fuente, tam):
+    """Líneas que empiezan con `prefijo` (la primera) y que no pasan de `ancho` puntos."""
+    lineas, actual = [], prefijo.rstrip()
+    solo_prefijo = bool(actual)
+    for it in items:
+        prueba = f'{actual} {it}' if solo_prefijo else f'{actual}  {it}' if actual else str(it)
+        solo_prefijo = False
+        if actual and stringWidth(prueba, fuente, tam) > ancho:
+            lineas.append(actual)
+            prueba = str(it)
+        actual = prueba
+    lineas.append(actual)
+    return lineas
 
 
 class _Hoja:
@@ -83,14 +119,17 @@ def pdf_clientes(grupos, fecha):
     if not grupos:
         h.vacio()
     for g in grupos:
-        h.espacio(FOTO + 4 * mm)
-        h.foto(g['foto'], MARGEN, h.y)
         x = MARGEN + FOTO + 6 * mm
+        lineas = _envolver('Tallas:', g['tallas'], h.ancho - MARGEN - x, FUENTE, 11)
+        alto = max(FOTO + 4 * mm, 19 * mm + (len(lineas) - 1) * 5 * mm + 4 * mm)
+        h.espacio(alto)
+        h.foto(g['foto'], MARGEN, h.y)
         h.c.setFont(NEGRITA, 13)
         h.c.drawString(x, h.y - 12 * mm, f"{g['base'].nombre} · {g['color'].capitalize()}")
         h.c.setFont(FUENTE, 11)
-        h.c.drawString(x, h.y - 19 * mm, 'Tallas: ' + '  '.join(g['tallas']))
-        h.y -= FOTO + 4 * mm
+        for i, linea in enumerate(lineas):
+            h.c.drawString(x, h.y - 19 * mm - i * 5 * mm, linea)
+        h.y -= alto
     return h.cerrar()
 
 
@@ -104,13 +143,14 @@ def _tabla_color(h, color, filas, nombres):
     h.c.drawString(MARGEN, h.y, color.capitalize())
     h.y -= 5 * mm
 
-    def renglon(valores, fuente):
-        h.c.setFont(fuente, 7)
+    def renglon(valores, fuente, texto=()):
         for i, v in enumerate(valores):
-            h.c.drawString(MARGEN + i * ancho, h.y, str(v)[:int(ancho / 3.6)])
+            t, tam = _ajustar(v, ancho - 2, fuente, numerico=i not in texto)
+            h.c.setFont(fuente, tam)
+            h.c.drawString(MARGEN + i * ancho, h.y, t)
         h.y -= 4 * mm
 
-    renglon(cols, NEGRITA)
+    renglon(cols, NEGRITA, texto=range(len(cols)))
     for f in filas:
         h.espacio(6 * mm)
         pv = f['precios_venta']
@@ -118,7 +158,7 @@ def _tabla_color(h, color, filas, nombres):
                  f['por_via']['nacional'], f['total'], f['en_camino'],
                  _dinero(f['costo_promedio']), _dinero(f['valor_costo']),
                  _dinero(f['mayoreo']), _dinero(f['menudeo'])]
-                + [_dinero(pv.get(n)) for n in nombres], FUENTE)
+                + [_dinero(pv.get(n)) for n in nombres], FUENTE, texto=(0, 1))
     h.y -= 2 * mm
 
 
@@ -169,7 +209,7 @@ def excel_interno(datos, fecha):
     ws.title = 'Stock'
     cols = (['Modelo', 'Color', 'Talla', 'Calidad', 'Aéreo', 'Marítimo', 'Nacional', 'Total',
              'En camino', 'Costo promedio', 'Mayoreo', 'Menudeo', 'Valor al costo'] + nombres)
-    ws.append(cols)
+    _fila(ws, cols)
     for celda in ws[1]:
         celda.font = Font(bold=True)
     for f in datos['filas']:

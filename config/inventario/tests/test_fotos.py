@@ -1,6 +1,7 @@
 import io
 import shutil
 import tempfile
+from unittest import mock
 
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
@@ -42,6 +43,33 @@ class ReducirFotoTests(VentaBotBase):
         with self.assertRaises(ValueError) as cm:
             reducir_foto(io.BytesIO(b'hola'))
         self.assertIn('Sube una foto JPG o PNG', str(cm.exception))
+
+
+    def test_reducir_foto_rechaza_gif_y_bmp(self):
+        for fmt in ('GIF', 'BMP'):
+            with self.assertRaises(ValueError) as cm:
+                reducir_foto(_imagen((20, 20), fmt))
+            self.assertIn('Sube una foto JPG o PNG', str(cm.exception))
+
+    def test_reducir_foto_rechaza_mas_de_60_megapixeles_sin_cargar_pixeles(self):
+        grande = Image.new('1', (8000, 8000))  # 64 MP, comprimido casi no pesa
+        buf = io.BytesIO()
+        grande.save(buf, 'PNG')
+        buf.seek(0)
+        with mock.patch.object(Image.Image, 'load', side_effect=AssertionError('cargó píxeles')):
+            with self.assertRaises(ValueError) as cm:
+                reducir_foto(buf)
+        self.assertIn('Sube una foto JPG o PNG', str(cm.exception))
+
+    def test_reducir_foto_jpeg_grande_usa_draft(self):
+        r = reducir_foto(_imagen((3200, 2400), 'JPEG'))
+        img = Image.open(io.BytesIO(r.read()))
+        self.assertEqual(img.size, (800, 600))
+
+    def test_reducir_foto_imagen_truncada_es_valueerror(self):
+        datos = _imagen((400, 400), 'PNG').getvalue()
+        with self.assertRaises(ValueError):
+            reducir_foto(io.BytesIO(datos[:len(datos) // 2]))
 
 
 class FotosModeloTests(VentaBotBase):
