@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import cantidad, catalogos, escaner, etiquetas, importar, lote_editar, lotes, stock, tipos
+from .views import cantidad, catalogos, descargas, escaner, etiquetas, importar, lote_editar, lotes, stock, tipos
 
 app_name = 'inventario'
 
@@ -42,6 +42,9 @@ urlpatterns = [
     path('conteos/<int:pk>/corregir/', escaner.conteo_corregir, name='conteo_corregir'),
     path('ventas/<int:pedido_pk>/cancelar/', escaner.venta_cancelar, name='venta_cancelar'),
     path('ventas/par/<str:codigo>/quitar/', escaner.venta_quitar_par, name='venta_quitar_par'),
+    path('descargar/clientes/', descargas.stock_pdf_clientes, name='stock_pdf_clientes'),
+    path('descargar/interno/', descargas.stock_pdf_interno, name='stock_pdf_interno'),
+    path('descargar/interno.xlsx', descargas.stock_excel_interno, name='stock_excel_interno'),
     path('cantidad/', cantidad.stock_cantidad, name='stock_cantidad'),
     path('cantidad/activar/', cantidad.cantidad_activar, name='cantidad_activar'),
     path('cantidad/<int:pk>/ajustar/', cantidad.cantidad_ajustar, name='cantidad_ajustar'),
