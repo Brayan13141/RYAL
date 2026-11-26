@@ -8,6 +8,15 @@
     <h1 class="inv-title">Stock</h1>
     <p class="inv-sub">Pares por modelo, color y talla MX. Cada celda separa lo que llegó por avión (A), barco (M) y nacional (N). Escribe en el buscador o prende chips para filtrar.</p>
   </div>
+  <details class="inv-descargar">
+    <summary class="btn btn-outline-secondary btn-sm"><i class="bi bi-download"></i> Descargar</summary>
+    <div class="inv-descargar-menu">
+      <a class="js-descarga" data-url="{% url 'inventario:stock_pdf_clientes' %}" href="{% url 'inventario:stock_pdf_clientes' %}">PDF para clientes</a>
+      <a class="js-descarga" data-url="{% url 'inventario:stock_pdf_interno' %}" href="{% url 'inventario:stock_pdf_interno' %}">PDF interno</a>
+      <a class="js-descarga" data-url="{% url 'inventario:stock_excel_interno' %}" href="{% url 'inventario:stock_excel_interno' %}">Excel interno</a>
+      <p class="small inv-muted mb-0">Siempre lo que está en el cuarto (y lo que viene en camino, en lo interno)</p>
+    </div>
+  </details>
 </div>
 
 <nav class="inv-seg mb-4" aria-label="Estado de los pares">
@@ -94,6 +103,7 @@
   {% if forloop.first %}<div class="inv-lote-cards" id="cards">{% endif %}
   <section class="inv-lote-card js-card" data-modelo="{{ t.base.pk }}">
     <header class="inv-lote-card-head">
+      {% if t.foto %}<img class="inv-mini" src="{{ t.foto.url }}" alt="" width="40" height="40" loading="lazy">{% else %}<span class="inv-mini inv-muted">Sin foto</span>{% endif %}
       <div class="flex-grow-1">
         <div class="inv-group-name">{{ t.base.nombre }}</div>
         <div class="small inv-muted"><span class="js-card-tot">{{ t.total }}</span> <span class="js-card-par">par{{ t.total|pluralize:",es" }}</span> {{ estado_label }}</div>
@@ -138,6 +148,18 @@
 {% include "inventario/_filtros_css.html" %}
 <style>
   a.inv-filtro-chip { text-decoration: none; }
+  .inv-descargar { position: relative; }
+  .inv-descargar > summary { list-style: none; cursor: pointer; }
+  .inv-descargar > summary::-webkit-details-marker { display: none; }
+  .inv-descargar-menu { position: absolute; right: 0; z-index: 20; min-width: 260px; margin-top: 4px; padding: 8px;
+    border: 1px solid var(--inv-line-2); border-radius: var(--inv-r-sm); background: var(--inv-raise); }
+  .inv-descargar-menu a { display: block; padding: 8px 10px; border-radius: var(--inv-r-sm); color: var(--inv-ink);
+    text-decoration: none; font-size: 13.5px; }
+  .inv-descargar-menu a:hover { background: var(--inv-raise-2); }
+  .inv-descargar-menu p { padding: 4px 10px 2px; }
+  .inv-mini { flex: 0 0 40px; width: 40px; height: 40px; border-radius: var(--inv-r-sm); object-fit: cover;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 10px; text-align: center;
+    line-height: 1.1; border: 1px solid var(--inv-line-2); }
   /* Buscador: el mismo input del inventario (borde dorado al enfocar), con lupa y ✕. */
   .inv-buscar { position: relative; max-width: 460px; }
   .inv-buscar .bi-search { position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
@@ -184,5 +206,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/inventario_stock.js' %}?v=20261124"></script>
+<script src="{% static 'js/inventario_stock.js' %}?v=20261125"></script>
 {% endblock %}

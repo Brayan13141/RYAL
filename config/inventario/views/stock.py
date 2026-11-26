@@ -5,7 +5,7 @@ from django.db.models import Count
 from django.shortcuts import render
 
 from catalog.models import TipoArticulo
-from inventario.models import VIAS, Par, TallaCalzado, fmt_talla
+from inventario.models import VIAS, Par, TallaCalzado, fmt_talla, foto_de
 from inventario.services.stock import alertas, matriz_stock
 from inventario.services.tipos import LETRA_VIA
 
@@ -76,7 +76,7 @@ def _tablas(matriz):
             n = sum(sum(f['tallas'].get(t, vacia).values()) for f in m['colores'])
             por_talla[t] = por_talla.get(t, 0) + n
             totales.append({'clave': fmt_talla(t), 'n': n})
-        tablas.append({'base': m['base'], 'total': m['total'], 'filas': filas,
+        tablas.append({'base': m['base'], 'foto': foto_de(m['base'], None), 'total': m['total'], 'filas': filas,
                        'totales': totales, 'columnas': [fmt_talla(t) for t in columnas]})
     tallas = [{'clave': fmt_talla(t), 'n': por_talla[t]} for t in ordenar(por_talla)]
     colores = [por_color[k] for k in sorted(por_color)]

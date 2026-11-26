@@ -267,6 +267,16 @@
     return p.toString();
   }
 
+  // Query de las descargas: solo modelo, talla, color y vía (sin q, estado ni base_id), cada
+  // dimensión en su orden y sus valores en orden alfabético.
+  function queryDescarga(sel) {
+    var p = new URLSearchParams();
+    DIMS.forEach(function (d) {
+      Object.keys((sel && sel[d]) || {}).sort().forEach(function (v) { p.append(d, v); });
+    });
+    return p.toString();
+  }
+
   // Lo inverso: los filtros y el texto que trae la URL.
   function filtrosDeQuery(search) {
     var p = new URLSearchParams(search), sel = { modelo: {}, talla: {}, color: {}, via: {} };
@@ -279,7 +289,7 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = { pasa: pasa, cuenta: cuenta, podar: podar, desglose: desglose, normalizar: normalizar,
                        interpretar: interpretar, elegir: elegir, repartir: repartir,
-                       queryDeFiltros: queryDeFiltros, filtrosDeQuery: filtrosDeQuery,
+                       queryDeFiltros: queryDeFiltros, filtrosDeQuery: filtrosDeQuery, queryDescarga: queryDescarga,
                        distancia: distancia, sugerir: sugerir, reemplazarPalabras: reemplazarPalabras,
                        ampliarPosiciones: ampliarPosiciones };
     return;
@@ -304,6 +314,14 @@
   function pintarPestanas(manual, texto) {
     pestanas.forEach(function (a) {
       a.setAttribute('href', '?' + queryDeFiltros(a.dataset.query, manual, texto));
+    });
+  }
+
+  // Los enlaces "Descargar" llevan lo que quedó marcado (ya podado).
+  function pintarDescargas(sel) {
+    var q = queryDescarga(sel);
+    document.querySelectorAll('.js-descarga').forEach(function (a) {
+      a.setAttribute('href', a.dataset.url + (q ? '?' + q : ''));
     });
   }
 
@@ -467,6 +485,7 @@
         Object.keys(sel[d]).forEach(function (v) { if (!selBusqueda[d][v]) manual[d][v] = true; });
       });
       pintarPestanas(manual, buscar ? buscar.value : '');
+      pintarDescargas(sel);
     }
 
     DIMS.forEach(function (dim) {

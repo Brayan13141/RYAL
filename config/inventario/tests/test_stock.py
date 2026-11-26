@@ -280,7 +280,7 @@ class StockCardsTests(StockBase):
         self.assertContains(r, 'role="listbox"')
         self.assertContains(r, 'role="combobox"')
         self.assertContains(r, 'aria-controls="stock-sugerencias"')
-        self.assertContains(r, 'inventario_stock.js?v=20261124')
+        self.assertContains(r, 'inventario_stock.js?v=20261125')
 
     def test_sin_pares_no_hay_lista_de_sugerencias(self):
         Par.objects.all().delete()
@@ -297,6 +297,34 @@ class StockCardsTests(StockBase):
     def test_la_pagina_carga_los_filtros_desde_su_archivo(self):
         r = self.get()
         self.assertContains(r, 'js/inventario_stock.js')
+
+    def test_stock_trae_enlaces_descarga(self):
+        r = self.get()
+        for nombre in ('stock_pdf_clientes', 'stock_pdf_interno', 'stock_excel_interno'):
+            self.assertContains(r, f'class="js-descarga" data-url="{reverse("inventario:" + nombre)}"')
+        self.assertContains(r, 'PDF para clientes')
+        self.assertContains(r, 'Excel interno')
+
+    def test_stock_miniatura_sin_foto(self):
+        r = self.get()
+        self.assertContains(r, '<span class="inv-mini inv-muted">Sin foto</span>', count=2)
+
+    def test_stock_miniatura_con_foto(self):
+        import shutil
+        import tempfile
+        from django.core.files.base import ContentFile
+        from django.test import override_settings
+        from inventario.tests.test_descargas import jpeg
+        media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, media, ignore_errors=True)
+        with override_settings(MEDIA_ROOT=media):
+            self.base.foto.save('f.jpg', ContentFile(jpeg()), save=True)
+            r = self.get()
+        self.assertContains(r, '<img class="inv-mini" src="/media/inventario/fotos/')
+        self.assertContains(r, 'Sin foto', count=1)
+
+    def test_stock_js_version(self):
+        self.assertContains(self.get(), 'inventario_stock.js?v=20261125')
 
 
 class StockFiltrosJsTests(TestCase):
