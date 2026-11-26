@@ -663,6 +663,8 @@ class TipoArticulo(models.Model):
     # Gorras y similares: se venden por cantidad (un número por tipo), sin pares
     # ni tallas. Ver inventario.MovimientoCantidad.
     stock_por_cantidad = models.BooleanField(default=False)
+    # Foto del modelo base (las variantes no la tienen). Ver inventario.foto_de.
+    foto = models.ImageField(upload_to='inventario/fotos/', blank=True)
 
     class Meta:
         ordering = ['nombre']
@@ -698,6 +700,9 @@ class TipoArticulo(models.Model):
                                     'la misma keyword exacta (usa una más específica).',
                     })
         # Antes de _clean_variante: si no, su error genérico tapa el de esta regla.
+        if self.padre_id and self.foto:
+            raise ValidationError(
+                {'foto': 'La foto va en el modelo base, no en la variante.'})
         self._clean_stock_por_cantidad()
         self._clean_variante()
         self._clean_prefijo()

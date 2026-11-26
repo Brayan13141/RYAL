@@ -252,6 +252,43 @@ class PrecioVenta(models.Model):
         return f'{self.nombre}: {self.precio}'
 
 
+class FotoColor(models.Model):
+    """Foto de un modelo base en un color; gana sobre la foto del modelo."""
+    tipo = models.ForeignKey(
+        'catalog.TipoArticulo', on_delete=models.CASCADE, related_name='fotos_color')
+    color = models.ForeignKey(Color, on_delete=models.CASCADE, related_name='+')
+    imagen = models.ImageField(upload_to='inventario/fotos/')
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['tipo', 'color'], name='fotocolor_unico'),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.tipo_id and self.tipo.es_variante:
+            raise ValidationError(
+                {'tipo': 'La foto va en el modelo base, no en la variante.'})
+
+    def __str__(self):
+        return f'{self.tipo} · {self.color}'
+
+
+def _existe(campo):
+    return bool(campo) and campo.storage.exists(campo.name)
+
+
+def foto_de(base, color=None):
+    """Foto del color si existe y el color sigue en el modelo; si no, la del modelo; si no, None."""
+    if color is not None and base.colores.filter(pk=color.pk).exists():
+        fc = base.fotos_color.filter(color=color).first()
+        if fc and _existe(fc.imagen):
+            return fc.imagen
+    if _existe(base.foto):
+        return base.foto
+    return None
+
+
 CALIDAD_CHOICES = [('importado', 'Importado'), ('nacional', 'Nacional')]
 # Aéreo y marítimo son el mismo producto importado: solo cambia cómo llegó.
 CALIDAD_DE_VIA = {'aereo': 'importado', 'maritimo': 'importado', 'nacional': 'nacional'}
