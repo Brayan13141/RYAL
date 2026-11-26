@@ -1,10 +1,13 @@
 from django import forms
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import Q
 
 from catalog.models import TipoArticulo
 
-from .models import Color, PrecioLista, PrecioVenta, TallaCalzado, TarifaFlete
+from .models import (
+    Color, FotoColor, PrecioLista, PrecioVenta, TallaCalzado, TarifaFlete, _existe)
+from .services.fotos import reducir_foto
 
 
 class EstiloInv:
@@ -111,6 +114,84 @@ class ColoresModeloForm(EstiloInv, forms.Form):
     def save(self):
         tipo = self.cleaned_data['tipo']
         tipo.colores.set(self.cleaned_data['colores'])
+        return tipo
+
+
+class FotosModeloForm(EstiloInv, forms.Form):
+    """Foto del modelo base y una foto por cada color marcado del modelo."""
+    foto = forms.FileField(required=False, label='Foto del modelo')
+    quitar_foto = forms.BooleanField(required=False, label='Quitar')
+
+    def __init__(self, *args, tipo, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.tipo = tipo
+        self.colores = list(tipo.colores.order_by('nombre'))
+        for c in self.colores:
+            self.fields[f'foto_{c.pk}'] = forms.FileField(required=False, label=c.nombre)
+            self.fields[f'quitar_{c.pk}'] = forms.BooleanField(required=False, label='Quitar')
+            self.fields[f'foto_{c.pk}'].widget.attrs['class'] = 'form-control form-control-sm'
+            self.fields[f'quitar_{c.pk}'].widget.attrs['class'] = 'form-check-input'
+        self.fields['foto'].widget.attrs['class'] = 'form-control form-control-sm'
+        self.fields['quitar_foto'].widget.attrs['class'] = 'form-check-input'
+        self._reducidas = {}
+
+    def filas(self):
+        """Una fila por color para la plantilla: campos y URL de la miniatura (o None)."""
+        actuales = {f.color_id: f for f in self.tipo.fotos_color.all()}
+        filas = []
+        for c in self.colores:
+            fc = actuales.get(c.pk)
+            filas.append({
+                'color': c, 'foto': self[f'foto_{c.pk}'], 'quitar': self[f'quitar_{c.pk}'],
+                'url': fc.imagen.url if fc and _existe(fc.imagen) else None})
+        return filas
+
+    def url_base(self):
+        return self.tipo.foto.url if _existe(self.tipo.foto) else None
+
+    def clean(self):
+        cleaned = super().clean()
+        # Se valida todo antes de escribir: un solo archivo malo cancela el POST entero.
+        for nombre in ['foto'] + [f'foto_{c.pk}' for c in self.colores]:
+            archivo = cleaned.get(nombre)
+            if not archivo:
+                continue
+            try:
+                self._reducidas[nombre] = reducir_foto(archivo)
+            except ValueError as e:
+                self.add_error(nombre, str(e))
+        return cleaned
+
+    @transaction.atomic
+    def save(self):
+        tipo, cleaned = self.tipo, self.cleaned_data
+        viejos = []
+        nueva = self._reducidas.get('foto')
+        if nueva or (cleaned.get('quitar_foto') and tipo.foto):
+            if tipo.foto:
+                viejos.append(tipo.foto.name)
+            if nueva:
+                tipo.foto.save(nueva.name, nueva, save=False)
+            else:
+                tipo.foto = ''
+            tipo.save(update_fields=['foto'])
+        actuales = {f.color_id: f for f in tipo.fotos_color.all()}
+        for c in self.colores:
+            nueva = self._reducidas.get(f'foto_{c.pk}')
+            fc = actuales.get(c.pk)
+            if nueva:
+                if fc is None:
+                    fc = FotoColor(tipo=tipo, color=c)
+                elif fc.imagen:
+                    viejos.append(fc.imagen.name)
+                fc.imagen.save(nueva.name, nueva, save=False)
+                fc.save()
+            elif cleaned.get(f'quitar_{c.pk}') and fc:
+                viejos.append(fc.imagen.name)
+                fc.delete()
+        storage = FotoColor._meta.get_field('imagen').storage
+        for nombre in viejos:
+            storage.delete(nombre)
         return tipo
 
 

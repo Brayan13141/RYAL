@@ -79,6 +79,28 @@
           {% include "inventario/_campos.html" with form=forms.colores_modelo %}
           <button class="btn-g mt-1" type="submit"><i class="bi bi-link-45deg"></i> Guardar colores del modelo</button>
         </form>
+        {% if forms.fotos_modelo %}{% with ff=forms.fotos_modelo %}
+        <hr style="border-color:var(--inv-line)">
+        <h3 class="inv-h3">Fotos de {{ ff.tipo.nombre }}</h3>
+        <p class="small inv-muted">Se reducen a 800 px. La foto de un color gana sobre la del modelo.</p>
+        <form method="post" action="?tab=colores" enctype="multipart/form-data">{% csrf_token %}<input type="hidden" name="accion" value="fotos_modelo"><input type="hidden" name="tipo" value="{{ ff.tipo.pk }}">
+          <div class="mb-3">
+            <label for="{{ ff.foto.id_for_label }}" class="form-label d-flex align-items-center gap-2">{% if ff.url_base %}<img src="{{ ff.url_base }}" alt="" width="48" height="48" style="object-fit:cover;border-radius:6px">{% else %}<span class="inv-muted small">Sin foto</span>{% endif %} Foto del modelo</label>
+            {{ ff.foto }}
+            {% for e in ff.foto.errors %}<div class="small mt-1" style="color:var(--inv-bad)">{{ e }}</div>{% endfor %}
+            {% if ff.url_base %}<div class="form-check mt-1">{{ ff.quitar_foto }} <label class="form-check-label small" for="{{ ff.quitar_foto.id_for_label }}">Quitar foto</label></div>{% endif %}
+          </div>
+          {% for f in ff.filas %}
+          <div class="mb-3">
+            <label for="{{ f.foto.id_for_label }}" class="form-label d-flex align-items-center gap-2">{% if f.url %}<img src="{{ f.url }}" alt="" width="48" height="48" style="object-fit:cover;border-radius:6px">{% else %}<span class="inv-muted small">Sin foto</span>{% endif %} {{ f.color.nombre|capfirst }}</label>
+            {{ f.foto }}
+            {% for e in f.foto.errors %}<div class="small mt-1" style="color:var(--inv-bad)">{{ e }}</div>{% endfor %}
+            {% if f.url %}<div class="form-check mt-1">{{ f.quitar }} <label class="form-check-label small" for="{{ f.quitar.id_for_label }}">Quitar foto</label></div>{% endif %}
+          </div>
+          {% endfor %}
+          <button class="btn-g mt-1" type="submit"><i class="bi bi-image"></i> Guardar fotos</button>
+        </form>
+        {% endwith %}{% endif %}
       </div>
     </div>
   </div>

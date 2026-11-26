@@ -87,3 +87,20 @@ class FotosModeloTests(VentaBotBase):
         self.base.foto.save('base.jpg', self.guardar('base.jpg'))
         default_storage.delete(self.base.foto.name)
         self.assertIsNone(foto_de(self.base, self.negro))
+
+
+class ReducirFotoEndurecidaTests(VentaBotBase):
+    def test_bomba_de_descompresion_es_valueerror(self):
+        from unittest import mock
+        with mock.patch('inventario.services.fotos.Image.open',
+                        side_effect=Image.DecompressionBombError('grande')):
+            with self.assertRaises(ValueError) as cm:
+                reducir_foto(io.BytesIO(b'x'))
+        self.assertIn('Sube una foto JPG o PNG', str(cm.exception))
+
+    def test_png_transparente_se_compone_sobre_blanco(self):
+        buf = io.BytesIO()
+        Image.new('RGBA', (20, 20), (0, 0, 0, 0)).save(buf, 'PNG')
+        buf.seek(0)
+        img = Image.open(io.BytesIO(reducir_foto(buf).read()))
+        self.assertTrue(all(c > 240 for c in img.getpixel((10, 10))))

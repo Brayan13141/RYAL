@@ -7,7 +7,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from catalog.models import TipoArticulo
 from negocio.models import Pedido
 from inventario.forms import (
-    ColorForm, ColoresModeloForm, PrecioListaForm, PrecioListaNuevaForm, PrecioVentaForm,
+    ColorForm, ColoresModeloForm, FotosModeloForm, PrecioListaForm, PrecioListaNuevaForm, PrecioVentaForm,
     TallaForm, TarifaFleteForm, TarifaNuevaForm)
 from inventario.models import CALIDAD_CHOICES, Color, Par, PrecioLista, PrecioVenta, TallaCalzado, TarifaFlete
 
@@ -18,6 +18,7 @@ TABS = [('colores', 'Colores'), ('tallas', 'Tallas'), ('fletes', 'Fletes'),
 _ACCIONES = {
     'color': ('colores', 'Color guardado.'),
     'colores_modelo': ('colores', 'Colores del modelo actualizados.'),
+    'fotos_modelo': ('colores', 'Fotos del modelo actualizadas.'),
     'talla': ('tallas', 'Talla guardada.'),
     'tarifa': ('fletes', 'Tarifa actualizada.'),
     'tarifa_nueva': ('fletes', 'Tarifa dada de alta.'),
@@ -64,12 +65,15 @@ def _instancia(modelo, post):
     return get_object_or_404(modelo, pk=_pk(post.get('pk')))
 
 
-def _formulario(accion, post):
+def _formulario(accion, post, files=None):
     if accion in _EDITABLES:
         modelo, form_cls, _ = _EDITABLES[accion]
         return form_cls(post, instance=_instancia(modelo, post))
     if accion == 'colores_modelo':
         return ColoresModeloForm(post)
+    if accion == 'fotos_modelo':
+        tipo = get_object_or_404(TipoArticulo, pk=_pk(post.get('tipo')), padre__isnull=True)
+        return FotosModeloForm(post, files, tipo=tipo)
     if accion == 'tarifa':
         return TarifaFleteForm(post, instance=get_object_or_404(TarifaFlete, pk=_pk(post.get('tarifa_id'))))
     if accion == 'tarifa_nueva':
@@ -124,7 +128,7 @@ def catalogos(request):
         activa = 'colores'
     forms_vacios = {
         'color': ColorForm(), 'colores_modelo': ColoresModeloForm(),
-        'talla': TallaForm(), 'precio': PrecioVentaForm(),
+        'fotos_modelo': None, 'talla': TallaForm(), 'precio': PrecioVentaForm(),
         'tarifa_nueva': TarifaNuevaForm(), 'precio_lista_nueva': PrecioListaNuevaForm(),
     }
     editando = None  # la fila que está abierta en el formulario de la izquierda
@@ -135,7 +139,7 @@ def catalogos(request):
             return redirect(f'{request.path}?tab={_borrar(request, accion)}')
         if accion in _ESTADOS:
             return redirect(f'{request.path}?tab={_cambiar_estado(request, accion)}')
-        form = _formulario(accion, request.POST)
+        form = _formulario(accion, request.POST, request.FILES)
         if form is None:
             messages.error(request, 'Acción desconocida.')
             return redirect('inventario:catalogos')
@@ -143,6 +147,8 @@ def catalogos(request):
             form.save()
             tab, ok = _ACCIONES[accion]
             messages.success(request, ok)
+            if accion == 'fotos_modelo':
+                return redirect(f'{request.path}?tab={tab}&modelo={form.tipo.pk}#colores-modelo')
             return redirect(f'{request.path}?tab={tab}')
         # Con errores se re-renderiza el formulario fallido en su pestaña.
         activa = _ACCIONES[accion][0]
@@ -166,6 +172,7 @@ def catalogos(request):
                                      padre__isnull=True)
             forms_vacios['colores_modelo'] = ColoresModeloForm(initial={
                 'tipo': tipo.pk, 'colores': [c.pk for c in tipo.colores.all()]})
+            forms_vacios['fotos_modelo'] = FotosModeloForm(tipo=tipo)
 
     modelos = TipoArticulo.objects.filter(padre__isnull=True).prefetch_related(
         'colores', 'precios_venta').order_by('nombre')
