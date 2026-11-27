@@ -61,8 +61,13 @@ class DescargasViewsBase(DescargasBase):
 class PdfClientesTests(DescargasViewsBase):
     def test_pdf_clientes_sin_cantidades_ni_precios(self):
         t = textos(self.pdf('inventario:stock_pdf_clientes'))
-        self.assertIn('Tallas: 26.5  27', t)
+        lineas = t.splitlines()
+        self.assertIn('TALLAS DISPONIBLES', t)
+        self.assertIn('26.5', lineas)  # cada talla en su propio recuadro
+        self.assertIn('27', lineas)
+        self.assertLess(lineas.index('26.5'), lineas.index('27'))
         self.assertIn(self.hoy, t)
+        self.assertIn('¿Cómo leer este catálogo?', t)
         for prohibido in ('$', '1000', '1100', '550', '800', '1200', '500', '700', '950', 'Total'):
             self.assertNotIn(prohibido, t)
 
@@ -125,6 +130,41 @@ class InternoTests(DescargasViewsBase):
         self.assertTrue('1100' in t or '1,100' in t, t)
         self.assertIn(self.hoy, t)
         self.assertIn('Promo', t)
+
+
+class DisenoInternoTests(DescargasViewsBase):
+    def test_pdf_interno_guia_resumen_y_subtotal(self):
+        t = textos(self.pdf('inventario:stock_pdf_interno'))
+        lineas = t.splitlines()
+        self.assertIn('Cómo leer las tablas', t)
+        self.assertIn('PARES EN EL CUARTO', lineas)
+        self.assertIn('$1,100.00', lineas)  # resumen: valor al costo de los 2 pares
+        self.assertIn('Subtotal', lineas)
+        self.assertIn('Valor al costo', lineas)  # encabezado completo, sin abreviar
+        self.assertIn('TOTAL GENERAL', lineas)
+
+    def test_cero_se_muestra_como_raya(self):
+        # Los 2 pares son aéreos: Marítimo y Nacional van en cero → "—".
+        self.assertIn('—', textos(self.pdf('inventario:stock_pdf_interno')).splitlines())
+
+    def test_foto_del_modelo_prefiere_la_base(self):
+        from inventario.reportes_stock import _foto_modelo
+        FotoColor.objects.create(tipo=self.base, color=self.negro,
+                                 imagen=ContentFile(jpeg(), name='c.jpg'))
+        filas = [{'foto': FotoColor.objects.get().imagen}]
+        self.assertEqual(_foto_modelo(self.base, filas).name, filas[0]['foto'].name)
+        self.foto_base()
+        self.assertEqual(_foto_modelo(self.base, filas).name, self.base.foto.name)
+
+    def test_tabla_larga_repite_encabezado_en_cada_pagina(self):
+        from inventario.models import TallaCalzado
+        for i in range(60):
+            self.par(talla=TallaCalzado.objects.create(mx_cm=Decimal(f'{30 + i / 2}'), orden=200 + i))
+        pdf = self.pdf('inventario:stock_pdf_interno')
+        paginas = pdf.count(b'/Type /Page\n') or pdf.count(b'/Type /Page ')
+        lineas = textos(pdf).splitlines()
+        self.assertGreater(lineas.count('Página 2'), 0)
+        self.assertGreaterEqual(lineas.count('Costo prom.'), 2)
 
 
 class InternoAnchoTests(DescargasViewsBase):
