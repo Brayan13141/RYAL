@@ -663,12 +663,33 @@ def tipo_create(request):
 
 @staff_member_required
 def tipo_edit(request, pk):
+    from django.contrib import messages
+    from inventario.services.costo_tipo import (
+        actualizar_costo_pares, pares_con_otro_costo, resumen_por_lote)
     tipo = get_object_or_404(TipoArticulo, pk=pk)
+    costo_antes = tipo.costo
     form = TipoArticuloForm(request.POST or None, instance=tipo)
+    pares_resumen = None
     if form.is_valid():
-        form.save()
-        return redirect('negocio:tipos_list')
-    return render(request, 'negocio/tipo_articulo_form.html', {'form': form, 'titulo': f'Editar — {tipo.nombre}'})
+        costo = form.cleaned_data['costo']
+        decision = request.POST.get('pares_costo')
+        # El costo de un par se graba al crear el lote: cambiar el del tipo no lo toca.
+        pendientes = (list(pares_con_otro_costo(tipo, costo))
+                      if costo != costo_antes else [])
+        if pendientes and decision not in ('actualizar', 'no'):
+            pares_resumen = {'total': len(pendientes), 'lotes': resumen_por_lote(pendientes)}
+        else:
+            tipo = form.save()
+            if pendientes and decision == 'actualizar':
+                hechos, omitidos = actualizar_costo_pares(tipo, usuario=request.user)
+                texto = f'Costo de {tipo.nombre} guardado y aplicado a {hechos} pares sin vender.'
+                if omitidos:
+                    texto += (f' {omitidos} pares no se cambiaron: el costo nuevo es menor '
+                              'que su flete.')
+                messages.success(request, texto)
+            return redirect('negocio:tipos_list')
+    return render(request, 'negocio/tipo_articulo_form.html', {
+        'form': form, 'titulo': f'Editar — {tipo.nombre}', 'pares_resumen': pares_resumen})
 
 
 @staff_member_required

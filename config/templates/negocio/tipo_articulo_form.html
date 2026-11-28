@@ -19,6 +19,12 @@
   .tipo-form #id_colores label:has(input:checked) {
     border-color: var(--pg); color: #e0e0e0; background: rgba(255,255,255,.03);
   }
+  .pares-costo { margin-top: 20px; padding: 14px 16px; border: 1px solid rgba(232,191,90,.35);
+    border-radius: 10px; background: rgba(232,191,90,.08); color: #ccc; font-size: 13px; line-height: 1.5; }
+  .pares-costo-tit { color: #f0d79a; font-weight: 600; font-size: 14px; }
+  .pares-costo p { margin: 8px 0; }
+  .pares-costo ul { margin: 6px 0 8px; padding-left: 18px; color: #e0e0e0; }
+  .pares-costo-nota { color: #888; }
 </style>
 <div class="tipo-form" style="max-width:520px;">
 
@@ -62,10 +68,28 @@
           </div>
           {% endfor %}
         </div>
+        {% if pares_resumen %}
+        <div class="pares-costo">
+          <div class="pares-costo-tit"><i class="bi bi-exclamation-triangle me-1"></i>Hay {{ pares_resumen.total }} pares sin vender de este modelo con otro costo</div>
+          <p>El costo de cada par se grabó al crear su lote, y sus ventas toman el costo del par. Cambiar el costo del modelo no los cambia, a menos que lo elijas aquí.</p>
+          <ul>
+            {% for lote, costo, n in pares_resumen.lotes %}
+            <li>Lote #{{ lote.pk }}{% if lote.referencia %} · {{ lote.referencia }}{% endif %} ({{ lote.get_origen_display|lower }}): {{ n }} par{{ n|pluralize:"es" }} a ${{ costo|floatformat:2 }}</li>
+            {% endfor %}
+          </ul>
+          <p class="pares-costo-nota">Actualízalos si su costo estaba mal. Déjalos si es mercancía que de verdad costó otra cosa (por ejemplo, otra llegada con otro precio del proveedor). Los pares vendidos nunca se cambian.</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button type="submit" name="pares_costo" value="actualizar" class="btn-g"><i class="bi bi-arrow-repeat me-1"></i>Guardar y actualizar los {{ pares_resumen.total }} pares</button>
+            <button type="submit" name="pares_costo" value="no" class="btn-o">Guardar solo el modelo</button>
+            <a href="{% url 'negocio:tipos_list' %}" class="btn-o">Cancelar</a>
+          </div>
+        </div>
+        {% else %}
         <div style="display:flex;gap:10px;margin-top:20px;">
           <a href="{% url 'negocio:tipos_list' %}" class="btn-o">Cancelar</a>
           <button type="submit" class="btn-g"><i class="bi bi-check-circle me-1"></i>Guardar</button>
         </div>
+        {% endif %}
       </form>
     </div>
   </div>
