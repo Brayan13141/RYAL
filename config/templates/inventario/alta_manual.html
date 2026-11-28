@@ -23,7 +23,7 @@
         <div class="inv-ayuda-tit">Inventario inicial <span>usa el costo del tipo</span></div>
         <p>Para pares que ya tenías en la tienda antes de capturarlos aquí.</p>
         <p class="inv-ayuda-formula">Costo de cada par = costo del modelo en Modelos y vías</p>
-        <p class="inv-ayuda-ej">Ese costo <b>ya es el costo total</b>: no se pide proveedor ni flete, y no se le suma ni se le resta flete. Ej.: Timberland táctica N con costo $400 → cada par cuesta <b>$400</b>.</p>
+        <p class="inv-ayuda-ej">Ese costo <b>ya es el costo total</b>: no se pide proveedor ni flete, y no se le suma ni se le resta flete. Ej.: Timberland táctica N con costo $400 → cada par cuesta <b>$400</b>. Si el modelo aún no tiene esa vía, escribe el <b>costo por par</b> en la línea.</p>
       </div>
     </div>
     <ul class="inv-ayuda-notas">
@@ -103,6 +103,10 @@
           <label class="form-label">Precio proveedor</label>
           <input class="form-control i-precio" inputmode="decimal" placeholder="0.00">
         </div>
+        <div class="col-6 col-md-3 costo-wrap d-none">
+          <label class="form-label">Costo por par</label>
+          <input class="form-control i-costo" inputmode="decimal" placeholder="0.00">
+        </div>
       </div>
       <div class="inv-sizes tallas">
         {% for t in tallas %}
@@ -159,9 +163,17 @@
     });
     if (actual) sc.value = actual;
     $('.js-sin-colores', linea).classList.toggle('d-none', !m || m.colores.length > 0);
-    var aviso = $('.js-se-crea', linea), nueva = m && !m.variantes[via.value];
+    avisoVariante(linea);
+  }
+  // Variante que se crea al guardar: su costo sale de un dato de la línea, nunca adivinado.
+  function avisoVariante(linea) {
+    var m = POR_ID[$('.s-tipo', linea).value], nueva = !!(m && !m.variantes[via.value]);
+    var inicial = origen.value === 'inicial', aviso = $('.js-se-crea', linea);
     aviso.classList.toggle('d-none', !nueva);
-    if (nueva) aviso.textContent = 'Se creará «' + m.nombre + '» ' + (VIAS[via.value] || '').toLowerCase() + ' con el costo de Modelos y vías.';
+    $('.costo-wrap', linea).classList.toggle('d-none', !(nueva && inicial));
+    if (nueva) aviso.textContent = 'Se creará «' + m.nombre + '» ' + (VIAS[via.value] || '').toLowerCase() +
+      (inicial ? ' con el costo por par que escribas (el costo total de cada par).'
+               : ' con costo = precio del proveedor + flete del lote.');
   }
   function tipoDe(linea) {
     var m = POR_ID[$('.s-tipo', linea).value];
@@ -192,6 +204,7 @@
     var inicial = origen.value === 'inicial';
     document.querySelectorAll('.precio-wrap, .flete-wrap').forEach(function (w) { w.style.display = inicial ? 'none' : ''; });
     $('#f-origen-ayuda').textContent = origen.options[origen.selectedIndex].dataset.ayuda || '';
+    document.querySelectorAll('.linea').forEach(avisoVariante);
   }
   // El flete sigue a la tarifa de la vía hasta que se escribe a mano.
   var flete = $('#f-flete'), fleteEditado = false;
@@ -227,7 +240,8 @@
       l.querySelectorAll('.i-talla').forEach(function (i) { if (i.value) cant[i.dataset.talla] = parseInt(i.value, 10); });
       lineas.push({
         tipo_id: tipoDe(l), color_id: $('.s-color', l).value || null,
-        cantidades: cant, precio_proveedor: $('.i-precio', l).value.trim() || null
+        cantidades: cant, precio_proveedor: $('.i-precio', l).value.trim() || null,
+        costo_par: $('.costo-wrap', l).classList.contains('d-none') ? null : ($('.i-costo', l).value.trim() || null)
       });
     });
     error('');

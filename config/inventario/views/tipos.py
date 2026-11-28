@@ -8,7 +8,7 @@ from django.shortcuts import redirect, render
 from catalog.models import TipoArticulo
 from inventario.models import VIAS
 from inventario.services.tipos import (
-    costo_sugerido, crear_variante, proveedor_sugerido, tarifas_decimal)
+    VIA_DEL_COSTO_BASE, costo_sugerido, crear_variante, proveedor_sugerido, tarifas_decimal)
 
 _CENTAVOS = Decimal('0.01')
 
@@ -24,6 +24,8 @@ def _filas(tarifas):
         proveedor = proveedor_sugerido(base, tarifas)
         filas.append({
             'base': base, 'proveedor': proveedor, 'con_variantes': bool(por_via),
+            # Desglose de la sugerencia: es una suposición (que el costo del tipo es aéreo).
+            'flete_base': tarifas[VIA_DEL_COSTO_BASE],
             'celdas': [(via, por_via.get(via), costo_sugerido(base, via, tarifas, proveedor))
                        for via in VIAS],
         })

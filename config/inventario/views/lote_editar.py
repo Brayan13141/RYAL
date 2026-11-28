@@ -150,7 +150,9 @@ def lote_editar(request, pk):
             colores = _colores(datos.get('colores') or {})
             # Atómico: si la edición falla, tampoco quedan las variantes creadas al vuelo.
             with transaction.atomic():
-                lineas = _lineas_desde_json({'lineas': crudas}, lote.via) if crudas else []
+                lineas = _lineas_desde_json(
+                    {'lineas': crudas}, lote.via, origen=lote.origen,
+                    flete=lote.flete_por_par) if crudas else []
                 res = editar_lote(lote, cantidades=cantidades, lineas=lineas, colores=colores,
                                   usuario=request.user, version=version)
         except ValueError as e:

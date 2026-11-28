@@ -16,6 +16,8 @@
   .mv-cuenta { font-size: 11.5px; color: var(--inv-mute); font-variant-numeric: tabular-nums; }
   .mv-prov { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; color: var(--inv-mute); }
   .mv-prov input { max-width: 100px; }
+  .mv-prov-origen { max-width: 220px; margin-top: 4px; color: var(--inv-warn); }
+  .mv-prov-origen.is-mano { color: var(--inv-mute); }
   .mv-flete { font-weight: 400; font-size: 11.5px; color: var(--inv-mute); text-transform: none; letter-spacing: 0; }
   .mv-new.is-on label { color: var(--inv-gold); }
   .mv-new.is-on .mv-campo { display: block; }
@@ -52,6 +54,7 @@
             <div class="fw-semibold">{{ f.base.nombre }}</div>
             <div class="inv-muted small">Costo del tipo ${{ f.base.costo|floatformat:2 }}</div>
             <label class="mv-prov">Proveedor $<input type="text" inputmode="decimal" class="form-control form-control-sm js-prov" name="proveedor-{{ f.base.pk }}" value="{{ f.proveedor|stringformat:'s' }}" aria-label="Precio del proveedor de {{ f.base.nombre }}"></label>
+            <div class="mv-cuenta mv-prov-origen js-prov-origen" data-sugerido="Sugerido: ${{ f.base.costo|floatformat:2 }} del tipo − ${{ f.flete_base|floatformat:2 }} de flete aéreo. Si el modelo no es aéreo, revísalo.">Sugerido: ${{ f.base.costo|floatformat:2 }} del tipo − ${{ f.flete_base|floatformat:2 }} de flete aéreo. Si el modelo no es aéreo, revísalo.</div>
           </td>
           {% for via, v, sugerido in f.celdas %}
           <td class="mv-cell">
@@ -103,11 +106,19 @@
       var flete = num(TARIFAS[inp.dataset.via]) || 0, cuenta = inp.parentNode.querySelector('.js-cuenta');
       if (prov === null) { cuenta.textContent = 'proveedor inválido'; return; }
       if (forzar || !inp.dataset.editado) inp.value = (prov + flete).toFixed(2);
-      cuenta.textContent = inp.dataset.editado ? 'capturado a mano' : fmt(prov) + ' + ' + fmt(flete) + ' flete';
+      cuenta.textContent = inp.dataset.editado ? 'capturado a mano' : fmt(prov) + ' proveedor + ' + fmt(flete) + ' flete';
     });
   }
+  // El proveedor sugerido supone que el costo del tipo es aéreo; al escribirlo deja de ser suposición.
+  function origenProveedor(tr) {
+    var nota = tr.querySelector('.js-prov-origen'), mano = !!tr.querySelector('.js-prov').dataset.editado;
+    nota.classList.toggle('is-mano', mano);
+    nota.textContent = mano ? 'Proveedor capturado a mano.' : nota.dataset.sugerido;
+  }
   document.querySelectorAll('.js-fila').forEach(function (tr) {
-    tr.querySelector('.js-prov').addEventListener('input', function () { recalcular(tr); });
+    tr.querySelector('.js-prov').addEventListener('input', function () {
+      this.dataset.editado = '1'; origenProveedor(tr); recalcular(tr);
+    });
     tr.querySelectorAll('.js-costo').forEach(function (inp) {
       inp.addEventListener('input', function () { inp.dataset.editado = '1'; recalcular(tr); });
     });

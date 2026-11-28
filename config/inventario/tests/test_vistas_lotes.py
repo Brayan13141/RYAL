@@ -68,12 +68,13 @@ class AltaManualTests(LotesVistaBase):
         self.assertEqual(r.status_code, 200, r.content)
         self.assertEqual(Lote.objects.get().pares.get().tipo, self.var_a)
 
-    def test_modelo_base_sin_variante_la_crea_con_costo_sugerido(self):
-        # 540 del tipo − 280 aéreo = 260 de proveedor; + 50 nacional = 310.
+    def test_modelo_base_sin_variante_la_crea_con_proveedor_mas_flete(self):
+        # 300 del proveedor de la línea + 50 de flete nacional = 350. Antes se adivinaba
+        # 540 del tipo − 280 aéreo + 50 = 310, y así se desfasó el lote #7.
         r = self.post_alta(via='nacional', lineas=self._linea(self.base.pk))
         self.assertEqual(r.status_code, 200, r.content)
         n = self.base.variante('nacional')
-        self.assertEqual(n.costo, Decimal('310.00'))
+        self.assertEqual(n.costo, Decimal('350.00'))
         self.assertEqual(Lote.objects.get().pares.get().tipo, n)
 
     def test_color_no_asignado_400(self):

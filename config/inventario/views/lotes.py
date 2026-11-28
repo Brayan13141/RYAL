@@ -19,9 +19,10 @@ from inventario import etiquetas
 from inventario.models import (
     VIAS, Color, LecturaRepetida, Lote, MovimientoPar, Par, TallaCalzado, fmt_talla)
 from inventario.services.dinero_lote import dinero_del_lote, vendidos_del_lote
-from inventario.services.lotes import cerrar_lote, crear_lote, leer_flete, tarifas_por_via
+from inventario.services.lotes import (
+    cerrar_lote, crear_lote, flete_del_lote, leer_flete, tarifas_por_via)
 from inventario.services.tallas import CORREGIBLES, corregir_talla
-from inventario.services.tipos import costo_sugerido, crear_variante, tarifas_decimal
+from inventario.services.tipos import crear_variante
 from inventario.validacion import cabe_en
 
 ESTADOS = ['por_recibir', 'en_stock', 'vendido', 'baja']
@@ -67,26 +68,57 @@ def _modelos():
     } for b in bases]
 
 
-def _variante_para(tipo, via, n, tarifas):
-    """La variante de `via` para un modelo base (se crea con el costo sugerido si
-    no existe); una variante se devuelve tal cual y crear_lote valida su vía."""
+def _costo_variante_nueva(linea, n, base, via, origen, flete):
+    """Costo de la variante que se crea al vuelo, sacado de un dato real de la línea:
+    en una llegada, proveedor + flete del lote; en inventario inicial, el costo por par
+    capturado. Nunca se adivina (restar el flete aéreo al costo del modelo dejó el lote
+    #7 $230 abajo por par)."""
+    nombre = f'«{base.nombre}» {VIAS[via].lower()}'
+    if origen == 'inicial':
+        if linea['costo_par'] is None:
+            raise ValueError(
+                f'Línea {n}: {nombre} todavía no existe. Escribe el costo por par para '
+                'crearla (es el costo total de cada par).')
+        return linea['costo_par']
+    if linea['precio_proveedor'] is None:
+        raise ValueError(f'Línea {n}: falta el precio del proveedor de "{base.nombre}".')
+    return linea['precio_proveedor'] + flete
+
+
+def _variante_para(tipo, via, n, costo_de):
+    """La variante de `via` para un modelo base (si no existe se crea con el costo que
+    da `costo_de()`); una variante se devuelve tal cual y crear_lote valida su vía."""
     if tipo.padre_id is not None:
         return tipo
     variante = tipo.variante(via)
     if variante is not None:
         return variante
+    costo = costo_de()
     try:
-        return crear_variante(tipo, via, costo=costo_sugerido(tipo, via, tarifas))
+        return crear_variante(tipo, via, costo=costo)
     except (ValidationError, ValueError) as e:
         detalle = '; '.join(e.messages) if hasattr(e, 'messages') else str(e)
         raise ValueError(f'Línea {n}: no se pudo crear "{tipo.nombre}" {VIAS[via].lower()}: {detalle}')
 
 
-def _lineas_desde_json(datos, via):
+def _monto_de_linea(crudo, n, que):
+    """Decimal >= 0 que cabe en el campo del par, o None si viene vacío."""
+    try:
+        monto = None if crudo in (None, '') else Decimal(str(crudo))
+        if monto is not None and not monto.is_finite():
+            raise InvalidOperation
+    except InvalidOperation:
+        raise ValueError(f'Línea {n}: {que} no es un número válido.')
+    if monto is not None and not cabe_en(Par._meta.get_field('precio_proveedor'), monto):
+        raise ValueError(f'Línea {n}: {que} es demasiado grande.')
+    return monto
+
+
+def _lineas_desde_json(datos, via, *, origen, flete):
     """Convierte el JSON del formulario en líneas para `crear_lote`; ValueError si es inválido.
-    `tipo_id` puede ser el modelo base: se usa (o se crea) su variante de `via`."""
-    lineas, numeros = [], []
-    tarifas = tarifas_decimal()
+    `tipo_id` puede ser el modelo base: se usa (o se crea) su variante de `via`.
+    `origen` y `flete` (por par, del lote) dan el costo de una variante creada al vuelo."""
+    lineas, numeros, costos_par = [], [], {}
     crudas = datos.get('lineas') or []
     if not isinstance(crudas, list):
         raise ValueError('Solicitud inválida.')
@@ -101,15 +133,11 @@ def _lineas_desde_json(datos, via):
         if not tipo.colores_efectivos().filter(pk=color.pk).exists():
             raise ValueError(f'Línea {n}: el color «{color.nombre}» no está asignado a '
                              f'«{tipo.modelo_base.nombre}». Asígnalo en Catálogos.')
-        crudo = l.get('precio_proveedor')
-        try:
-            precio = None if crudo in (None, '') else Decimal(str(crudo))
-            if precio is not None and not precio.is_finite():
-                raise InvalidOperation
-        except InvalidOperation:
-            raise ValueError(f'Línea {n}: el precio del proveedor no es un número válido.')
-        if precio is not None and not cabe_en(Par._meta.get_field('precio_proveedor'), precio):
-            raise ValueError(f'Línea {n}: el precio del proveedor es demasiado grande.')
+        precio = _monto_de_linea(l.get('precio_proveedor'), n, 'el precio del proveedor')
+        costo_par = _monto_de_linea(l.get('costo_par'), n, 'el costo por par')
+        if (precio is not None and precio < 0) or (costo_par is not None and costo_par < 0):
+            raise ValueError(f'Línea {n}: los montos no pueden ser negativos.')
+        costos_par[n] = costo_par
         for talla_txt, cant in (l.get('cantidades') or {}).items():
             if cant in (None, '', 0, '0'):
                 continue
@@ -134,7 +162,10 @@ def _lineas_desde_json(datos, via):
     for n, linea in zip(numeros, lineas):
         tipo = linea['tipo']
         if tipo.pk not in variantes:
-            variantes[tipo.pk] = _variante_para(tipo, via, n, tarifas)
+            dato = {'precio_proveedor': linea['precio_proveedor'], 'costo_par': costos_par[n]}
+            variantes[tipo.pk] = _variante_para(
+                tipo, via, n,
+                lambda: _costo_variante_nueva(dato, n, tipo, via, origen, flete))
         linea['tipo'] = variantes[tipo.pk]
     return lineas
 
@@ -169,7 +200,8 @@ def alta_manual(request):
         try:
             # Atómico: si el lote falla, tampoco quedan las variantes creadas al vuelo.
             with transaction.atomic():
-                lineas = _lineas_desde_json(datos, via)
+                lineas = _lineas_desde_json(
+                    datos, via, origen=origen, flete=flete_del_lote(via, flete))
                 lote = crear_lote(
                     via=via, origen=origen, lineas=lineas, usuario=request.user,
                     referencia=referencia, token_sha=sha, flete_por_par=flete)

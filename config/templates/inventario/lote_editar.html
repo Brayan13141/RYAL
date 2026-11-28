@@ -92,6 +92,11 @@
           <label class="form-label">Precio proveedor</label>
           <input class="form-control i-precio" inputmode="decimal" placeholder="0.00">
         </div>
+        {% else %}
+        <div class="col-6 col-md-3 costo-wrap d-none">
+          <label class="form-label">Costo por par</label>
+          <input class="form-control i-costo" inputmode="decimal" placeholder="0.00">
+        </div>
         {% endif %}
       </div>
       <div class="inv-sizes tallas">
@@ -139,9 +144,14 @@
       o.value = c.id; o.textContent = c.nombre; sc.appendChild(o);
     });
     $('.js-sin-colores', linea).classList.toggle('d-none', !m || m.colores.length > 0);
-    var aviso = $('.js-se-crea', linea), nueva = m && !m.variantes[VIA];
+    // Variante que se crea al guardar: su costo sale de un dato de la línea, nunca adivinado.
+    var aviso = $('.js-se-crea', linea), nueva = !!(m && !m.variantes[VIA]);
+    var costo = $('.costo-wrap', linea);
     aviso.classList.toggle('d-none', !nueva);
-    if (nueva) aviso.textContent = 'Se creará «' + m.nombre + '» ' + NOMBRE_VIA + ' con el costo de Modelos y vías.';
+    if (costo) costo.classList.toggle('d-none', !nueva);
+    if (nueva) aviso.textContent = 'Se creará «' + m.nombre + '» ' + NOMBRE_VIA +
+      (costo ? ' con el costo por par que escribas (el costo total de cada par).'
+             : ' con costo = precio del proveedor + flete del lote.');
   }
   function tipoDe(linea) {
     var m = POR_ID[$('.s-tipo', linea).value];
@@ -238,9 +248,11 @@
         if (i.value) { cant[i.dataset.talla] = parseInt(i.value, 10); hay = hay || parseInt(i.value, 10) > 0; }
       });
       if (!hay) return;  // Un modelo agregado sin cantidades no cuenta.
-      var precio = $('.i-precio', l);
+      var precio = $('.i-precio', l), costo = $('.costo-wrap', l);
       lineas.push({tipo_id: tipoDe(l), color_id: $('.s-color', l).value || null,
-                   cantidades: cant, precio_proveedor: precio ? (precio.value.trim() || null) : null});
+                   cantidades: cant, precio_proveedor: precio ? (precio.value.trim() || null) : null,
+                   costo_par: costo && !costo.classList.contains('d-none')
+                     ? ($('.i-costo', l).value.trim() || null) : null});
     });
     var colores = {};
     document.querySelectorAll('.s-color-grupo').forEach(function (s) {
