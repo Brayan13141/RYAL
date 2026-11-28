@@ -9,6 +9,30 @@
   </div>
 </div>
 
+<details class="inv-ayuda" open>
+  <summary><i class="bi bi-question-circle"></i> ¿Qué origen elijo y cómo se calcula el costo?</summary>
+  <div class="inv-ayuda-body">
+    <div class="inv-ayuda-grid">
+      <div class="inv-ayuda-caso">
+        <div class="inv-ayuda-tit">Llegada nueva <span>con precio del proveedor</span></div>
+        <p>Para mercancía que acaba de llegar y sabes cuánto le pagaste al proveedor.</p>
+        <p class="inv-ayuda-formula">Costo de cada par = precio del proveedor + flete por par</p>
+        <p class="inv-ayuda-ej">Ej.: proveedor $350 + flete $50 = <b>$400</b> por par.</p>
+      </div>
+      <div class="inv-ayuda-caso">
+        <div class="inv-ayuda-tit">Inventario inicial <span>usa el costo del tipo</span></div>
+        <p>Para pares que ya tenías en la tienda antes de capturarlos aquí.</p>
+        <p class="inv-ayuda-formula">Costo de cada par = costo del modelo en Modelos y vías</p>
+        <p class="inv-ayuda-ej">Ese costo <b>ya es el costo total</b>: no se pide proveedor ni flete, y no se le suma ni se le resta flete. Ej.: Timberland táctica N con costo $400 → cada par cuesta <b>$400</b>.</p>
+      </div>
+    </div>
+    <ul class="inv-ayuda-notas">
+      <li><b>El costo se graba en cada par al crear el lote.</b> Si después cambias el costo del modelo, los pares ya creados no cambian solos (sus ventas toman el costo del par): al guardar el modelo, el sistema te ofrece actualizar los que aún no se venden.</li>
+      <li>Revisa la <b>vía</b> (aéreo, marítimo o nacional) antes de crear el lote: el flete y el precio de venta dependen de ella. Si te equivocaste, avísale a quien administra el sistema; no lo corrijas restando el flete de otra vía.</li>
+    </ul>
+  </div>
+</details>
+
 <div id="alta-error" class="inv-alert inv-alert-bad d-none" role="alert"></div>
 
 <div class="inv-panel inv-panel-pad mb-4">
@@ -34,9 +58,10 @@
     <div class="col-12 col-sm-6 col-lg-3">
       <label class="form-label" for="f-origen">Origen</label>
       <select id="f-origen" class="form-select">
-        <option value="manual">Llegada nueva (con precio del proveedor)</option>
-        <option value="inicial">Inventario inicial (usa el costo del tipo)</option>
+        <option value="manual" data-ayuda="Costo de cada par = precio del proveedor + flete por par.">Llegada nueva (con precio del proveedor)</option>
+        <option value="inicial" data-ayuda="Costo de cada par = costo del modelo en Modelos y vías (ya es el total, sin flete aparte).">Inventario inicial (usa el costo del tipo)</option>
       </select>
+      <div class="form-text" id="f-origen-ayuda"></div>
     </div>
     <div class="col-12 col-sm-6 col-lg-3">
       <label class="form-label" for="f-ref">Referencia</label>
@@ -166,6 +191,7 @@
   function aplicarOrigen() {
     var inicial = origen.value === 'inicial';
     document.querySelectorAll('.precio-wrap, .flete-wrap').forEach(function (w) { w.style.display = inicial ? 'none' : ''; });
+    $('#f-origen-ayuda').textContent = origen.options[origen.selectedIndex].dataset.ayuda || '';
   }
   // El flete sigue a la tarifa de la vía hasta que se escribe a mano.
   var flete = $('#f-flete'), fleteEditado = false;

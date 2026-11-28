@@ -46,6 +46,19 @@ class AltaManualTests(LotesVistaBase):
             'variantes': {'aereo': self.var_a.pk}}])
         self.assertContains(r, 'id="modelos-json"')
 
+    def test_ayuda_explica_costo_por_origen(self):
+        # Mover pares de un lote inicial restándoles flete dejó 39 pares $230 abajo:
+        # la pantalla de alta explica de dónde sale el costo en cada origen.
+        r = self.client.get(reverse('inventario:alta_manual'))
+        self.assertContains(r, '<details class="inv-ayuda"')
+        self.assertContains(r, 'Costo de cada par = precio del proveedor + flete por par')
+        self.assertContains(r, 'Costo de cada par = costo del modelo')
+        self.assertContains(r, 'ya es el costo total')
+        self.assertContains(r, 'los pares ya creados no cambian')
+        # Texto bajo "Origen" que cambia con la opción elegida.
+        self.assertContains(r, 'id="f-origen-ayuda"')
+        self.assertContains(r, 'data-ayuda="')
+
     def _linea(self, tipo_id, color_id=None):
         return [{'tipo_id': tipo_id, 'color_id': color_id or self.color.pk,
                  'cantidades': {'26': 1}, 'precio_proveedor': '300'}]
